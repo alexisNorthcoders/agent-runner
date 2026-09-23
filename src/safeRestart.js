@@ -1,3 +1,5 @@
+import { describeRun } from './runLock.js';
+
 /**
  * The only sanctioned way to restart agent-runner (`npm run safe-restart`, also `claude:restart`):
  * refuse if busy → set the pause flag → restart the PM2 app → wait for `/status` → clear the pause.
@@ -11,10 +13,9 @@
  */
 export function decideSafeRestart({ activeRun, pause }) {
   if (activeRun) {
-    const what = activeRun.label ? ` (${activeRun.label})` : '';
     return {
       ok: false,
-      reason: `run ${activeRun.runId}${what} is active. Wait for it to finish or send claude:stop.`,
+      reason: `${describeRun(activeRun)} is active. Wait for it to finish or send claude:stop.`,
     };
   }
   if (pause) {

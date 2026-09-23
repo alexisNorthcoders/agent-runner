@@ -2,6 +2,7 @@ import { join } from 'path';
 import { parseCommand } from './commands.js';
 import { OWNER } from './outbox.js';
 import { decideSafeRestart } from './safeRestart.js';
+import { describeRun, UNKNOWN_RUN_ID } from './runLock.js';
 
 /**
  * The runner: turns a `claude…` command into at most one agent run at a time and reports every
@@ -29,6 +30,8 @@ const oneLine = (s, n) => {
   return t.length <= n ? t : `${t.slice(0, n - 1)}…`;
 };
 
+const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
 const cap = (s, n) => (s.length <= n ? s : `${s.slice(0, n)}\n…(truncated, see the log)`);
 
 /**
@@ -36,7 +39,7 @@ const cap = (s, n) => (s.length <= n ? s : `${s.slice(0, n)}\n…(truncated, see
  * @param {import('./agentBackend/index.js').AgentResult} r
  */
 export function formatRunResult(rec, r) {
-  const name = `Run ${rec.runId}${rec.label ? ` (${rec.label})` : ''}`;
+  const name = capitalize(describeRun(rec));
   const cost = r.usage.costUsd != null ? `, $${r.usage.costUsd.toFixed(2)}` : '';
   const logLine = `Log: ${r.logPath}`;
   const tail = r.stderr.trim() ? `\n${r.stderr.trim().slice(-STDERR_TAIL)}` : '';
@@ -154,8 +157,15 @@ export function createRunner({
     };
     if (!(await lock.tryAcquire(record))) {
       const cur = await lock.current();
-      const what = cur ? ` Run ${cur.runId}${cur.label ? ` (${cur.label})` : ''} is in progress.` : '';
+      const what = cur ? ` ${capitalize(describeRun(cur))} is in progress.` : '';
       return `Agent is busy.${what} Try again later.`;
+    }
+    // safe-restart may have paused between the check above and taking the lock; it re-checks the
+    // lock after pausing, so checking the pause again here means one side always backs off
+    const pausedNow = await pause.get();
+    if (pausedNow) {
+      await lock.release(runId);
+      return `agent-runner is paused (${pausedNow.reason}). Try again in a minute.`;
     }
 
     try {
@@ -255,7 +265,7 @@ export function createRunner({
     async recoverInterruptedRun() {
       const rec = await lock.current();
       if (!rec) return null;
-      const name = `Agent run ${rec.runId}${rec.label ? ` (${rec.label})` : ''}`;
+      const name = `Agent ${describeRun(rec)}`;
       const orphan =
         rec.agentPid && isAlive(rec.agentPid)
           ? `\nIts agent process (pid ${rec.agentPid}) is still running, but nobody will report its result.`
@@ -263,10 +273,10 @@ export function createRunner({
       const log = rec.logPath ? `\nLog: ${rec.logPath}` : '';
       await outbox.send({
         replyTo: OWNER,
-        runId: rec.runId === 'unknown' ? '' : rec.runId,
+        runId: rec.runId === UNKNOWN_RUN_ID ? '' : rec.runId,
         text: `${name} was interrupted: agent-runner restarted before it finished.${orphan}${log}`,
       });
-      if (rec.runId === 'unknown') await lock.forceClear();
+      if (rec.runId === UNKNOWN_RUN_ID) await lock.forceClear();
       else await lock.release(rec.runId);
       return rec;
     },

@@ -17,6 +17,11 @@
  */
 
 export const LOCK_KEY = 'agent-runner:lock';
+/** runId reported for a lock whose value can't be parsed. */
+export const UNKNOWN_RUN_ID = 'unknown';
+
+/** `run <id> (<label>)`, for user-facing messages. @param {RunRecord} rec */
+export const describeRun = (rec) => `run ${rec.runId}${rec.label ? ` (${rec.label})` : ''}`;
 
 /**
  * @param {{ store: import('./redisStore.js').Store, ttlSeconds: number, key?: string }} p
@@ -33,7 +38,7 @@ export function createRunLock({ store, ttlSeconds, key = LOCK_KEY }) {
     } catch {
       /* fall through */
     }
-    return { runId: 'unknown' };
+    return { runId: UNKNOWN_RUN_ID };
   }
 
   return {

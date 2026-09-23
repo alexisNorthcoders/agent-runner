@@ -54,9 +54,9 @@ export function createRedisStore(client) {
 
 /**
  * Connected client for the service and CLIs. Errors are logged, and node-redis keeps reconnecting.
- * @param {{ url?: string, logger?: Pick<Console, 'error'> }} [opts]
+ * @param {{ url: string, logger?: Pick<Console, 'error'> }} opts
  */
-export async function connectRedis({ url = process.env.REDIS_URL || 'redis://127.0.0.1:6379', logger = console } = {}) {
+export async function connectRedis({ url, logger = console }) {
   const client = createClient({ url });
   client.on('error', (err) => logger.error('agent-runner redis:', err.message));
   await client.connect();

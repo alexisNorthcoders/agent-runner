@@ -27,7 +27,9 @@ export function parseCommand(text) {
   if (!m) return { kind: 'error', message: `Not a claude command.\n\n${USAGE}` };
   const rest = m[1];
 
-  const sub = rest.match(/^:(\S+)$/);
+  // `claude:<word>` (no space after the colon) is always a subcommand; trailing words are ignored,
+  // so `claude:stop now` can never start a run with the prompt "stop now".
+  const sub = rest.match(/^:(\S+)(?:\s[\s\S]*)?$/);
   if (sub) {
     const name = sub[1].toLowerCase();
     if (/** @type {readonly string[]} */ (SUBCOMMANDS).includes(name)) {

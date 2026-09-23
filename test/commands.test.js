@@ -42,6 +42,12 @@ describe('parseCommand', () => {
     assert.deepEqual(parseCommand(' Claude:Restart '), { kind: 'restart' });
   });
 
+  it('treats claude:stop/restart with trailing words as the subcommand, never a freeform run', () => {
+    assert.deepEqual(parseCommand('claude:stop now please'), { kind: 'stop' });
+    assert.deepEqual(parseCommand('claude:restart\nthanks'), { kind: 'restart' });
+    assert.equal(parseCommand('claude:status please').kind, 'error');
+  });
+
   it('rejects an unknown claude:<word> command', () => {
     const r = parseCommand('claude:frobnicate');
     assert.equal(r.kind, 'error');

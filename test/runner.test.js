@@ -133,6 +133,18 @@ describe('runner: freeform runs', () => {
     assert.equal(starts.length, 0);
   });
 
+  it('backs off if safe-restart paused between the pause check and taking the lock', async () => {
+    const { runner, pause, lock, starts } = setup();
+    const realGet = pause.get;
+    let calls = 0;
+    pause.get = async () => (++calls === 1 ? null : realGet());
+    await pause.set('safe-restart');
+    const { reply } = await runner.handleCommand({ text: 'claude x', replyTo: 'a' });
+    assert.match(reply, /paused/);
+    assert.equal(starts.length, 0);
+    assert.equal(await lock.current(), null);
+  });
+
   it('releases the lock and says so if the backend fails to start', async () => {
     const { runner, lock } = setup({
       backend: { name: 'broken', start: async () => { throw new Error('EACCES logs'); } },
