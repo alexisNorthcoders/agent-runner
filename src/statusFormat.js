@@ -93,10 +93,12 @@ function describeCronOutcome(o) {
   switch (o.kind) {
     case 'busy':
       return 'skipped, an agent was already running';
+    case 'paused':
+      return 'skipped, agent-runner was paused';
     case 'no_eligible':
       return 'idle, no eligible issue';
     case 'ran': {
-      const label = { progress: 'made progress', no_progress: 'no lasting progress', prep_failed: 'git prep failed', failed: 'failed' }[o.result] ?? o.result;
+      const label = { progress: 'made progress', no_progress: 'no lasting progress', prep_failed: 'issue fetch or git prep failed', failed: 'failed' }[o.result] ?? o.result;
       return `worked ${o.repo}#${o.issue}, ${label}${o.note ? ` (${o.note})` : ''}`;
     }
     case 'error':
@@ -137,7 +139,7 @@ export function renderStatus(d, c = plain) {
   out.push(`${c.bold('agent-runner')}  ${c.dim(`${stamp} UTC`)}`, '');
 
   if (!d.cron) {
-    out.push(`${c.bold('CRON')}    ${c.dim('○ no state file (the cron is not running yet)')}`);
+    out.push(`${c.bold('CRON')}    ${c.dim('○ no cron state (the cron has not started)')}`);
   } else {
     const dot = d.cronAlive ? c.green('●') : c.red('●');
     const health = d.cronAlive ? `pid ${d.cron.pid}` : c.red(`pid ${d.cron.pid} NOT running`);
@@ -249,7 +251,7 @@ export function renderStatusText(d) {
   else if (!d.paused) out.push('Paused: no');
   else out.push(`Paused: yes (${d.paused.reason}${d.paused.pausedAt ? `, ${formatAgo(since(d.now, d.paused.pausedAt))}` : ''})`);
 
-  if (!d.cron) out.push('Cron: not running yet (no ticks recorded)');
+  if (!d.cron) out.push('Cron: not started (no ticks recorded)');
   else if (!d.cron.lastTickEndedAt) out.push(`Cron: ${describeCronOutcome(null)}`);
   else {
     const dead = d.cronAlive ? '' : ' [cron process not running]';

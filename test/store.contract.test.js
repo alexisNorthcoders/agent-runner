@@ -46,6 +46,22 @@ function contract(setup) {
     assert.equal(await store.get(k('d')), null);
   });
 
+  it('set writes a value with no expiry, replacing any old one', async () => {
+    const { store } = setup();
+    await store.set(k('e'), 'one');
+    await store.set(k('e'), 'two');
+    assert.equal(await store.get(k('e')), 'two');
+  });
+
+  it('hashSet and hashGetAll keep one value per field', async () => {
+    const { store } = setup();
+    assert.deepEqual(await store.hashGetAll(k('h')), {});
+    await store.hashSet(k('h'), 'a', '1');
+    await store.hashSet(k('h'), 'b', '2');
+    await store.hashSet(k('h'), 'a', '3');
+    assert.deepEqual(await store.hashGetAll(k('h')), { a: '3', b: '2' });
+  });
+
   it('appendToStream adds entries with a MINID trim', async () => {
     const { store, readStream } = setup();
     const key = k('stream');

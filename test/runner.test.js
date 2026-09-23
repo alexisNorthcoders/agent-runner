@@ -567,6 +567,17 @@ describe('runner: issue runs', () => {
     assert.equal(await done, 'no_changes');
     assert.deepEqual(outboxEntries(), []);
   });
+
+  it('the shared entry point says when it was refused for the lock, unlike a prep failure', async () => {
+    const { runner } = issueSetup();
+    await runner.handleCommand({ text: 'claude something', replyTo: 'a' });
+    const busy = await runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger: 'cron' });
+    assert.equal(busy.refused, true);
+    assert.equal(busy.done, null);
+    const failed = await issueSetup({ prepareError: 'Git setup failed' }).runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger: 'cron' });
+    assert.equal(failed.refused, undefined);
+    assert.equal(failed.reply, 'Git setup failed');
+  });
 });
 
 describe('runner: startup recovery of an issue run', () => {

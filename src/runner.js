@@ -310,8 +310,9 @@ export function createRunner({
    * workspace, take the lock, fetch the issue and branch in place, run the agent with the
    * implement workflow, then post-run, then one outbox message.
    * @param {{ issueNumber: number, alias: string | null, extraInstructions?: string, replyTo: string, trigger?: 'manual' | 'cron' }} p
-   * @returns {Promise<{ reply: string, done: Promise<import('./issuePipeline/index.js').IssueRunResult | null> | null }>}
+   * @returns {Promise<{ reply: string, done: Promise<import('./issuePipeline/index.js').IssueRunResult | null> | null, refused?: boolean }>}
    *   `done` (null when nothing started) settles once the run has been reported and unlocked.
+   *   `refused` means the lock was held or the runner paused, so nothing was tried.
    */
   async function startIssueRun({ issueNumber, alias, extraInstructions = '', replyTo, trigger = 'manual' }) {
     if (!workspaces || !issues) return { reply: 'claude issue:<n> is not configured on this runner.', done: null };
@@ -331,7 +332,7 @@ export function createRunner({
       trigger,
     });
     const refused = await acquire(record);
-    if (refused) return { reply: refused, done: null };
+    if (refused) return { reply: refused, done: null, refused: true };
 
     let prep;
     try {
