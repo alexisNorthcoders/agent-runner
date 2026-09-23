@@ -1,5 +1,5 @@
 import { OWNER } from './outbox.js';
-import { prAttemptStateKey } from './cronState.js';
+import { issueKey, prAttemptStateKey } from './cronState.js';
 import { classifyGithubPrMergeability } from './issuePipeline/githubPr.js';
 import { errorMessageFromUnknown } from './issuePipeline/index.js';
 
@@ -25,6 +25,13 @@ import { errorMessageFromUnknown } from './issuePipeline/index.js';
 const READY_FOR_AGENT_LABEL = 'ready-for-agent';
 /** Issue run results that count as lasting progress. */
 const PROGRESS = new Set(['merged', 'pr_open', 'pushed']);
+
+/**
+ * The attempt state of `pr`, given the tips of the base branches.
+ * @param {OpenAgentPr} pr
+ * @param {Map<string, string>} baseShaByBranch
+ */
+const prStateKey = (pr, baseShaByBranch) => prAttemptStateKey(pr, baseShaByBranch.get(pr.baseRefName) || '');
 
 /** @param {OpenIssue[]} rows */
 const readyForAgent = (rows) =>
@@ -70,8 +77,8 @@ export function partitionIssuesWithOpenPr(rows, repo, openPrs, baseShaByBranch, 
   const kept = rows.filter((r) => {
     const pr = openPrs.get(r.number);
     if (!pr) return true;
-    const stateKey = prAttemptStateKey(pr, baseShaByBranch.get(pr.baseRefName) || '');
-    if (attempted.get(`${repo}#${r.number}`) !== stateKey) return true;
+    const stateKey = prStateKey(pr, baseShaByBranch);
+    if (attempted.get(issueKey(repo, r.number)) !== stateKey) return true;
     if (eligible.has(r.number)) parked.push({ number: r.number, url: pr.url, state: classifyGithubPrMergeability(pr), stateKey });
     return false;
   });
@@ -139,7 +146,7 @@ export function createCronTracer({ startIssueRun, lock, pause, state, workspaces
     }
     const { rows: kept, parked } = partitionIssuesWithOpenPr(rows, repo, loaded.openPrs, loaded.baseShaByBranch, attempted);
     for (const p of parked) {
-      if (notified.get(`${repo}#${p.number}`) === p.stateKey) continue;
+      if (notified.get(issueKey(repo, p.number)) === p.stateKey) continue;
       const why = p.state === 'conflict' ? 'it still conflicts with the default branch' : 'the review / merge gate did not let it merge';
       await tell(
         `Cron (${alias}): parking ${repo}#${p.number}. Its PR is still open and ${why}: ${p.url}\nIt is retried when the PR branch or the default branch changes, or merge / close it yourself.`
@@ -159,7 +166,7 @@ export function createCronTracer({ startIssueRun, lock, pause, state, workspaces
     try {
       const { openPrs, baseShaByBranch } = await loadOpenPrs(repo);
       const pr = openPrs.get(issueNumber);
-      if (pr) await state.setPrAttempt(repo, issueNumber, prAttemptStateKey(pr, baseShaByBranch.get(pr.baseRefName) || ''));
+      if (pr) await state.setPrAttempt(repo, issueNumber, prStateKey(pr, baseShaByBranch));
     } catch (err) {
       logger.warn(`cron: could not record the PR state of ${repo}#${issueNumber}: ${errorMessageFromUnknown(err)}`);
     }
@@ -173,7 +180,7 @@ export function createCronTracer({ startIssueRun, lock, pause, state, workspaces
    */
   async function runIssue(alias, repo, issue) {
     const started = await startIssueRun({ issueNumber: issue.number, alias, replyTo: OWNER, trigger: 'cron' });
-    if (started.refused) return { kind: 'busy' };
+    if (started.refused) return { kind: started.refused };
     /** @type {CronTickOutcome} */
     const outcome = { kind: 'ran', repo, issue: issue.number, result: 'prep_failed' };
     if (!started.done) {
@@ -186,9 +193,12 @@ export function createCronTracer({ startIssueRun, lock, pause, state, workspaces
         await state.setLastStarted(repo, issue.number);
         outcome.result = 'progress';
       } else {
-        // the run's own report (if any) already went to owner
         outcome.result = 'no_progress';
         outcome.note = result ?? 'no result';
+        // a failed or timed-out run has already reported to owner, but an empty one is silent
+        if (result === 'no_changes') {
+          await tell(`Cron (${alias}): ${repo}#${issue.number} made no changes, so it doesn't count as progress. The next tick retries it.`);
+        }
       }
     } catch (err) {
       const e = errorMessageFromUnknown(err);

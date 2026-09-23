@@ -572,7 +572,7 @@ describe('runner: issue runs', () => {
     const { runner } = issueSetup();
     await runner.handleCommand({ text: 'claude something', replyTo: 'a' });
     const busy = await runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger: 'cron' });
-    assert.equal(busy.refused, true);
+    assert.equal(busy.refused, 'busy');
     assert.equal(busy.done, null);
     const failed = await issueSetup({ prepareError: 'Git setup failed' }).runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger: 'cron' });
     assert.equal(failed.refused, undefined);

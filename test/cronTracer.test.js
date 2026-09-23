@@ -172,14 +172,16 @@ describe('cron tick: when to skip', () => {
     assert.deepEqual(h.listed, []);
   });
 
-  it('counts a run refused for the lock as busy, with no message', async () => {
-    const h = harness({
-      issues: { [REPO]: [ready(1)] },
-      startIssueRun: async () => ({ reply: 'Agent is busy.', done: null, refused: true }),
+  for (const why of /** @type {const} */ (['busy', 'paused'])) {
+    it(`counts a run refused as ${why} as a ${why} tick, with no message`, async () => {
+      const h = harness({
+        issues: { [REPO]: [ready(1)] },
+        startIssueRun: async () => ({ reply: 'refused', done: null, refused: why }),
+      });
+      assert.deepEqual(await h.tracer.tick(), { kind: why });
+      assert.deepEqual(h.sent, []);
     });
-    assert.deepEqual(await h.tracer.tick(), { kind: 'busy' });
-    assert.deepEqual(h.sent, []);
-  });
+  }
 
   it('is idle when no repo has a ready-for-agent issue', async () => {
     const h = harness({ issues: { [REPO]: [{ number: 1, title: 'x', labels: ['needs-triage'] }], [REPO_P]: [{ number: 2, title: 'y', labels: [] }] } });
@@ -247,6 +249,11 @@ describe('cron tick: progress', () => {
       const h = harness({ issues: { [REPO]: [ready(32)] }, result });
       assert.deepEqual(await h.tracer.tick(), { kind: 'ran', repo: REPO, issue: 32, result: 'no_progress', note: result ?? 'no result' });
       assert.deepEqual(await h.state.lastStarted(), new Map());
+      // failed and timed-out runs report themselves; the runner keeps an empty one silent
+      assert.deepEqual(
+        h.sent.map((m) => m.text),
+        result === 'no_changes' ? [`Cron (bot): ${REPO}#32 made no changes, so it doesn't count as progress. The next tick retries it.`] : []
+      );
       h.setResult('merged');
       await h.tracer.tick();
       assert.deepEqual(h.ran(), ['bot#32', 'bot#32']);

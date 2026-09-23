@@ -83,7 +83,7 @@ to a headless Claude run.
 
 Every `CRON_ISSUE_TRACER_INTERVAL_MS` (default 10 minutes) the runner looks for one open issue
 labelled `ready-for-agent` and runs it as an issue run (`trigger: cron`), reporting to `owner`.
-Turn it off with `CRON_ISSUE_TRACER_DISABLE=1`. **Only one cron may run:** disable the WhatsappBot
+Turn it off with `CRON_ISSUE_TRACER_DISABLE=1` (which also clears its state from the status views). **Only one cron may run:** disable the WhatsappBot
 in-process cron (`CRON_ISSUE_TRACER_DISABLE=1` in its `.env`) before enabling this one.
 
 - **Workspaces**, in order: `CLAUDE_ISSUE_DEFAULT_ALIAS`, then `CRON_SECONDARY_WORKSPACE_ALIASES`
@@ -94,7 +94,8 @@ in-process cron (`CRON_ISSUE_TRACER_DISABLE=1` in its `.env`) before enabling th
   native dependencies mark as blocked (a failed lookup counts as blocked).
 - **Progress**: a run that pushed, opened a PR or merged records the issue as its repo's
   last-started, and the cron doesn't pick it again. A failed, empty or timed-out run doesn't count,
-  so the next tick retries it.
+  so the next tick retries it (an empty run, which the runner otherwise keeps quiet about, gets a
+  one-line note to `owner`).
 - **Open agent PRs** are worked once per PR state (head commit + base tip). While that state is
   unchanged the issue is parked, and the owner is told once.
 - If the issue can't be fetched or branched, the owner is told and the next tick retries.

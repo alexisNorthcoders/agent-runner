@@ -46,8 +46,13 @@ const ISSUE_KEY_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+#\d+$/;
  */
 export const prAttemptStateKey = (pr, baseSha) => `${pr.headSha}:${baseSha}`;
 
-/** @param {string} repo @param {number} number */
-function issueKey(repo, number) {
+/**
+ * `owner/repo#n`, the field for an issue in the cron's hashes. Throws on a bad slug or number, so
+ * nothing corrupt is stored.
+ * @param {string} repo
+ * @param {number} number
+ */
+export function issueKey(repo, number) {
   if (!REPO_SLUG_RE.test(repo)) throw new TypeError(`cron state: invalid repo slug ${JSON.stringify(repo)} (expected owner/name)`);
   if (!Number.isInteger(number) || number < 1) throw new TypeError(`cron state: invalid issue number ${number}`);
   return `${repo}#${number}`;
@@ -74,6 +79,9 @@ export function createCronState({ store, now = Date.now, pid = process.pid }) {
         return null;
       }
     },
+
+    /** Forget the last tick, e.g. when the cron is disabled, so status doesn't show a dead cron. */
+    clear: () => store.del(CRON_STATE_KEY),
 
     /** The cron has started and not ticked yet. @param {{ intervalMs: number }} p */
     async writeStarted({ intervalMs }) {
@@ -108,7 +116,7 @@ export function createCronState({ store, now = Date.now, pid = process.pid }) {
 
     /** @param {string} repo @param {number} number */
     async setLastStarted(repo, number) {
-      issueKey(repo, number);
+      issueKey(repo, number); // validates
       await store.hashSet(CRON_LAST_STARTED_KEY, repo, String(number));
     },
 

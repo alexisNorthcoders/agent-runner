@@ -119,23 +119,25 @@ export function createRunner({
   };
 
   /**
-   * Take the single-flight lock for `record`. Returns an error reply, or null once it's held.
+   * Take the single-flight lock for `record`. Returns why it wasn't taken (with the reply), or null
+   * once it's held.
    * @param {import('./runLock.js').RunRecord} record
+   * @returns {Promise<{ why: 'busy' | 'paused', reply: string } | null>}
    */
   async function acquire(record) {
     const paused = await pause.get();
-    if (paused) return `agent-runner is paused (${paused.reason}). Try again in a minute.`;
+    if (paused) return { why: 'paused', reply: `agent-runner is paused (${paused.reason}). Try again in a minute.` };
     if (!(await lock.tryAcquire(record))) {
       const cur = await lock.current();
       const what = cur ? ` ${capitalize(describeRun(cur))} is in progress.` : '';
-      return `Agent is busy.${what} Try again later.`;
+      return { why: 'busy', reply: `Agent is busy.${what} Try again later.` };
     }
     // safe-restart may have paused between the check above and taking the lock; it re-checks the
     // lock after pausing, so checking the pause again here means one side always backs off
     const pausedNow = await pause.get();
     if (pausedNow) {
       await lock.release(record.runId);
-      return `agent-runner is paused (${pausedNow.reason}). Try again in a minute.`;
+      return { why: 'paused', reply: `agent-runner is paused (${pausedNow.reason}). Try again in a minute.` };
     }
     return null;
   }
@@ -274,7 +276,7 @@ export function createRunner({
       workspaceRoot,
     });
     const refused = await acquire(record);
-    if (refused) return refused;
+    if (refused) return refused.reply;
 
     try {
       let prompt;
@@ -310,9 +312,9 @@ export function createRunner({
    * workspace, take the lock, fetch the issue and branch in place, run the agent with the
    * implement workflow, then post-run, then one outbox message.
    * @param {{ issueNumber: number, alias: string | null, extraInstructions?: string, replyTo: string, trigger?: 'manual' | 'cron' }} p
-   * @returns {Promise<{ reply: string, done: Promise<import('./issuePipeline/index.js').IssueRunResult | null> | null, refused?: boolean }>}
+   * @returns {Promise<{ reply: string, done: Promise<import('./issuePipeline/index.js').IssueRunResult | null> | null, refused?: 'busy' | 'paused' }>}
    *   `done` (null when nothing started) settles once the run has been reported and unlocked.
-   *   `refused` means the lock was held or the runner paused, so nothing was tried.
+   *   `refused` says the lock was held or the runner paused, so nothing was tried.
    */
   async function startIssueRun({ issueNumber, alias, extraInstructions = '', replyTo, trigger = 'manual' }) {
     if (!workspaces || !issues) return { reply: 'claude issue:<n> is not configured on this runner.', done: null };
@@ -332,7 +334,7 @@ export function createRunner({
       trigger,
     });
     const refused = await acquire(record);
-    if (refused) return { reply: refused, done: null, refused: true };
+    if (refused) return { reply: refused.reply, done: null, refused: refused.why };
 
     let prep;
     try {

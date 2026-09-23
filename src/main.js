@@ -104,8 +104,13 @@ const cron = createCronTracer({
   aliases: config.cron.aliases,
   intervalMs: config.cron.intervalMs,
 });
-if (config.cron.enabled) await cron.start();
-else console.log('agent-runner: cron issue tracer disabled (CRON_ISSUE_TRACER_DISABLE)');
+if (config.cron.enabled) {
+  if (!process.env.CLAUDE_ISSUE_DEFAULT_ALIAS?.trim()) console.warn('agent-runner: CLAUDE_ISSUE_DEFAULT_ALIAS is unset, so the cron polls only its secondary workspaces');
+  await cron.start();
+} else {
+  console.log('agent-runner: cron issue tracer disabled (CRON_ISSUE_TRACER_DISABLE)');
+  await cronState.clear().catch(() => {});
+}
 
 // A run in flight is left alone: PM2 kills the agent with this process tree, and the lock left
 // in Redis makes the next start report the run as interrupted.

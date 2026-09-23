@@ -24,6 +24,13 @@ describe('cronState', () => {
     });
   });
 
+  it('forgets the last tick on clear', async () => {
+    const state = createCronState({ store: createMemoryStore() });
+    await state.writeStarted({ intervalMs: 1 });
+    await state.clear();
+    assert.equal(await state.read(), null);
+  });
+
   it('reads an unparseable tick record as no state', async () => {
     const store = createMemoryStore();
     await store.set('agent-runner:cron:state', '{nope');
