@@ -97,4 +97,43 @@ describe('runSafeRestart', () => {
     assert.match(r.message, /no \/status after 60s/);
     assert.equal(await pause.get(), null);
   });
+
+  it('clears its pause when the pm2 restart itself fails', async () => {
+    const { pause, deps } = setup();
+    deps.restartProcess = async () => {
+      throw new Error('pm2 exited 1');
+    };
+    const r = await runSafeRestart(deps);
+    assert.equal(r.ok, false);
+    assert.match(r.message, /pm2 exited 1/);
+    assert.equal(await pause.get(), null);
+  });
+
+  it('retries a failed pause clear and does not lose the result', async () => {
+    const { pause, deps } = setup();
+    let fails = 1;
+    deps.pause = {
+      ...pause,
+      clear: async (token) => {
+        if (fails-- > 0) throw new Error('redis blip');
+        return pause.clear(token);
+      },
+    };
+    const r = await runSafeRestart(deps);
+    assert.equal(r.ok, true);
+    assert.equal(await pause.get(), null);
+  });
+
+  it('reports a pause it could not clear', async () => {
+    const { deps } = setup();
+    deps.pause = {
+      ...deps.pause,
+      clear: async () => {
+        throw new Error('redis down');
+      },
+    };
+    const r = await runSafeRestart(deps);
+    assert.equal(r.ok, false);
+    assert.match(r.message, /restarted.*Could not clear the pause flag \(redis down\)/s);
+  });
 });

@@ -1,5 +1,7 @@
 import { describeRun } from './runLock.js';
 
+const CLEAR_ATTEMPTS = 3;
+
 /**
  * The only sanctioned way to restart agent-runner (`npm run safe-restart`, also `claude:restart`):
  * refuse if busy → set the pause flag → restart the PM2 app → wait for `/status` → clear the pause.
@@ -45,15 +47,32 @@ export async function runSafeRestart({ lock, pause, restartProcess, waitForReady
   const token = await pause.set('safe-restart');
   if (!token) return refused('agent-runner was paused by someone else just now.');
 
+  /** @type {{ ok: boolean, message: string }} */
+  let result;
   try {
     const again = decideSafeRestart({ activeRun: await lock.current(), pause: null });
-    if ('reason' in again) return refused(again.reason);
-    await restartProcess();
-    await waitForReady();
-    return { ok: true, message: 'agent-runner restarted and is answering /status.' };
+    if ('reason' in again) result = refused(again.reason);
+    else {
+      await restartProcess();
+      await waitForReady();
+      result = { ok: true, message: 'agent-runner restarted and is answering /status.' };
+    }
   } catch (err) {
-    return { ok: false, message: `safe-restart failed: ${err?.message || String(err)}` };
-  } finally {
-    await pause.clear(token);
+    result = { ok: false, message: `safe-restart failed: ${err?.message || String(err)}` };
   }
+
+  // Every path above ends here, so the pause never outlives this call unless Redis itself fails
+  let clearErr;
+  for (let attempt = 0; attempt < CLEAR_ATTEMPTS; attempt++) {
+    try {
+      await pause.clear(token);
+      return result;
+    } catch (err) {
+      clearErr = err;
+    }
+  }
+  return {
+    ok: false,
+    message: `${result.message} Could not clear the pause flag (${clearErr?.message || String(clearErr)}); it expires on its own.`,
+  };
 }

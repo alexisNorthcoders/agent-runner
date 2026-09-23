@@ -15,6 +15,7 @@ import { createOutbox } from '../src/outbox.js';
 import { runSafeRestart } from '../src/safeRestart.js';
 
 const READY_TIMEOUT_MS = 60_000;
+const PM2_TIMEOUT_MS = 60_000;
 
 const { values } = parseArgs({ options: { 'reply-to': { type: 'string' } } });
 const replyTo = values['reply-to'];
@@ -37,14 +38,47 @@ async function waitForReady() {
 
 const redis = await connectRedis({ url: config.redisUrl });
 const store = createRedisStore(redis);
+const pauseFlag = createPauseFlag({ store });
+
+// The pause is set and cleared in this process. runSafeRestart clears it in a `finally`, but a
+// signal (Ctrl-C on `npm run safe-restart`, SIGTERM) skips that, so remember the token and clear
+// it here too rather than leaving the runner paused until the TTL.
+/** @type {string | null} */
+let heldToken = null;
+const pause = {
+  ...pauseFlag,
+  /** @param {string} reason */
+  async set(reason) {
+    heldToken = await pauseFlag.set(reason);
+    return heldToken;
+  },
+  /** @param {string} token */
+  async clear(token) {
+    const cleared = await pauseFlag.clear(token);
+    heldToken = null;
+    return cleared;
+  },
+};
+for (const sig of /** @type {const} */ (['SIGINT', 'SIGTERM', 'SIGHUP'])) {
+  process.once(sig, async () => {
+    console.log(`safe-restart: got ${sig}, aborting`);
+    try {
+      if (heldToken) await pauseFlag.clear(heldToken);
+    } catch (err) {
+      console.error(`safe-restart: could not clear the pause (expires on its own): ${err?.message || err}`);
+    }
+    process.exit(1);
+  });
+}
+
 let ok = false;
 try {
   console.log(`${new Date().toISOString()} safe-restart of ${config.pm2Name}`);
   const result = await runSafeRestart({
     lock: createRunLock({ store, ttlSeconds: config.lockTtlSeconds }),
-    pause: createPauseFlag({ store }),
+    pause,
     restartProcess: async () => {
-      await promisify(execFile)('pm2', ['restart', config.pm2Name]);
+      await promisify(execFile)('pm2', ['restart', config.pm2Name], { timeout: PM2_TIMEOUT_MS });
     },
     waitForReady,
   });
