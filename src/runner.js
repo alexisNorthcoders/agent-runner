@@ -58,6 +58,18 @@ export function formatRunResult(rec, r) {
 }
 
 /**
+ * @typedef {import('./agentBackend/index.js').AgentRun} AgentRun
+ * @typedef {{
+ *   record: import('./runLock.js').RunRecord,
+ *   run: AgentRun,
+ *   progress: import('./agentBackend/index.js').AgentProgress | null,
+ *   phase: 'agent' | 'post-run',
+ *   stopRequested: boolean,
+ *   followUps?: Array<{ label: string, outcome: string, logPath: string, costUsd: number | null, turns: number }>,
+ * }} ActiveRun
+ */
+
+/**
  * @param {{
  *   lock: ReturnType<typeof import('./runLock.js').createRunLock>,
  *   pause: ReturnType<typeof import('./pauseFlag.js').createPauseFlag>,
@@ -66,6 +78,8 @@ export function formatRunResult(rec, r) {
  *   history: { append: (entry: object) => Promise<void> },
  *   joplin: { getNote: (query: string) => Promise<{ id: string, title: string, body: string }> },
  *   launchSafeRestart: (replyTo: string) => void,
+ *   workspaces?: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
+ *   issues?: Pick<import('./issuePipeline/index.js').IssuePipeline, 'prepare' | 'finish' | 'commitInterruptedWork'>,
  *   workspaceRoot: string,
  *   logsDir: string,
  *   preamble: string,
@@ -83,6 +97,8 @@ export function createRunner({
   history,
   joplin,
   launchSafeRestart,
+  workspaces,
+  issues,
   workspaceRoot,
   logsDir,
   preamble,
@@ -91,70 +107,23 @@ export function createRunner({
   isAlive = pidAlive,
   logger = console,
 }) {
-  /**
-   * The run this process is executing, if any.
-   * @type {null | { record: import('./runLock.js').RunRecord, run: import('./agentBackend/index.js').AgentRun, progress: import('./agentBackend/index.js').AgentProgress | null }}
-   */
+  /** The run this process is executing, if any. @type {ActiveRun | null} */
   let active = null;
   /** Settles when the active run has been reported and its lock released. */
   let settled = Promise.resolve();
 
-  /** @param {typeof active} a */
-  async function finishRun(a) {
-    const { record } = a;
-    const result = await a.run.done;
-    try {
-      await outbox.send({ replyTo: record.replyTo, runId: record.runId, text: formatRunResult(record, result) });
-    } catch (err) {
-      logger.error(`run ${record.runId}: outbox write failed:`, err?.message || err);
-    }
-    try {
-      await history.append({
-        runId: record.runId,
-        kind: record.kind,
-        label: record.label,
-        replyTo: record.replyTo,
-        workspaceRoot: record.workspaceRoot,
-        logPath: result.logPath,
-        startedAt: record.startedAt,
-        endedAt: new Date(now()).toISOString(),
-        backend: backend.name,
-        outcome: result.outcome,
-        exitCode: result.exitCode,
-        ...result.usage,
-      });
-    } catch (err) {
-      logger.warn(`run ${record.runId}: history write failed:`, err?.message || err);
-    }
-    active = null;
-    try {
-      await lock.release(record.runId);
-    } catch (err) {
-      logger.error(`run ${record.runId}: lock release failed (expires on its own):`, err?.message || err);
-    }
-  }
+  /** @param {string} runId */
+  const trackProgress = (runId) => (p) => {
+    if (active?.record.runId === runId) active.progress = p;
+  };
 
   /**
-   * @param {{ kind: 'freeform', prompt: string } | { kind: 'joplin', noteQuery: string }} cmd
-   * @param {string} replyTo
+   * Take the single-flight lock for `record`. Returns an error reply, or null once it's held.
+   * @param {import('./runLock.js').RunRecord} record
    */
-  async function startRun(cmd, replyTo) {
+  async function acquire(record) {
     const paused = await pause.get();
     if (paused) return `agent-runner is paused (${paused.reason}). Try again in a minute.`;
-
-    const runId = newRunId();
-    /** @type {import('./runLock.js').RunRecord} */
-    const record = {
-      runId,
-      kind: cmd.kind,
-      label: cmd.kind === 'freeform' ? oneLine(cmd.prompt, 60) : `joplin:${cmd.noteQuery}`,
-      replyTo,
-      startedAt: new Date(now()).toISOString(),
-      workspaceRoot,
-      logPath: join(logsDir, `${runId}.log`),
-      ownerPid: process.pid,
-      agentPid: null,
-    };
     if (!(await lock.tryAcquire(record))) {
       const cur = await lock.current();
       const what = cur ? ` ${capitalize(describeRun(cur))} is in progress.` : '';
@@ -164,9 +133,139 @@ export function createRunner({
     // lock after pausing, so checking the pause again here means one side always backs off
     const pausedNow = await pause.get();
     if (pausedNow) {
-      await lock.release(runId);
+      await lock.release(record.runId);
       return `agent-runner is paused (${pausedNow.reason}). Try again in a minute.`;
     }
+    return null;
+  }
+
+  /**
+   * @param {{ kind: string, label: string, replyTo: string, workspaceRoot: string } & Partial<import('./runLock.js').RunRecord>} p
+   * @returns {import('./runLock.js').RunRecord}
+   */
+  function newRecord(p) {
+    const runId = newRunId();
+    return {
+      runId,
+      startedAt: new Date(now()).toISOString(),
+      logPath: join(logsDir, `${runId}.log`),
+      ownerPid: process.pid,
+      agentPid: null,
+      ...p,
+    };
+  }
+
+  /**
+   * Start the agent for a run that holds the lock, then report in the background: `report` turns
+   * the agent's result into the outbox text (or null to send nothing) and extra history fields.
+   * Releases the lock if the agent can't start.
+   * @param {import('./runLock.js').RunRecord} record
+   * @param {Omit<import('./agentBackend/index.js').AgentStartOptions, 'preamble' | 'logPath' | 'onProgress'>} opts
+   * @param {(result: import('./agentBackend/index.js').AgentResult, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
+   */
+  async function launch(record, opts, report) {
+    const { runId } = record;
+    let run;
+    try {
+      run = await backend.start({ ...opts, preamble, logPath: record.logPath, onProgress: trackProgress(runId) });
+    } catch (err) {
+      await lock.release(runId).catch(() => {});
+      throw err;
+    }
+    /** @type {ActiveRun} */
+    const a = { record: { ...record, agentPid: run.pid }, run, progress: null, phase: 'agent', stopRequested: false };
+    active = a;
+    await lock.update(a.record).catch(() => {});
+    const done = (async () => {
+      const result = await run.done;
+      a.phase = 'post-run';
+      let out = { text: formatRunResult(record, result), history: {} };
+      try {
+        out = { history: {}, ...(await report(result, a)) };
+      } catch (err) {
+        logger.error(`run ${runId}: report failed:`, err);
+      }
+      if (out.text) {
+        try {
+          await outbox.send({ replyTo: record.replyTo, runId, text: out.text });
+        } catch (err) {
+          logger.error(`run ${runId}: outbox write failed:`, err?.message || err);
+        }
+      }
+      try {
+        await history.append({
+          runId,
+          kind: record.kind,
+          label: record.label,
+          replyTo: record.replyTo,
+          workspaceRoot: record.workspaceRoot,
+          logPath: result.logPath,
+          startedAt: record.startedAt,
+          endedAt: new Date(now()).toISOString(),
+          backend: backend.name,
+          outcome: result.outcome,
+          exitCode: result.exitCode,
+          ...result.usage,
+          ...out.history,
+        });
+      } catch (err) {
+        logger.warn(`run ${runId}: history write failed:`, err?.message || err);
+      }
+    })();
+    settled = done
+      .catch((err) => logger.error(`run ${runId}: finish failed:`, err))
+      .finally(async () => {
+        if (active === a) active = null;
+        try {
+          await lock.release(runId);
+        } catch (err) {
+          logger.error(`run ${runId}: lock release failed (expires on its own):`, err?.message || err);
+        }
+      });
+    return a;
+  }
+
+  /**
+   * A follow-up agent pass inside an issue run's post-run (the autofix). It becomes the active
+   * agent, so `claude:stop` and status see it; after a stop, no new pass starts.
+   * @param {ActiveRun} a
+   * @returns {import('./issuePipeline/postRun.js').RunAgent}
+   */
+  const followUpAgent =
+    (a) =>
+    async ({ prompt, label }) => {
+      const logPath = join(logsDir, `${a.record.runId}-${label}.log`);
+      if (a.stopRequested) return { outcome: 'stopped', exitCode: null, text: '', stderr: '' };
+      a.followUps ??= [];
+      try {
+        const run = await backend.start({ prompt, preamble, cwd: a.record.workspaceRoot, logPath, onProgress: trackProgress(a.record.runId) });
+        a.run = run;
+        a.phase = 'agent';
+        a.record = { ...a.record, agentPid: run.pid };
+        await lock.update(a.record).catch(() => {});
+        const result = await run.done;
+        a.phase = 'post-run';
+        a.followUps.push({ label, outcome: result.outcome, logPath, costUsd: result.usage.costUsd, turns: result.usage.turns });
+        return result;
+      } catch (err) {
+        a.phase = 'post-run';
+        return { outcome: 'spawn_error', exitCode: null, text: '', stderr: err?.message || String(err) };
+      }
+    };
+
+  /**
+   * @param {{ kind: 'freeform', prompt: string } | { kind: 'joplin', noteQuery: string }} cmd
+   * @param {string} replyTo
+   */
+  async function startRun(cmd, replyTo) {
+    const record = newRecord({
+      kind: cmd.kind,
+      label: cmd.kind === 'freeform' ? oneLine(cmd.prompt, 60) : `joplin:${cmd.noteQuery}`,
+      replyTo,
+      workspaceRoot,
+    });
+    const refused = await acquire(record);
+    if (refused) return refused;
 
     try {
       let prompt;
@@ -176,11 +275,11 @@ export function createRunner({
         try {
           note = await joplin.getNote(cmd.noteQuery);
         } catch (err) {
-          await lock.release(runId);
+          await lock.release(record.runId);
           return `Failed to read Joplin note: ${err?.message || err}`;
         }
         if (!note.body.trim()) {
-          await lock.release(runId);
+          await lock.release(record.runId);
           return `Joplin note "${note.title}" (${note.id}) is empty. Nothing to run.`;
         }
         prompt = note.body.trim();
@@ -189,29 +288,108 @@ export function createRunner({
       } else {
         prompt = cmd.prompt;
       }
-
-      const run = await backend.start({
-        prompt,
-        preamble,
-        cwd: workspaceRoot,
-        logPath: record.logPath,
-        onProgress: (p) => {
-          if (active?.record.runId === runId) active.progress = p;
-        },
-      });
-      const a = { record: { ...record, agentPid: run.pid }, run, progress: null };
-      active = a;
-      settled = finishRun(a).catch((err) => logger.error(`run ${runId}: finish failed:`, err));
-      await lock.update(a.record).catch(() => {});
-      return `Started run ${runId}${source} in ${workspaceRoot}.\nLog: ${record.logPath}`;
+      await launch(record, { prompt, cwd: workspaceRoot }, async (result) => ({ text: formatRunResult(record, result) }));
+      return `Started run ${record.runId}${source} in ${workspaceRoot}.\nLog: ${record.logPath}`;
     } catch (err) {
-      if (!active || active.record.runId !== runId) await lock.release(runId).catch(() => {});
+      await lock.release(record.runId).catch(() => {});
       return `Could not start the agent: ${err?.message || err}`;
+    }
+  }
+
+  /**
+   * The one entry point for issue runs, manual (`claude issue:…`) and cron: resolve the allowlisted
+   * workspace, take the lock, fetch the issue and branch in place, run the agent with the
+   * implement workflow, then post-run, then one outbox message.
+   * @param {{ issueNumber: number, alias: string | null, extraInstructions?: string, replyTo: string, trigger?: 'manual' | 'cron' }} p
+   * @returns {Promise<{ reply: string, done: Promise<import('./issuePipeline/index.js').IssueRunResult | null> | null }>}
+   *   `done` (null when nothing started) settles once the run has been reported and unlocked.
+   */
+  async function startIssueRun({ issueNumber, alias, extraInstructions = '', replyTo, trigger = 'manual' }) {
+    if (!workspaces || !issues) return { reply: 'claude issue:<n> is not configured on this runner.', done: null };
+    let ws;
+    try {
+      ws = await workspaces.resolveIssueWorkspace(alias);
+    } catch (err) {
+      return { reply: `Agent workspace: ${err?.message || err}`, done: null };
+    }
+    const record = newRecord({
+      kind: 'issue',
+      label: `issue ${ws.alias}#${issueNumber}`,
+      replyTo,
+      workspaceRoot: ws.root,
+      workspaceAlias: ws.alias,
+      issueNumber,
+      trigger,
+    });
+    const refused = await acquire(record);
+    if (refused) return { reply: refused, done: null };
+
+    let prep;
+    try {
+      prep = await issues.prepare({ issueNumber, alias: ws.alias, workspaceRoot: ws.root, extraInstructions });
+    } catch (err) {
+      await lock.release(record.runId).catch(() => {});
+      return { reply: err?.message || String(err), done: null };
+    }
+    record.label = `issue ${ws.alias}#${issueNumber}${prep.issue.title ? ` "${oneLine(prep.issue.title, 50)}"` : ''}`;
+
+    /** @type {import('./issuePipeline/index.js').IssueRunResult | null} */
+    let outcome = null;
+    try {
+      await launch(record, { prompt: prep.prompt, implement: true, cwd: ws.root }, async (agent, a) => {
+        const fin = await issues.finish({
+          repo: ws.root,
+          prompt: prep.prompt,
+          issue: prep.issue,
+          agent,
+          preAgentHeadSha: prep.preAgentHeadSha,
+          logPath: record.logPath,
+          runAgent: followUpAgent(a),
+        });
+        outcome = fin.result;
+        return {
+          // cron stays quiet about runs that changed nothing
+          text: trigger === 'cron' && fin.silent ? null : fin.message,
+          history: { trigger, issueNumber, issueRepo: prep.issue.repo, workspaceAlias: ws.alias, branch: prep.branchName, result: fin.result, followUps: a.followUps ?? [] },
+        };
+      });
+    } catch (err) {
+      return { reply: `Could not start the agent: ${err?.message || err}`, done: null };
+    }
+    const title = prep.issue.title ? ` (${prep.issue.title})` : '';
+    return {
+      reply: `Started run ${record.runId}: issue #${prep.issue.number}${title} in ${ws.alias} on \`${prep.branchName}\`${prep.resumed ? ', resuming earlier work' : ''}.\nLog: ${record.logPath}`,
+      done: settled.then(() => outcome),
+    };
+  }
+
+  /**
+   * WIP-commit an interrupted issue run's leftover work. Returns the sentence for the report.
+   * @param {import('./runLock.js').RunRecord} rec
+   */
+  async function recoverIssueWork(rec) {
+    if (!issues || !rec.workspaceRoot || !rec.issueNumber) return '';
+    const again = `claude issue:${rec.workspaceAlias ? `${rec.workspaceAlias}:` : ''}${rec.issueNumber}`;
+    try {
+      const r = await issues.commitInterruptedWork({ repo: rec.workspaceRoot, issueNumber: rec.issueNumber });
+      if (r.ok) return `\nIts leftover work is committed as WIP \`${r.sha}\` on \`${r.branch}\`. Send \`${again}\` to resume.`;
+      if (r.reason === 'clean') return `\nNothing was left uncommitted. Send \`${again}\` to resume.`;
+      if (r.reason === 'not_issue_branch') {
+        return `\n${rec.workspaceRoot} has uncommitted changes on \`${r.branch}\`, which is not the issue branch, so nothing was committed. Check it by hand.`;
+      }
+      return `\nCommitting its leftover work failed (${r.error}). Check ${rec.workspaceRoot} by hand.`;
+    } catch (err) {
+      logger.error(`recovery of ${rec.runId}: WIP commit failed:`, err?.message || err);
+      return `\nCommitting its leftover work failed (${err?.message || err}). Check ${rec.workspaceRoot} by hand.`;
     }
   }
 
   async function stop() {
     if (active) {
+      active.stopRequested = true;
+      if (active.phase === 'post-run') {
+        return `Run ${active.record.runId} is past the agent, in post-run (commit, PR, review, merge), which can't be interrupted. No further agent pass will start. Its report will follow.`;
+      }
       active.run.stop();
       return `Stopping run ${active.record.runId}. Its report will follow.`;
     }
@@ -242,15 +420,17 @@ export function createRunner({
           return { reply: await stop() };
         case 'restart':
           return { reply: await restart(replyTo) };
+        case 'issue':
+          return { reply: (await startIssueRun({ ...cmd, replyTo })).reply };
         default:
           return { reply: await startRun(cmd, replyTo) };
       }
     },
 
-    /** @returns {Promise<{ busy: boolean, activeRun: (import('./runLock.js').RunRecord & Partial<import('./agentBackend/index.js').AgentProgress>) | null, paused: boolean }>} */
+    /** @returns {Promise<{ busy: boolean, activeRun: (import('./runLock.js').RunRecord & Partial<import('./agentBackend/index.js').AgentProgress> & { phase?: ActiveRun['phase'] }) | null, paused: boolean }>} */
     async status() {
       const [held, paused] = await Promise.all([lock.current(), pause.get()]);
-      const live = active && held?.runId === active.record.runId ? active.progress : null;
+      const live = active && held?.runId === active.record.runId ? { ...active.progress, phase: active.phase } : null;
       return {
         busy: Boolean(held),
         activeRun: held ? { ...held, ...(live ?? {}) } : null,
@@ -266,20 +446,23 @@ export function createRunner({
       const rec = await lock.current();
       if (!rec) return null;
       const name = `Agent ${describeRun(rec)}`;
-      const orphan =
-        rec.agentPid && isAlive(rec.agentPid)
-          ? `\nIts agent process (pid ${rec.agentPid}) is still running, but nobody will report its result.`
-          : '';
+      const agentAlive = Boolean(rec.agentPid && isAlive(rec.agentPid));
+      const orphan = agentAlive ? `\nIts agent process (pid ${rec.agentPid}) is still running, but nobody will report its result.` : '';
+      // an issue run's leftover work is WIP-committed so a re-run resumes it (never while its agent
+      // may still be writing)
+      const wip = rec.kind === 'issue' && !agentAlive ? await recoverIssueWork(rec) : '';
       const log = rec.logPath ? `\nLog: ${rec.logPath}` : '';
       await outbox.send({
         replyTo: OWNER,
         runId: rec.runId === UNKNOWN_RUN_ID ? '' : rec.runId,
-        text: `${name} was interrupted: agent-runner restarted before it finished.${orphan}${log}`,
+        text: `${name} was interrupted: agent-runner restarted before it finished.${orphan}${wip}${log}`,
       });
       if (rec.runId === UNKNOWN_RUN_ID) await lock.forceClear();
       else await lock.release(rec.runId);
       return rec;
     },
+
+    startIssueRun,
 
     /** Resolves once the current run (if any) has been reported and unlocked. */
     idle: () => settled,

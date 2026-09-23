@@ -12,6 +12,8 @@ import { createJoplinClient } from './joplin.js';
 import { buildPreamble } from './preamble.js';
 import { createRunner } from './runner.js';
 import { createHttpServer } from './http.js';
+import { createWorkspaceAllowlist } from './workspaces.js';
+import { createIssuePipeline } from './issuePipeline/index.js';
 
 const config = loadConfig();
 
@@ -43,6 +45,8 @@ const runner = createRunner({
   history: createRunHistory({ dir: config.logsDir }),
   joplin: createJoplinClient(config.joplin),
   launchSafeRestart,
+  workspaces: createWorkspaceAllowlist(),
+  issues: createIssuePipeline({ settings: config.pipeline }),
   workspaceRoot: config.workspaceRoot,
   logsDir: config.logsDir,
   preamble: buildPreamble({ repoRoot: config.repoRoot }),

@@ -54,10 +54,30 @@ describe('parseCommand', () => {
     assert.match(r.message, /Unknown command "claude:frobnicate"/);
   });
 
-  it('says issue runs are not supported yet', () => {
-    const r = parseCommand('claude issue:42');
-    assert.equal(r.kind, 'error');
-    assert.match(r.message, /issue:/);
+  it('parses issue:<n> with no alias', () => {
+    assert.deepEqual(parseCommand('claude issue:42'), {
+      kind: 'issue',
+      issueNumber: 42,
+      alias: null,
+      extraInstructions: '',
+    });
+  });
+
+  it('parses issue:<alias>:<n> with extra instructions', () => {
+    assert.deepEqual(parseCommand('claude issue: platformer : 123 add unit tests\nand docs'), {
+      kind: 'issue',
+      issueNumber: 123,
+      alias: 'platformer',
+      extraInstructions: 'add unit tests\nand docs',
+    });
+  });
+
+  it('rejects a malformed issue command instead of running it as freeform', () => {
+    for (const text of ['claude issue:', 'claude issue:abc', 'claude issue:0', 'claude issue:x:y']) {
+      const r = parseCommand(text);
+      assert.equal(r.kind, 'error', text);
+      assert.match(r.message, /issue:<n>/);
+    }
   });
 
   it('returns usage for a bare "claude"', () => {

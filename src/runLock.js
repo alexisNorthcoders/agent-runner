@@ -13,6 +13,9 @@
  *   logPath?: string,
  *   ownerPid?: number,
  *   agentPid?: number | null,
+ *   workspaceAlias?: string,
+ *   issueNumber?: number,
+ *   trigger?: 'manual' | 'cron',
  * }} RunRecord
  */
 
