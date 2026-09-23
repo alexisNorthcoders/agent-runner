@@ -614,3 +614,66 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
     })
   );
 });
+
+describe('queueAutoMerge: merge-settings read on a network error (issue #5)', () => {
+  const PR = 'https://github.com/acme/widget/pull/17';
+  const CAPS = JSON.stringify({ allow_squash_merge: true, allow_merge_commit: false, allow_rebase_merge: false, allow_auto_merge: true });
+  const isCapsRead = (args) => args[0] === 'api' && String(args[1] || '').startsWith('repos/') && !args.includes('-X');
+  /** @param {string} stderr @returns {any} */
+  const ghError = (stderr) => Object.assign(new Error('gh failed'), { stderr });
+  const TIMEOUT = 'Get "https://api.github.com/repos/acme/widget": dial tcp 20.26.156.210:443: i/o timeout';
+
+  /** @param {(attempt: number) => any} capsError a `gh` error for this 1-based read, or null to answer */
+  function setup(capsError) {
+    /** @type {number[]} */
+    const sleeps = [];
+    let capsReads = 0;
+    let merges = 0;
+    const exec = callbackExec(() => (_cmd, args, _opts, cb) => {
+      if (isCapsRead(args)) {
+        const err = capsError(++capsReads);
+        return err ? cb(err, '', err.stderr) : cb(null, CAPS, '');
+      }
+      if (args[0] === 'pr' && args[1] === 'merge') {
+        merges++;
+        return cb(null, '', '');
+      }
+      cb(new Error(`unexpected exec: ${args.join(' ')}`));
+    });
+    const prs = createGithubPr({
+      exec,
+      settings: loadPipelineSettings({ CLAUDE_POST_RUN_MERGEABLE_POLL_MS: '0' }),
+      sleep: async (ms) => void sleeps.push(ms),
+    });
+    return { prs, sleeps, counts: () => ({ capsReads, merges }) };
+  }
+
+  it('waits and retries once after an i/o timeout, then merges with no error', async () => {
+    const { prs, sleeps, counts } = setup((n) => (n === 1 ? ghError(TIMEOUT) : null));
+    const r = await prs.queueAutoMerge('/repo', PR);
+    assert.equal(r.ok, true);
+    assert.equal(r.error, undefined);
+    assert.deepEqual(counts(), { capsReads: 2, merges: 1 });
+    assert.equal(sleeps.length, 1);
+  });
+
+  it('gives up after a second network error, and says it retried', async () => {
+    const { prs, sleeps, counts } = setup(() => ghError('read tcp: connection reset by peer'));
+    const r = await prs.queueAutoMerge('/repo', PR);
+    assert.equal(r.ok, false);
+    assert.match(r.error, /Could not read repository merge settings/);
+    assert.match(r.error, /retried/);
+    assert.deepEqual(counts(), { capsReads: 2, merges: 0 });
+    assert.equal(sleeps.length, 1);
+  });
+
+  it('does not retry a permanent error such as bad auth', async () => {
+    const { prs, sleeps, counts } = setup(() => ghError('HTTP 401: Bad credentials (https://api.github.com/repos/acme/widget)'));
+    const r = await prs.queueAutoMerge('/repo', PR);
+    assert.equal(r.ok, false);
+    assert.match(r.error, /Could not read repository merge settings \(GitHub API\): HTTP 401: Bad credentials/);
+    assert.doesNotMatch(r.error, /retried/);
+    assert.deepEqual(counts(), { capsReads: 1, merges: 0 });
+    assert.equal(sleeps.length, 0);
+  });
+});
