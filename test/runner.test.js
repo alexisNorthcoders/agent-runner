@@ -55,13 +55,40 @@ function setup(overrides = {}) {
   const history = [];
   /** @type {string[]} */
   const restarts = [];
+  /** @type {{ record: any, progress: any[], finished: boolean }[]} */
+  const tracked = [];
+  const activeRuns = {
+    track(record) {
+      const t = { record, progress: [], finished: false };
+      tracked.push(t);
+      return {
+        ready: Promise.resolve(),
+        update: async (p) => void t.progress.push(p),
+        finish: async () => void (t.finished = true),
+      };
+    },
+  };
+  let snapshot = {
+    now: Date.parse('2026-09-24T12:00:00Z'),
+    active: [],
+    paused: null,
+    cron: null,
+    cronAlive: false,
+    history: [],
+  };
+  let clock = Date.parse('2026-09-24T12:00:00Z');
   let n = 0;
   const runner = createRunner({
     lock,
     pause,
     outbox,
     backend,
-    history: { append: async (e) => void history.push(e) },
+    history: {
+      append: async (e) => void history.push(e),
+      read: async ({ limit = Infinity } = {}) => [...history].reverse().slice(0, limit),
+    },
+    activeRuns,
+    statusSnapshot: async () => snapshot,
     joplin: {
       getNote: async (q) => {
         if (q === 'missing') throw new Error('No note matching "missing"');
@@ -74,11 +101,26 @@ function setup(overrides = {}) {
     logsDir: '/runner/logs/agent-runs',
     preamble: 'PREAMBLE',
     newRunId: () => `run-${++n}`,
+    now: () => clock,
     logger: { error() {}, warn() {}, info() {} },
     ...overrides,
   });
   const outboxEntries = () => (store.streams.get(OUTBOX_KEY) ?? []).map((e) => e.fields);
-  return { store, lock, pause, runner, starts, history, restarts, outboxEntries };
+  return {
+    store,
+    lock,
+    pause,
+    runner,
+    starts,
+    history,
+    restarts,
+    tracked,
+    outboxEntries,
+    /** @param {number} ms */
+    advance: (ms) => void (clock += ms),
+    /** @param {object} s */
+    setSnapshot: (s) => void (snapshot = { ...snapshot, ...s }),
+  };
 }
 
 describe('runner: freeform runs', () => {
@@ -248,6 +290,63 @@ describe('runner: status', () => {
     assert.equal(s.activeRun.replyTo, 'a');
     await pause.set('x');
     assert.equal((await runner.status()).paused, true);
+  });
+});
+
+describe('runner: active-run files', () => {
+  it('tracks a run from start to finish, with its progress and duration in history', async () => {
+    const { runner, starts, tracked, history, advance } = setup();
+    await runner.handleCommand({ text: 'claude job', replyTo: 'a' });
+    assert.equal(tracked.length, 1);
+    assert.equal(tracked[0].record.runId, 'run-1');
+    assert.equal(tracked[0].record.agentPid, 900);
+    const p = { model: 'm', turns: 2, outputTokens: 5, contextTokens: 9, lastActivity: 'Bash: ls' };
+    starts[0].opts.onProgress(p);
+    assert.deepEqual(tracked[0].progress, [p]);
+    advance(90_000);
+    starts[0].finish();
+    await runner.idle();
+    assert.equal(tracked[0].finished, true);
+    assert.equal(history[0].durationMs, 90_000);
+  });
+
+  it('does not publish anything for a request that never started a run', async () => {
+    const { runner, tracked, pause } = setup();
+    await pause.set('x');
+    await runner.handleCommand({ text: 'claude job', replyTo: 'a' });
+    await runner.handleCommand({ text: 'claude joplin:missing', replyTo: 'a' });
+    assert.equal(tracked.length, 0);
+  });
+});
+
+describe('runner: claude:status and claude:history', () => {
+  it('replies with the compact status text', async () => {
+    const { runner, setSnapshot } = setup();
+    setSnapshot({ paused: { token: 't', reason: 'safe-restart', pausedAt: null } });
+    const { reply } = await runner.handleCommand({ text: 'claude:status', replyTo: 'a' });
+    assert.match(reply, /^Agent: idle$/m);
+    assert.match(reply, /^Paused: yes \(safe-restart\)$/m);
+    assert.match(reply, /^Cron: /m);
+  });
+
+  it('lists the last n finished runs with cost and tokens', async () => {
+    const { runner, starts } = setup();
+    for (const job of ['one', 'two', 'three']) {
+      await runner.handleCommand({ text: `claude ${job}`, replyTo: 'a' });
+      starts.at(-1).finish();
+      await runner.idle();
+    }
+    const { reply } = await runner.handleCommand({ text: 'claude:history 2', replyTo: 'a' });
+    const lines = reply.split('\n');
+    assert.equal(lines[0], 'Last 2 runs:');
+    assert.match(lines[1], /three — success, .*\$0\.12, 3 tok$/);
+    assert.match(lines[2], /two/);
+    assert.equal(lines.length, 3);
+  });
+
+  it('says when there is no history yet', async () => {
+    const { runner } = setup();
+    assert.match((await runner.handleCommand({ text: 'claude:history', replyTo: 'a' })).reply, /No finished runs/);
   });
 });
 

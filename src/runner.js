@@ -3,6 +3,8 @@ import { parseCommand } from './commands.js';
 import { OWNER } from './outbox.js';
 import { decideSafeRestart } from './safeRestart.js';
 import { describeRun, UNKNOWN_RUN_ID } from './runLock.js';
+import { pidAlive } from './pidAlive.js';
+import { renderHistoryText, renderStatusText } from './statusFormat.js';
 
 /**
  * The runner: turns a `claude…` command into at most one agent run at a time and reports every
@@ -14,16 +16,6 @@ const STDERR_TAIL = 800;
 
 /** Timestamp-based run id, safe in file names. */
 export const timestampRunId = () => new Date().toISOString().replace(/[:.]/g, '-');
-
-function pidAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return e.code === 'EPERM';
-  }
-}
 
 const oneLine = (s, n) => {
   const t = s.replace(/\s+/g, ' ').trim();
@@ -63,7 +55,9 @@ export function formatRunResult(rec, r) {
  *   pause: ReturnType<typeof import('./pauseFlag.js').createPauseFlag>,
  *   outbox: ReturnType<typeof import('./outbox.js').createOutbox>,
  *   backend: import('./agentBackend/index.js').AgentBackend,
- *   history: { append: (entry: object) => Promise<void> },
+ *   history: Pick<ReturnType<typeof import('./runHistory.js').createRunHistory>, 'append' | 'read'>,
+ *   activeRuns: Pick<ReturnType<typeof import('./activeRuns.js').createActiveRuns>, 'track'>,
+ *   statusSnapshot: () => Promise<import('./statusCollect.js').StatusSnapshot>,
  *   joplin: { getNote: (query: string) => Promise<{ id: string, title: string, body: string }> },
  *   launchSafeRestart: (replyTo: string) => void,
  *   workspaceRoot: string,
@@ -81,6 +75,8 @@ export function createRunner({
   outbox,
   backend,
   history,
+  activeRuns,
+  statusSnapshot,
   joplin,
   launchSafeRestart,
   workspaceRoot,
@@ -93,7 +89,12 @@ export function createRunner({
 }) {
   /**
    * The run this process is executing, if any.
-   * @type {null | { record: import('./runLock.js').RunRecord, run: import('./agentBackend/index.js').AgentRun, progress: import('./agentBackend/index.js').AgentProgress | null }}
+   * @type {null | {
+   *   record: import('./runLock.js').RunRecord,
+   *   run: import('./agentBackend/index.js').AgentRun,
+   *   progress: import('./agentBackend/index.js').AgentProgress | null,
+   *   tracker: ReturnType<ReturnType<typeof import('./activeRuns.js').createActiveRuns>['track']>,
+   * }}
    */
   let active = null;
   /** Settles when the active run has been reported and its lock released. */
@@ -108,6 +109,7 @@ export function createRunner({
     } catch (err) {
       logger.error(`run ${record.runId}: outbox write failed:`, err?.message || err);
     }
+    const endedAt = now();
     try {
       await history.append({
         runId: record.runId,
@@ -117,7 +119,8 @@ export function createRunner({
         workspaceRoot: record.workspaceRoot,
         logPath: result.logPath,
         startedAt: record.startedAt,
-        endedAt: new Date(now()).toISOString(),
+        endedAt: new Date(endedAt).toISOString(),
+        durationMs: endedAt - Date.parse(record.startedAt),
         backend: backend.name,
         outcome: result.outcome,
         exitCode: result.exitCode,
@@ -126,6 +129,8 @@ export function createRunner({
     } catch (err) {
       logger.warn(`run ${record.runId}: history write failed:`, err?.message || err);
     }
+    // after the history write, so the CLIs never lose sight of the run
+    await a.tracker.finish();
     active = null;
     try {
       await lock.release(record.runId);
@@ -196,10 +201,13 @@ export function createRunner({
         cwd: workspaceRoot,
         logPath: record.logPath,
         onProgress: (p) => {
-          if (active?.record.runId === runId) active.progress = p;
+          if (active?.record.runId !== runId) return;
+          active.progress = p;
+          active.tracker.update(p);
         },
       });
-      const a = { record: { ...record, agentPid: run.pid }, run, progress: null };
+      const running = { ...record, agentPid: run.pid };
+      const a = { record: running, run, progress: null, tracker: activeRuns.track(running) };
       active = a;
       settled = finishRun(a).catch((err) => logger.error(`run ${runId}: finish failed:`, err));
       await lock.update(a.record).catch(() => {});
@@ -242,6 +250,10 @@ export function createRunner({
           return { reply: await stop() };
         case 'restart':
           return { reply: await restart(replyTo) };
+        case 'status':
+          return { reply: renderStatusText(await statusSnapshot()) };
+        case 'history':
+          return { reply: renderHistoryText(await history.read({ limit: cmd.count }), now()) };
         default:
           return { reply: await startRun(cmd, replyTo) };
       }

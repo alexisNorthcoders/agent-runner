@@ -20,7 +20,8 @@ service's Redis outbox (`agent-runner:outbox` stream). The design record is What
 `docs/adr/0001-agent-runner-out-of-process.md`, and the work is tracked in WhatsappBot #102.
 
 Built so far: freeform runs, `claude joplin:<note>`, `claude:stop`, `claude:restart` /
-`npm run safe-restart`, the Redis single-flight lock and pause flag, and startup recovery. Still to
+`npm run safe-restart`, `claude:status` / `claude:history` and the `npm run agent:*` CLIs, the Redis
+single-flight lock and pause flag, and startup recovery. Still to
 come (see the open issues): the GitHub issue pipeline (fetch → branch → agent → commit → PR →
 review → merge) and the cron issue tracer. Layout and Redis keys are in `README.md`.
 
