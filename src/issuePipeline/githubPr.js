@@ -231,22 +231,28 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
   }
 
   /**
-   * Merge settings of the PR's repo (REST GET /repos/{owner}/{repo}).
+   * Merge settings of the PR's repo (REST GET /repos/{owner}/{repo}). A network error gets one
+   * wait and retry, like the direct merge.
    * @param {string} repo git cwd for `gh`
    * @param {string} owner
    * @param {string} repoSlug
    * @returns {Promise<{ ok: boolean, allow_squash_merge?: boolean, allow_merge_commit?: boolean, allow_rebase_merge?: boolean, allow_auto_merge?: boolean, error?: string }>}
    */
   async function repoMergeCapabilities(repo, owner, repoSlug) {
+    const read = () => gh(repo, ['api', `repos/${owner}/${repoSlug}`, '--jq', '{allow_squash_merge,allow_merge_commit,allow_rebase_merge,allow_auto_merge}']);
     let raw;
     try {
-      ({ stdout: raw } = await exec(
-        'gh',
-        ['api', `repos/${owner}/${repoSlug}`, '--jq', '{allow_squash_merge,allow_merge_commit,allow_rebase_merge,allow_auto_merge}'],
-        { cwd: repo, maxBuffer: 1024 * 1024 }
-      ));
+      ({ stdout: raw } = await read());
     } catch (e) {
-      return { ok: false, error: execErrorText(e) };
+      const err = execErrorText(e);
+      if (!githubErrorLooksTransientNetwork(err)) return { ok: false, error: err };
+      log('repoMergeCapabilities: network error; wait then retry', err);
+      await sleep(settings.mergeableWait.pollMs);
+      try {
+        ({ stdout: raw } = await read());
+      } catch (eRetry) {
+        return { ok: false, error: `${execErrorText(eRetry)} (retried once after a network error)` };
+      }
     }
     raw = String(raw ?? '').trim();
     let j;
