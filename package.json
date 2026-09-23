@@ -9,7 +9,11 @@
     "start": "node --no-deprecation src/main.js",
     "test": "node --test 'test/**/*.test.js'",
     "typecheck": "tsc -p jsconfig.json",
-    "safe-restart": "node bin/safe-restart.js"
+    "safe-restart": "node bin/safe-restart.js",
+    "agent:status": "node bin/agent-cli.js status",
+    "agent:watch": "node bin/agent-cli.js watch",
+    "agent:history": "node bin/agent-cli.js history",
+    "agent:logs": "node bin/agent-cli.js logs"
   },
   "engines": {
     "node": ">=20"

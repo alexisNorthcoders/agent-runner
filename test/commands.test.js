@@ -45,7 +45,22 @@ describe('parseCommand', () => {
   it('treats claude:stop/restart with trailing words as the subcommand, never a freeform run', () => {
     assert.deepEqual(parseCommand('claude:stop now please'), { kind: 'stop' });
     assert.deepEqual(parseCommand('claude:restart\nthanks'), { kind: 'restart' });
-    assert.equal(parseCommand('claude:status please').kind, 'error');
+    assert.deepEqual(parseCommand('claude:status please'), { kind: 'status' });
+  });
+
+  it('parses claude:status and claude:history [n]', () => {
+    assert.deepEqual(parseCommand('claude:status'), { kind: 'status' });
+    assert.deepEqual(parseCommand('claude:history'), { kind: 'history', count: 10 });
+    assert.deepEqual(parseCommand('claude:history 3'), { kind: 'history', count: 3 });
+    assert.deepEqual(parseCommand('claude:history 500'), { kind: 'history', count: 30 });
+  });
+
+  it('rejects a bad claude:history count', () => {
+    for (const t of ['claude:history 0', 'claude:history lots', 'claude:history -2']) {
+      const r = parseCommand(t);
+      assert.equal(r.kind, 'error', t);
+      assert.match(r.message, /claude:history \[n\]/);
+    }
   });
 
   it('rejects an unknown claude:<word> command', () => {

@@ -7,6 +7,8 @@
  *   | { kind: 'issue', issueNumber: number, alias: string | null, extraInstructions: string }
  *   | { kind: 'stop' }
  *   | { kind: 'restart' }
+ *   | { kind: 'status' }
+ *   | { kind: 'history', count: number }
  *   | { kind: 'error', message: string }} Command
  */
 
@@ -16,9 +18,15 @@ claude joplin:<note title or id>  use a Joplin note as the instructions
 claude issue:<alias>:<n> [extra instructions]  implement GitHub issue <n> in the <alias> workspace, then PR, review and merge
 claude issue:<n> [extra instructions]  the same, in the default issue workspace
 claude:stop  kill the active run
-claude:restart  safely restart agent-runner (refused while a run is active)`;
+claude:restart  safely restart agent-runner (refused while a run is active)
+claude:status  active run, pause, last cron tick and recent runs
+claude:history [n]  the last n finished runs with cost and tokens`;
 
-const SUBCOMMANDS = /** @type {const} */ (['stop', 'restart']);
+const SUBCOMMANDS = /** @type {const} */ (['stop', 'restart', 'status']);
+
+export const DEFAULT_HISTORY_COUNT = 10;
+export const MAX_HISTORY_COUNT = 30;
+const HISTORY_USAGE = `Usage: claude:history [n]  (n = number of runs, 1-${MAX_HISTORY_COUNT})`;
 
 /**
  * @param {string} text
@@ -32,11 +40,17 @@ export function parseCommand(text) {
 
   // `claude:<word>` (no space after the colon) is always a subcommand; trailing words are ignored,
   // so `claude:stop now` can never start a run with the prompt "stop now".
-  const sub = rest.match(/^:(\S+)(?:\s[\s\S]*)?$/);
+  const sub = rest.match(/^:(\S+)(?:\s([\s\S]*))?$/);
   if (sub) {
     const name = sub[1].toLowerCase();
     if (/** @type {readonly string[]} */ (SUBCOMMANDS).includes(name)) {
-      return { kind: /** @type {'stop' | 'restart'} */ (name) };
+      return { kind: /** @type {'stop' | 'restart' | 'status'} */ (name) };
+    }
+    if (name === 'history') {
+      const arg = (sub[2] ?? '').trim().split(/\s+/)[0];
+      if (!arg) return { kind: 'history', count: DEFAULT_HISTORY_COUNT };
+      if (!/^\d+$/.test(arg) || parseInt(arg, 10) < 1) return { kind: 'error', message: HISTORY_USAGE };
+      return { kind: 'history', count: Math.min(parseInt(arg, 10), MAX_HISTORY_COUNT) };
     }
     return { kind: 'error', message: `Unknown command "claude:${sub[1]}".\n\n${USAGE}` };
   }

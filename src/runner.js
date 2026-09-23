@@ -3,6 +3,8 @@ import { parseCommand } from './commands.js';
 import { OWNER } from './outbox.js';
 import { decideSafeRestart } from './safeRestart.js';
 import { describeRun, UNKNOWN_RUN_ID } from './runLock.js';
+import { pidAlive } from './pidAlive.js';
+import { renderHistoryText, renderStatusText } from './statusFormat.js';
 
 /**
  * The runner: turns a `claude…` command into at most one agent run at a time and reports every
@@ -14,16 +16,6 @@ const STDERR_TAIL = 800;
 
 /** Timestamp-based run id, safe in file names. */
 export const timestampRunId = () => new Date().toISOString().replace(/[:.]/g, '-');
-
-function pidAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return e.code === 'EPERM';
-  }
-}
 
 const oneLine = (s, n) => {
   const t = s.replace(/\s+/g, ' ').trim();
@@ -65,6 +57,7 @@ export function formatRunResult(rec, r) {
  *   progress: import('./agentBackend/index.js').AgentProgress | null,
  *   phase: 'agent' | 'post-run',
  *   stopRequested: boolean,
+ *   tracker: ReturnType<ReturnType<typeof import('./activeRuns.js').createActiveRuns>['track']>,
  *   followUps?: Array<{ label: string, outcome: string, logPath: string, costUsd: number | null, turns: number }>,
  * }} ActiveRun
  */
@@ -75,7 +68,9 @@ export function formatRunResult(rec, r) {
  *   pause: ReturnType<typeof import('./pauseFlag.js').createPauseFlag>,
  *   outbox: ReturnType<typeof import('./outbox.js').createOutbox>,
  *   backend: import('./agentBackend/index.js').AgentBackend,
- *   history: { append: (entry: object) => Promise<void> },
+ *   history: Pick<ReturnType<typeof import('./runHistory.js').createRunHistory>, 'append' | 'read'>,
+ *   activeRuns: Pick<ReturnType<typeof import('./activeRuns.js').createActiveRuns>, 'track'>,
+ *   statusSnapshot: () => Promise<import('./statusCollect.js').StatusSnapshot>,
  *   joplin: { getNote: (query: string) => Promise<{ id: string, title: string, body: string }> },
  *   launchSafeRestart: (replyTo: string) => void,
  *   workspaces?: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
@@ -96,6 +91,8 @@ export function createRunner({
   outbox,
   backend,
   history,
+  activeRuns,
+  statusSnapshot,
   joplin,
   launchSafeRestart,
   workspaces,
@@ -116,7 +113,9 @@ export function createRunner({
 
   /** @param {string} runId */
   const trackProgress = (runId) => (p) => {
-    if (active?.record.runId === runId) active.progress = p;
+    if (active?.record.runId !== runId) return;
+    active.progress = p;
+    active.tracker.update(p);
   };
 
   /**
@@ -174,8 +173,9 @@ export function createRunner({
       await lock.release(runId).catch(() => {});
       throw err;
     }
+    const running = { ...record, agentPid: run.pid };
     /** @type {ActiveRun} */
-    const a = { record: { ...record, agentPid: run.pid }, run, progress: null, phase: 'agent', stopRequested: false };
+    const a = { record: running, run, progress: null, phase: 'agent', stopRequested: false, tracker: activeRuns.track(running) };
     active = a;
     await lock.update(a.record).catch(() => {});
     const done = (async () => {
@@ -194,6 +194,7 @@ export function createRunner({
           logger.error(`run ${runId}: outbox write failed:`, err?.message || err);
         }
       }
+      const endedAt = now();
       try {
         await history.append({
           runId,
@@ -203,7 +204,8 @@ export function createRunner({
           workspaceRoot: record.workspaceRoot,
           logPath: result.logPath,
           startedAt: record.startedAt,
-          endedAt: new Date(now()).toISOString(),
+          endedAt: new Date(endedAt).toISOString(),
+          durationMs: endedAt - Date.parse(record.startedAt),
           backend: backend.name,
           outcome: result.outcome,
           exitCode: result.exitCode,
@@ -217,6 +219,8 @@ export function createRunner({
     settled = done
       .catch((err) => logger.error(`run ${runId}: finish failed:`, err))
       .finally(async () => {
+        // after the history write, so the CLIs never lose sight of the run
+        await a.tracker.finish();
         if (active === a) active = null;
         try {
           await lock.release(runId);
@@ -244,6 +248,9 @@ export function createRunner({
         a.run = run;
         a.phase = 'agent';
         a.record = { ...a.record, agentPid: run.pid };
+        // re-publish with the new agent pid (the tracker's record is fixed)
+        await a.tracker.finish();
+        a.tracker = activeRuns.track(a.record);
         await lock.update(a.record).catch(() => {});
         const result = await run.done;
         a.phase = 'post-run';
@@ -424,6 +431,10 @@ export function createRunner({
           return { reply: await restart(replyTo) };
         case 'issue':
           return { reply: (await startIssueRun({ ...cmd, replyTo })).reply };
+        case 'status':
+          return { reply: renderStatusText(await statusSnapshot()) };
+        case 'history':
+          return { reply: renderHistoryText(await history.read({ limit: cmd.count }), now()) };
         default:
           return { reply: await startRun(cmd, replyTo) };
       }
