@@ -19,11 +19,13 @@ messages over localhost HTTP (`POST /command`, `GET /status` on 127.0.0.1) and d
 service's Redis outbox (`agent-runner:outbox` stream). The design record is WhatsappBot
 `docs/adr/0001-agent-runner-out-of-process.md`, and the work is tracked in WhatsappBot #102.
 
-Built so far: freeform runs, `claude joplin:<note>`, `claude:stop`, `claude:restart` /
-`npm run safe-restart`, `claude:status` / `claude:history` and the `npm run agent:*` CLIs, the Redis
-single-flight lock and pause flag, and startup recovery. Still to
-come (see the open issues): the GitHub issue pipeline (fetch → branch → agent → commit → PR →
-review → merge) and the cron issue tracer. Layout and Redis keys are in `README.md`.
+Built so far: freeform runs, `claude joplin:<note>`, the GitHub issue pipeline
+(`claude issue:<alias>:<n>`: fetch → branch in place → agent → commit → PR → review → autofix →
+merge, in `src/issuePipeline/`), `claude:stop`, `claude:restart` / `npm run safe-restart`,
+`claude:status` / `claude:history` and the `npm run agent:*` CLIs, the Redis single-flight lock and
+pause flag, and startup recovery (with a WIP commit for issue runs). Still to come (see the open
+issues): the cron issue tracer, which reuses `runner.startIssueRun`. Layout and Redis keys are in
+`README.md`.
 
 ## Conventions
 

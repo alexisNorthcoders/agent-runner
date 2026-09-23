@@ -5,9 +5,9 @@ the WhatsApp bot. The bot forwards `claude…` messages over localhost HTTP, and
 back through a Redis Stream outbox that the bot delivers. Design:
 WhatsappBot `docs/adr/0001-agent-runner-out-of-process.md`.
 
-This is the first slice: freeform runs, `joplin:` runs, `claude:stop`, `claude:restart`, and
-status/history (`claude:status`, `claude:history`, `npm run agent:*`). The GitHub issue pipeline
-and the cron issue tracer come later.
+Built so far: freeform runs, `joplin:` runs, the GitHub issue pipeline (`claude issue:…`),
+`claude:stop`, `claude:restart`, and status/history (`claude:status`, `claude:history`,
+`npm run agent:*`). The cron issue tracer comes later.
 
 ## Setup
 
@@ -26,6 +26,8 @@ WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-resta
 | --- | --- |
 | `claude <instructions>` | Run the agent in `~/Projects` (`AGENT_WORKSPACE`). |
 | `claude joplin:<note title or id>` | Use a note from the `WhatsApp Bot` notebook as the instructions (Joplin Data API). |
+| `claude issue:<alias>:<n> [extra instructions]` | Implement GitHub issue `n` in the allowlisted `<alias>` workspace, then commit, PR, review and merge. See [Issue runs](#issue-runs). |
+| `claude issue:<n> [extra instructions]` | The same, in the `CLAUDE_ISSUE_DEFAULT_ALIAS` workspace. |
 | `claude:stop` | Kill the active run. Its "stopped" report lands in the outbox. |
 | `claude:restart` | Run safe-restart in the background, then report to the outbox. |
 | `claude:status` | Active run (with orphaned/stale warnings), pause, last cron tick, today's spend, last 3 runs. |
@@ -47,6 +49,35 @@ These read `logs/agent-runs/` directly (plus the pause flag from Redis), so they
 runner is down. An active run's `state` is `running`, `orphaned` (the runner died but the agent
 process is still going, so nobody will report its result) or `stale` (both are gone). The runner
 deletes stale active files on startup and keeps orphaned ones.
+
+## Issue runs
+
+`claude issue:<alias>:<n>` branches **in place** in the target repo (no clone or worktree; see the
+ADR), under one lock like any other run:
+
+1. **Workspace**: `<alias>` must be in the allowlist (`CLAUDE_WORKSPACE_MAP` and/or the JSON
+   `CLAUDE_WORKSPACE_MAP_FILE`), resolved with realpath. Only issue runs use the allowlist.
+2. **Prep**: `gh issue view` (the repo comes from `CLAUDE_ISSUE_REPO_MAP`, else the workspace's GitHub
+   `origin`; unlike the bot, there is no fallback to WhatsappBot), then with a clean tree: fetch, check out and fast-forward the default branch (`main`
+   or `master`, from `origin/HEAD`), and create `claude/issue-<n>-<slug>`. If that issue already
+   has a local branch, the run **resumes** on it, and the prompt says what is already there
+   (commits, uncommitted files, an open PR and its conflicts). A prep failure is the HTTP reply.
+3. **Agent**: Claude with the `/implement` skill, in the repo.
+4. **Post-run** (`src/issuePipeline/postRun.js`): commit, push, open or reuse the PR (`Fixes #n`), an
+   LLM review posted as a PR comment, **one** autofix agent pass on `VERDICT: REQUEST_CHANGES`, then
+   merge (auto-merge, or a direct merge when there's no gate) with the repo's allowed method, wait
+   for the issue to close, the summary email, and back to the default branch. If the agent didn't
+   finish, its leftover work is committed as a WIP snapshot so the next run resumes.
+5. **One outbox message**: `✅ #n merged — title`, `✅ #n PR open …`, or `⚠️ #n: <problem> — needs a
+   look.` The full narrative is appended to the run log.
+
+Each post-run step has a `CLAUDE_POST_RUN*` flag (see `.env.example`). `claude:stop` stops the
+agent or the autofix pass; post-run's `gh`/`git` steps themselves run to completion.
+
+If the runner dies mid-run, the next start reports the run as interrupted to `owner`,
+WIP-commits leftover work on the issue branch (never on another branch), and says which command
+resumes it. An agent that outlived its runner is stopped first, but only if its pid still belongs
+to a headless Claude run.
 
 ## HTTP API (127.0.0.1 only, no auth)
 
@@ -89,11 +120,18 @@ are told the same rule in their prompt preamble.
 - `src/runLock.js`, `src/pauseFlag.js`, `src/outbox.js`: Redis state over `src/redisStore.js`.
 - `src/safeRestart.js` + `bin/safe-restart.js`: restart decision logic and the CLI.
 - `src/joplin.js`: Joplin Data API client.
+- `src/workspaces.js`: the issue-run workspace allowlist.
+- `src/issuePipeline/`: issue runs. `index.js` is the entry point (`prepare` before the agent,
+  `finish` after it, `commitInterruptedWork` for startup recovery), shared by manual runs and the
+  coming cron. `gitWorkspace.js` (branching, commits), `githubPr.js` (PR, merge), `githubIssue.js`,
+  `postRun.js`, `llm.js` (review and summary over `fetch`), `mailer.js`. All `git`/`gh` calls go
+  through the injectable `exec.js`.
 - `src/activeRuns.js`, `src/runHistory.js`, `src/cronState.js`: the files under `logs/agent-runs/`.
 - `src/statusCollect.js` + `src/statusFormat.js`: the status snapshot and its terminal/WhatsApp
   rendering. `bin/agent-cli.js` is the terminal CLI.
-- `logs/agent-runs/`: one `<runId>.log` per run, `active/<runId>.json` per in-flight run (live
-  progress), `runs.jsonl` history, and `cron-state.json` (the cron's last tick, once it exists).
+- `logs/agent-runs/`: one `<runId>.log` per run (plus `<runId>-autofix.log`), `active/<runId>.json`
+  per in-flight run (live progress), `runs.jsonl` history (an issue run's `costUsd` includes its
+  autofix pass), and `cron-state.json` (the cron's last tick, once it exists).
 
 ## Tests
 

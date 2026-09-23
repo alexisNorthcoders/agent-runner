@@ -15,6 +15,8 @@ import { createJoplinClient } from './joplin.js';
 import { buildPreamble } from './preamble.js';
 import { createRunner } from './runner.js';
 import { createHttpServer } from './http.js';
+import { createWorkspaceAllowlist } from './workspaces.js';
+import { createIssuePipeline } from './issuePipeline/index.js';
 
 const config = loadConfig();
 
@@ -51,6 +53,8 @@ const runner = createRunner({
   statusSnapshot: () => collectStatus({ activeRuns, history, readCron: () => readCronState({ dir: config.logsDir }), readPause: pause.get, readLock: lock.current }),
   joplin: createJoplinClient(config.joplin),
   launchSafeRestart,
+  workspaces: createWorkspaceAllowlist(),
+  issues: createIssuePipeline({ settings: config.pipeline }),
   workspaceRoot: config.workspaceRoot,
   logsDir: config.logsDir,
   preamble: buildPreamble({ repoRoot: config.repoRoot }),
@@ -78,6 +82,8 @@ console.log(`agent-runner listening on http://127.0.0.1:${config.port} (workspac
 try {
   const interrupted = await runner.recoverInterruptedRun();
   if (interrupted) console.warn(`agent-runner: reported interrupted run ${interrupted.runId} to owner`);
+  // recovery may have stopped an orphaned agent, which makes its active-run file stale
+  if (interrupted) await activeRuns.removeStale({ ownersGone: true }).catch(() => []);
 } catch (err) {
   console.error('agent-runner: startup recovery failed:', err?.message || err);
 }

@@ -380,3 +380,237 @@ describe('runner: startup recovery', () => {
     assert.equal((await pause.get())?.token, token);
   });
 });
+
+/**
+ * Fake issue pipeline: `finish` resolves when the test calls `release(result)`, and can run a
+ * follow-up agent pass through the `runAgent` it was given.
+ */
+function fakeIssues({ prepareError = null } = {}) {
+  /** @type {any[]} */
+  const prepares = [];
+  /** @type {any[]} */
+  const finishes = [];
+  /** @type {any[]} */
+  const recoveries = [];
+  let recovery = { ok: true, sha: 'abc1234', branch: 'claude/issue-7-fix-it' };
+  return {
+    prepares,
+    finishes,
+    recoveries,
+    setRecovery: (r) => (recovery = r),
+    issues: {
+      async prepare(p) {
+        prepares.push(p);
+        if (prepareError) throw new Error(prepareError);
+        return {
+          prompt: '# GitHub issue #7',
+          issue: { number: 7, repo: 'o/r', title: 'Fix it' },
+          branchName: 'claude/issue-7-fix-it',
+          defaultBranch: 'main',
+          resumed: false,
+          preAgentHeadSha: 'sha0',
+        };
+      },
+      finish(p) {
+        return new Promise((resolve) => {
+          finishes.push({ ...p, release: (r = { result: 'merged', message: '✅ #7 merged — Fix it', silent: false }) => resolve({ post: {}, ...r }) });
+        });
+      },
+      async commitInterruptedWork(p) {
+        recoveries.push(p);
+        return recovery;
+      },
+    },
+  };
+}
+
+const fakeWorkspaces = {
+  async resolveIssueWorkspace(alias) {
+    if (alias === 'nope') throw new Error('Unknown workspace alias "nope". Valid aliases: a');
+    return { alias: alias ?? 'a', root: '/repos/a' };
+  },
+};
+
+/** Let queued promise callbacks run. */
+const flush = () => new Promise((r) => setImmediate(r));
+
+function issueSetup(opts = {}) {
+  const fi = fakeIssues(opts);
+  return { ...fi, ...setup({ issues: fi.issues, workspaces: fakeWorkspaces, ...(opts.overrides ?? {}) }) };
+}
+
+describe('runner: issue runs', () => {
+  it('prepares the issue, runs the agent with the implement workflow in the repo, then reports once', async () => {
+    const { runner, starts, prepares, finishes, lock, history, outboxEntries } = issueSetup();
+    const { reply } = await runner.handleCommand({ text: 'claude issue:a:7 add tests', replyTo: 'jid-1' });
+    assert.match(reply, /^Started run run-1: issue #7 \(Fix it\) in a on `claude\/issue-7-fix-it`\./);
+    assert.deepEqual(prepares, [{ issueNumber: 7, alias: 'a', workspaceRoot: '/repos/a', extraInstructions: 'add tests' }]);
+    assert.equal(starts.length, 1);
+    assert.equal(starts[0].opts.prompt, '# GitHub issue #7');
+    assert.equal(starts[0].opts.implement, true);
+    assert.equal(starts[0].opts.cwd, '/repos/a');
+    const held = await lock.current();
+    assert.equal(held?.kind, 'issue');
+    assert.equal(held?.issueNumber, 7);
+    assert.equal(held?.workspaceAlias, 'a');
+    assert.equal(held?.workspaceRoot, '/repos/a');
+
+    starts[0].finish('success', 'implemented');
+    await flush();
+    assert.equal(finishes.length, 1);
+    assert.equal(finishes[0].agent.outcome, 'success');
+    assert.equal(finishes[0].repo, '/repos/a');
+    assert.equal(finishes[0].preAgentHeadSha, 'sha0');
+    assert.equal(outboxEntries().length, 0, 'nothing is sent until post-run is done');
+    finishes[0].release();
+    await runner.idle();
+
+    assert.deepEqual(
+      outboxEntries().map((e) => [e.replyTo, e.text]),
+      [['jid-1', '✅ #7 merged — Fix it']]
+    );
+    assert.equal(await lock.current(), null);
+    assert.equal(history[0].result, 'merged');
+    assert.equal(history[0].issueNumber, 7);
+    assert.equal(history[0].issueRepo, 'o/r');
+  });
+
+  it('rejects an unknown alias without taking the lock', async () => {
+    const { runner, prepares, lock } = issueSetup();
+    const { reply } = await runner.handleCommand({ text: 'claude issue:nope:7', replyTo: 'a' });
+    assert.match(reply, /Unknown workspace alias "nope"/);
+    assert.equal(prepares.length, 0);
+    assert.equal(await lock.current(), null);
+  });
+
+  it('replies with a prep failure and frees the lock', async () => {
+    const { runner, starts, lock } = issueSetup({ prepareError: 'Git setup for issue #7 failed: Working tree is not clean.' });
+    const { reply } = await runner.handleCommand({ text: 'claude issue:7', replyTo: 'a' });
+    assert.equal(reply, 'Git setup for issue #7 failed: Working tree is not clean.');
+    assert.equal(starts.length, 0);
+    assert.equal(await lock.current(), null);
+  });
+
+  it('is refused while busy, before touching the repo', async () => {
+    const { runner, prepares } = issueSetup();
+    await runner.handleCommand({ text: 'claude something', replyTo: 'a' });
+    const { reply } = await runner.handleCommand({ text: 'claude issue:a:7', replyTo: 'b' });
+    assert.match(reply, /busy/);
+    assert.equal(prepares.length, 0);
+  });
+
+  it('runs the autofix pass as the active agent, which claude:stop can stop', async () => {
+    const { runner, starts, finishes, outboxEntries } = issueSetup();
+    await runner.handleCommand({ text: 'claude issue:a:7', replyTo: 'a' });
+    starts[0].finish('success');
+    await flush();
+    const autofix = finishes[0].runAgent({ prompt: 'fix review', label: 'autofix' });
+    await flush();
+    assert.equal(starts.length, 2);
+    assert.equal(starts[1].opts.prompt, 'fix review');
+    assert.equal(starts[1].opts.implement, undefined);
+    assert.equal(starts[1].opts.cwd, '/repos/a');
+    assert.equal(starts[1].opts.logPath, '/runner/logs/agent-runs/run-1-autofix.log');
+    assert.equal((await runner.status()).activeRun?.phase, 'agent');
+
+    assert.match((await runner.handleCommand({ text: 'claude:stop', replyTo: 'a' })).reply, /Stopping run run-1/);
+    assert.equal(starts[1].stopped, true);
+    assert.equal((await autofix).outcome, 'stopped');
+
+    // after a stop, no further agent pass starts
+    assert.equal((await finishes[0].runAgent({ prompt: 'again', label: 'autofix' })).outcome, 'stopped');
+    assert.equal(starts.length, 2);
+    finishes[0].release({ result: 'pr_open', message: '⚠️ #7 — Fix it: merge blocked by the autofix pass — needs a look.', silent: false });
+    await runner.idle();
+    assert.match(outboxEntries()[0].text, /merge blocked/);
+  });
+
+  it('re-publishes the active-run file for the autofix pass, and counts its cost in history', async () => {
+    const { runner, starts, finishes, tracked, history } = issueSetup();
+    await runner.handleCommand({ text: 'claude issue:a:7', replyTo: 'a' });
+    starts[0].finish('success');
+    await flush();
+    const autofix = finishes[0].runAgent({ prompt: 'fix review', label: 'autofix' });
+    await flush();
+    assert.equal(tracked.length, 2);
+    assert.equal(tracked[0].finished, true);
+    assert.equal(tracked[1].record.agentPid, starts[1].pid);
+    const p = { model: 'm', turns: 1, outputTokens: 1, contextTokens: 1, lastActivity: 'Edit' };
+    starts[1].opts.onProgress(p);
+    assert.deepEqual(tracked[1].progress, [p]);
+    starts[1].finish('success');
+    await autofix;
+    finishes[0].release();
+    await runner.idle();
+    assert.equal(tracked[1].finished, true);
+    assert.equal(history[0].costUsd.toFixed(2), '0.24');
+    assert.equal(history[0].followUps[0].costUsd, 0.12);
+  });
+
+  it('explains that post-run itself cannot be interrupted', async () => {
+    const { runner, starts, finishes } = issueSetup();
+    await runner.handleCommand({ text: 'claude issue:a:7', replyTo: 'a' });
+    starts[0].finish('success');
+    await flush();
+    assert.match((await runner.handleCommand({ text: 'claude:stop', replyTo: 'a' })).reply, /in post-run.*can't be interrupted/s);
+    finishes[0].release();
+    await runner.idle();
+  });
+
+  it('the shared entry point: cron runs report to owner, skip silent results, and resolve with the result', async () => {
+    const { runner, starts, finishes, outboxEntries } = issueSetup();
+    const { reply, done } = await runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger: 'cron' });
+    assert.match(reply, /Started run run-1/);
+    starts[0].finish('success');
+    await flush();
+    finishes[0].release({ result: 'no_changes', message: 'ℹ️ #7 — Fix it: the agent made no changes.', silent: true });
+    assert.equal(await done, 'no_changes');
+    assert.deepEqual(outboxEntries(), []);
+  });
+});
+
+describe('runner: startup recovery of an issue run', () => {
+  const rec = { runId: 'old', kind: 'issue', label: 'issue a#7', replyTo: 'jid-1', workspaceRoot: '/repos/a', workspaceAlias: 'a', issueNumber: 7, agentPid: 55, logPath: '/l/old.log' };
+
+  it('WIP-commits the leftover work and says how to resume', async () => {
+    const { runner, lock, recoveries, outboxEntries } = issueSetup({ overrides: { isAlive: () => false } });
+    await lock.tryAcquire(rec);
+    await runner.recoverInterruptedRun();
+    assert.deepEqual(recoveries, [{ repo: '/repos/a', issueNumber: 7 }]);
+    const [msg] = outboxEntries();
+    assert.equal(msg.replyTo, 'owner');
+    assert.match(msg.text, /interrupted/);
+    assert.match(msg.text, /committed as WIP `abc1234` on `claude\/issue-7-fix-it`\. Send `claude issue:a:7` to resume\./);
+    assert.equal(await lock.current(), null);
+  });
+
+  it('leaves the repo alone while the old agent may still be writing', async () => {
+    const { runner, lock, recoveries, outboxEntries } = issueSetup({ overrides: { isAlive: () => true } });
+    await lock.tryAcquire(rec);
+    await runner.recoverInterruptedRun();
+    assert.deepEqual(recoveries, []);
+    assert.match(outboxEntries()[0].text, /still running/);
+  });
+
+  it('does not commit on a branch that is not the issue branch', async () => {
+    const { runner, lock, setRecovery, outboxEntries } = issueSetup({ overrides: { isAlive: () => false } });
+    setRecovery({ ok: false, reason: 'not_issue_branch', branch: 'main' });
+    await lock.tryAcquire(rec);
+    await runner.recoverInterruptedRun();
+    assert.match(outboxEntries()[0].text, /uncommitted changes on `main`, which is not the issue branch/);
+  });
+});
+
+describe('runner: an orphaned agent at startup', () => {
+  it('is stopped first, then its issue work is WIP-committed', async () => {
+    const stopped = [];
+    const { runner, lock, recoveries, outboxEntries } = issueSetup({
+      overrides: { isAlive: () => true, stopOrphanAgent: async (pid) => (stopped.push(pid), true) },
+    });
+    await lock.tryAcquire({ runId: 'old', kind: 'issue', workspaceRoot: '/repos/a', workspaceAlias: 'a', issueNumber: 7, agentPid: 55 });
+    await runner.recoverInterruptedRun();
+    assert.deepEqual(stopped, [55]);
+    assert.equal(recoveries.length, 1);
+    assert.match(outboxEntries()[0].text, /pid 55\) outlived the runner and has been stopped.*WIP `abc1234`/s);
+  });
+});

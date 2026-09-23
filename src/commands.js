@@ -4,6 +4,7 @@
  *
  * @typedef {{ kind: 'freeform', prompt: string }
  *   | { kind: 'joplin', noteQuery: string }
+ *   | { kind: 'issue', issueNumber: number, alias: string | null, extraInstructions: string }
  *   | { kind: 'stop' }
  *   | { kind: 'restart' }
  *   | { kind: 'status' }
@@ -14,6 +15,8 @@
 export const USAGE = `Usage:
 claude <instructions>  run the agent in ~/Projects
 claude joplin:<note title or id>  use a Joplin note as the instructions
+claude issue:<alias>:<n> [extra instructions]  implement GitHub issue <n> in the <alias> workspace, then PR, review and merge
+claude issue:<n> [extra instructions]  the same, in the default issue workspace
 claude:stop  kill the active run
 claude:restart  safely restart agent-runner (refused while a run is active)
 claude:status  active run, pause, last cron tick and recent runs
@@ -63,7 +66,12 @@ export function parseCommand(text) {
   }
 
   if (/^issue:/i.test(body)) {
-    return { kind: 'error', message: 'claude issue:<n> is not supported by agent-runner yet.' };
+    const m = body.match(/^issue:\s*(?:([a-zA-Z0-9_-]+)\s*:\s*)?(\d+)(?=$|\s)\s*([\s\S]*)$/i);
+    const issueNumber = m ? parseInt(m[2], 10) : 0;
+    if (!m || issueNumber < 1) {
+      return { kind: 'error', message: 'Usage: claude issue:<n> or claude issue:<alias>:<n> [extra instructions]' };
+    }
+    return { kind: 'issue', issueNumber, alias: m[1] ?? null, extraInstructions: m[3].trim() };
   }
 
   return { kind: 'freeform', prompt: body };

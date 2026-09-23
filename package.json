@@ -21,10 +21,12 @@
   "license": "ISC",
   "dependencies": {
     "dotenv": "^16.6.1",
+    "nodemailer": "^10.0.10",
     "redis": "^4.7.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",
+    "@types/nodemailer": "^8.0.2",
     "typescript": "^7.0.2"
   }
 }
