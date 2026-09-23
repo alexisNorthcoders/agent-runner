@@ -333,14 +333,14 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
     const mergeDirect = () => gh(repo, ['pr', 'merge', url, flag]);
     /**
      * @param {string} error the whole story, for the report
-     * @param {string | boolean} cause the error that decided the failure (or whether it was a network error)
+     * @param {boolean} transientNetwork whether the error that decided the failure was a network error
      * @param {{ staleHeadSynced?: boolean }} [extra]
      * @returns {MergeResult}
      */
-    const fail = (error, cause, extra = {}) => ({
+    const fail = (error, transientNetwork, extra = {}) => ({
       ok: false,
       error,
-      transientNetwork: typeof cause === 'boolean' ? cause : githubErrorLooksTransientNetwork(cause),
+      transientNetwork,
       mergeMethod: strategy,
       ...extra,
     });
@@ -360,7 +360,7 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
         const transient = githubErrorLooksTransientNetwork(errDirect);
         const stale = githubPrMergeErrorLooksStaleHead(errDirect);
         if (!transient && !(settings.staleHeadSync && (stale || githubPrMergeErrorLooksNotYetMergeable(errDirect)))) {
-          return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}`, errDirect, synced);
+          return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}`, false, synced);
         }
         log(
           transient
@@ -373,7 +373,7 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
         if (!transient && stale) {
           const sync = await updateBranch(repo, url);
           if (!sync.ok) {
-            return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`, sync.error || '', synced);
+            return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`, githubErrorLooksTransientNetwork(sync.error || ''), synced);
           }
           synced.staleHeadSynced = !sync.noOp || synced.staleHeadSynced;
         }
@@ -392,7 +392,7 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
           return { ok: true, mergedDirectly: true, mergeMethod: strategy, ...synced };
         } catch (eRetry) {
           const errRetry = String(execErrorText(eRetry)).trim();
-          return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}\n\nAfter wait/retry: ${errRetry}`, errRetry, synced);
+          return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}\n\nAfter wait/retry: ${errRetry}`, githubErrorLooksTransientNetwork(errRetry), synced);
         }
       }
     }
@@ -406,17 +406,17 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
     } catch (e) {
       const errFirst = String(execErrorText(e)).trim();
       if (githubPrMergeErrorLooksNoAutoMergeGate(errFirst)) return directMergeFallback(errFirst);
-      if (!settings.staleHeadSync || !githubPrMergeErrorLooksStaleHead(errFirst)) return fail(errFirst, errFirst);
+      if (!settings.staleHeadSync || !githubPrMergeErrorLooksStaleHead(errFirst)) return fail(errFirst, githubErrorLooksTransientNetwork(errFirst));
       log('queueAutoMerge: stale head blocked auto-merge; update-branch then retry', url);
       const sync = await updateBranch(repo, url);
-      if (!sync.ok) return fail(`${errFirst}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`, sync.error || '');
+      if (!sync.ok) return fail(`${errFirst}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`, githubErrorLooksTransientNetwork(sync.error || ''));
       try {
         await mergeAuto();
         return { ok: true, staleHeadSynced: !sync.noOp, mergeMethod: strategy };
       } catch (e2) {
         const errSecond = String(execErrorText(e2)).trim();
         if (githubPrMergeErrorLooksNoAutoMergeGate(errSecond)) return directMergeFallback(errSecond, { staleHeadSynced: !sync.noOp });
-        return fail(`${errFirst}\n\nAfter update-branch: ${errSecond}`, errSecond);
+        return fail(`${errFirst}\n\nAfter update-branch: ${errSecond}`, githubErrorLooksTransientNetwork(errSecond));
       }
     }
   }
