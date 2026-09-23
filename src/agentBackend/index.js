@@ -43,7 +43,12 @@ import { createClaudeBackend } from './claude.js';
  * @typedef {{ pid: number | null, done: Promise<AgentResult>, stop: () => void }} AgentRun
  *   `done` never rejects: failures come back as an outcome.
  *
- * @typedef {{ name: string, start: (opts: AgentStartOptions) => Promise<AgentRun> }} AgentBackend
+ * @typedef {{
+ *   name: string,
+ *   start: (opts: AgentStartOptions) => Promise<AgentRun>,
+ *   stopOrphan?: (pid: number) => Promise<boolean>,
+ * }} AgentBackend
+ *   `stopOrphan` stops an agent a dead runner left running, if the pid really is one; true once gone.
  */
 
 /**

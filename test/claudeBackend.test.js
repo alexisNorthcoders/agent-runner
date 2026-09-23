@@ -149,3 +149,38 @@ describe('claude AgentBackend', () => {
     assert.match(r.stderr, /CLAUDE_AGENT_BIN/);
   });
 });
+
+describe('stopOrphanClaude', () => {
+  const CMD = '/bin/claude -p --model sonnet --output-format stream-json --verbose --dangerously-skip-permissions do it';
+
+  it('stops a leftover headless claude process group, escalating to SIGKILL', async () => {
+    const { stopOrphanClaude } = await import('../src/agentBackend/claude.js');
+    /** @type {string[]} */
+    const signals = [];
+    let aliveUntilKill = true;
+    const gone = await stopOrphanClaude(77, {
+      readCmdline: async () => CMD,
+      kill: (_pid, sig) => {
+        signals.push(sig);
+        if (sig === 'SIGKILL') aliveUntilKill = false;
+      },
+      isAlive: () => aliveUntilKill,
+      sleep: async () => {},
+    });
+    assert.equal(gone, true);
+    assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
+  });
+
+  it('leaves a recycled pid that is not an agent alone', async () => {
+    const { stopOrphanClaude } = await import('../src/agentBackend/claude.js');
+    let killed = false;
+    const gone = await stopOrphanClaude(77, {
+      readCmdline: async () => 'node server.js',
+      kill: () => void (killed = true),
+      isAlive: () => true,
+      sleep: async () => {},
+    });
+    assert.equal(gone, false);
+    assert.equal(killed, false);
+  });
+});

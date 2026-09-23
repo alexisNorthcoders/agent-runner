@@ -2,7 +2,7 @@ import { execFile } from 'child_process';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { augmentedPathEnv } from '../agentBackend/claude.js';
+import { augmentedPathEnv } from '../processPath.js';
 
 /**
  * The seam for every `git` and `gh` call the issue pipeline makes. Tests inject a fake with the

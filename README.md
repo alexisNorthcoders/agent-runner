@@ -40,7 +40,7 @@ ADR), under one lock like any other run:
 1. **Workspace**: `<alias>` must be in the allowlist (`CLAUDE_WORKSPACE_MAP` and/or the JSON
    `CLAUDE_WORKSPACE_MAP_FILE`), resolved with realpath. Only issue runs use the allowlist.
 2. **Prep**: `gh issue view` (the repo comes from `CLAUDE_ISSUE_REPO_MAP`, else the workspace's GitHub
-   `origin`), then with a clean tree: fetch, check out and fast-forward the default branch (`main`
+   `origin`; unlike the bot, there is no fallback to WhatsappBot), then with a clean tree: fetch, check out and fast-forward the default branch (`main`
    or `master`, from `origin/HEAD`), and create `claude/issue-<n>-<slug>`. If that issue already
    has a local branch, the run **resumes** on it, and the prompt says what is already there
    (commits, uncommitted files, an open PR and its conflicts). A prep failure is the HTTP reply.
@@ -57,8 +57,9 @@ Each post-run step has a `CLAUDE_POST_RUN*` flag (see `.env.example`). `claude:s
 agent or the autofix pass; post-run's `gh`/`git` steps themselves run to completion.
 
 If the runner dies mid-run, the next start reports the run as interrupted to `owner`,
-WIP-commits leftover work on the issue branch (only if the agent process is gone, and never on
-another branch), and says which command resumes it.
+WIP-commits leftover work on the issue branch (never on another branch), and says which command
+resumes it. An agent that outlived its runner is stopped first, but only if its pid still belongs
+to a headless Claude run.
 
 ## HTTP API (127.0.0.1 only, no auth)
 

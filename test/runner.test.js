@@ -479,3 +479,17 @@ describe('runner: startup recovery of an issue run', () => {
     assert.match(outboxEntries()[0].text, /uncommitted changes on `main`, which is not the issue branch/);
   });
 });
+
+describe('runner: an orphaned agent at startup', () => {
+  it('is stopped first, then its issue work is WIP-committed', async () => {
+    const stopped = [];
+    const { runner, lock, recoveries, outboxEntries } = issueSetup({
+      overrides: { isAlive: () => true, stopOrphanAgent: async (pid) => (stopped.push(pid), true) },
+    });
+    await lock.tryAcquire({ runId: 'old', kind: 'issue', workspaceRoot: '/repos/a', workspaceAlias: 'a', issueNumber: 7, agentPid: 55 });
+    await runner.recoverInterruptedRun();
+    assert.deepEqual(stopped, [55]);
+    assert.equal(recoveries.length, 1);
+    assert.match(outboxEntries()[0].text, /pid 55\) outlived the runner and has been stopped.*WIP `abc1234`/s);
+  });
+});

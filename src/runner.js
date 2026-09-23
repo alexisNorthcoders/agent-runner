@@ -86,6 +86,7 @@ export function formatRunResult(rec, r) {
  *   newRunId?: () => string,
  *   now?: () => number,
  *   isAlive?: (pid: number) => boolean,
+ *   stopOrphanAgent?: (pid: number) => Promise<boolean>,
  *   logger?: Pick<Console, 'error' | 'warn' | 'info'>,
  * }} deps
  */
@@ -105,6 +106,7 @@ export function createRunner({
   newRunId = timestampRunId,
   now = Date.now,
   isAlive = pidAlive,
+  stopOrphanAgent = async (pid) => (backend.stopOrphan ? backend.stopOrphan(pid) : false),
   logger = console,
 }) {
   /** The run this process is executing, if any. @type {ActiveRun | null} */
@@ -446,8 +448,15 @@ export function createRunner({
       const rec = await lock.current();
       if (!rec) return null;
       const name = `Agent ${describeRun(rec)}`;
-      const agentAlive = Boolean(rec.agentPid && isAlive(rec.agentPid));
-      const orphan = agentAlive ? `\nIts agent process (pid ${rec.agentPid}) is still running, but nobody will report its result.` : '';
+      let agentAlive = Boolean(rec.agentPid && isAlive(rec.agentPid));
+      let orphan = '';
+      if (agentAlive) {
+        // nobody will report it, and a re-run must not share the repo with it
+        agentAlive = !(await stopOrphanAgent(rec.agentPid).catch(() => false));
+        orphan = agentAlive
+          ? `\nIts agent process (pid ${rec.agentPid}) is still running, but nobody will report its result.`
+          : `\nIts agent process (pid ${rec.agentPid}) outlived the runner and has been stopped.`;
+      }
       // an issue run's leftover work is WIP-committed so a re-run resumes it (never while its agent
       // may still be writing)
       const wip = rec.kind === 'issue' && !agentAlive ? await recoverIssueWork(rec) : '';

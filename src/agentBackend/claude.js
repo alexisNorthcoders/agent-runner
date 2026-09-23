@@ -1,10 +1,12 @@
 import { spawn } from 'child_process';
 import { createWriteStream, existsSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { mkdir } from 'fs/promises';
 import { finished } from 'stream/promises';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { createStreamAccumulator } from './claudeStreamParser.js';
+import { augmentedPathEnv } from '../processPath.js';
 
 /**
  * The Claude Code CLI implementation of `AgentBackend` (see ./index.js). Everything Claude-specific
@@ -13,13 +15,6 @@ import { createStreamAccumulator } from './claudeStreamParser.js';
 
 const MAX_STDERR_BYTES = 256 * 1024;
 const KILL_GRACE_MS = 5000;
-
-/** Paths often missing when started by PM2/systemd rather than an interactive shell. */
-export function augmentedPathEnv(base = process.env.PATH || '') {
-  const home = homedir();
-  const extra = [join(home, '.local', 'bin'), join(home, '.claude', 'local'), '/usr/local/bin'].join(':');
-  return base ? `${extra}:${base}` : extra;
-}
 
 /** CLAUDE_AGENT_BIN, then common install locations, then `claude` on PATH. */
 export function resolveClaudeBin(env = process.env) {
@@ -55,6 +50,48 @@ function killProcessGroup(child, signal) {
   }
 }
 
+/** @param {number} pid */
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM';
+  }
+}
+
+/**
+ * Stop an agent left running by a runner that died (it runs in its own process group, so it can
+ * outlive the runner). Only a process whose command line is a headless Claude run is touched, so
+ * a recycled pid is left alone.
+ * @param {number} pid
+ * @param {{ readCmdline?: (pid: number) => Promise<string>, kill?: (pid: number, signal: NodeJS.Signals) => void, isAlive?: (pid: number) => boolean, sleep?: (ms: number) => Promise<void> }} [deps]
+ * @returns {Promise<boolean>} true once it's gone
+ */
+export async function stopOrphanClaude(
+  pid,
+  {
+    readCmdline = async (p) => (await readFile(`/proc/${p}/cmdline`, 'utf8')).split('\0').join(' '),
+    kill = (p, sig) => process.kill(-p, sig),
+    isAlive = alive,
+    sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  } = {}
+) {
+  if (!isAlive(pid)) return true;
+  const cmd = await readCmdline(pid).catch(() => '');
+  if (!cmd.includes('--output-format stream-json') || !cmd.includes('-p')) return false;
+  for (const signal of /** @type {const} */ (['SIGTERM', 'SIGKILL'])) {
+    try {
+      kill(pid, signal);
+    } catch {
+      /* already gone */
+    }
+    for (let i = 0; i < 25 && isAlive(pid); i++) await sleep(200);
+    if (!isAlive(pid)) return true;
+  }
+  return false;
+}
+
 /**
  * @param {{
  *   bin?: string,
@@ -75,6 +112,7 @@ export function createClaudeBackend({
 }) {
   return {
     name: 'claude',
+    stopOrphan: (pid) => stopOrphanClaude(pid),
     async start({ prompt, preamble, implement, cwd, logPath, onProgress }) {
       await mkdir(dirname(logPath), { recursive: true });
       const log = createWriteStream(logPath, { flags: 'w' });
