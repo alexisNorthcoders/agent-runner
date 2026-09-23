@@ -9,7 +9,8 @@ import { createOutbox } from './outbox.js';
 import { createAgentBackend } from './agentBackend/index.js';
 import { createRunHistory } from './runHistory.js';
 import { createActiveRuns } from './activeRuns.js';
-import { readCronState } from './cronState.js';
+import { createCronState } from './cronState.js';
+import { createCronTracer } from './cronTracer.js';
 import { collectStatus } from './statusCollect.js';
 import { createJoplinClient } from './joplin.js';
 import { buildPreamble } from './preamble.js';
@@ -42,6 +43,9 @@ const outbox = createOutbox({ store });
 const pause = createPauseFlag({ store });
 const history = createRunHistory({ dir: config.logsDir });
 const activeRuns = createActiveRuns({ dir: config.logsDir });
+const cronState = createCronState({ store });
+const workspaces = createWorkspaceAllowlist();
+const issues = createIssuePipeline({ settings: config.pipeline });
 
 const runner = createRunner({
   lock,
@@ -50,11 +54,11 @@ const runner = createRunner({
   backend: createAgentBackend({ timeoutMs: config.agentTimeoutMs }),
   history,
   activeRuns,
-  statusSnapshot: () => collectStatus({ activeRuns, history, readCron: () => readCronState({ dir: config.logsDir }), readPause: pause.get, readLock: lock.current }),
+  statusSnapshot: () => collectStatus({ activeRuns, history, readCron: cronState.read, readPause: pause.get, readLock: lock.current }),
   joplin: createJoplinClient(config.joplin),
   launchSafeRestart,
-  workspaces: createWorkspaceAllowlist(),
-  issues: createIssuePipeline({ settings: config.pipeline }),
+  workspaces,
+  issues,
   workspaceRoot: config.workspaceRoot,
   logsDir: config.logsDir,
   preamble: buildPreamble({ repoRoot: config.repoRoot }),
@@ -88,10 +92,31 @@ try {
   console.error('agent-runner: startup recovery failed:', err?.message || err);
 }
 
+// After recovery, so a leftover lock can't make the first tick skip.
+const cron = createCronTracer({
+  startIssueRun: runner.startIssueRun,
+  lock,
+  pause,
+  state: cronState,
+  workspaces,
+  github: issues.github,
+  outbox,
+  aliases: config.cron.aliases,
+  intervalMs: config.cron.intervalMs,
+});
+if (config.cron.enabled) {
+  if (!process.env.CLAUDE_ISSUE_DEFAULT_ALIAS?.trim()) console.warn('agent-runner: CLAUDE_ISSUE_DEFAULT_ALIAS is unset, so the cron polls only its secondary workspaces');
+  await cron.start();
+} else {
+  console.log('agent-runner: cron issue tracer disabled (CRON_ISSUE_TRACER_DISABLE)');
+  await cronState.clear().catch(() => {});
+}
+
 // A run in flight is left alone: PM2 kills the agent with this process tree, and the lock left
 // in Redis makes the next start report the run as interrupted.
 for (const sig of /** @type {const} */ (['SIGINT', 'SIGTERM'])) {
   process.once(sig, () => {
+    cron.stop();
     server.close();
     redis.quit().finally(() => process.exit(0));
   });

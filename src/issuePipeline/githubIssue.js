@@ -2,11 +2,39 @@ import { parseCompactMap } from '../workspaces.js';
 
 /**
  * Reads a GitHub issue with `gh` and renders it as the agent's prompt. Which repo the issue lives
- * in comes from `CLAUDE_ISSUE_REPO_MAP` for the alias, else the workspace's GitHub `origin`.
+ * in comes from `CLAUDE_ISSUE_REPO_MAP` for the alias, else the workspace's GitHub `origin`. Also
+ * the cron's repo-wide lookups: open issues, their `blocked_by` count, and open agent PRs.
+ *
+ * @typedef {{ number: number, title: string, labels: string[] }} OpenIssue
+ * @typedef {{ url: string, headSha: string, baseRefName: string, mergeable: string, mergeStateStatus: string }} OpenAgentPr
  */
 
 const REPO_SLUG_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const RETRY_BACKOFF_MS = [0, 2500, 8000];
+const ISSUE_LIST_LIMIT = 500;
+
+/** @param {string} repo @returns {string} */
+function assertRepoSlug(repo) {
+  if (!REPO_SLUG_RE.test(String(repo))) throw new Error(`GitHub repo must look like owner/repo (got ${JSON.stringify(repo)})`);
+  return repo;
+}
+
+/** @param {any[] | undefined} labels @returns {string[]} */
+const labelNames = (labels) => (Array.isArray(labels) ? labels.map((l) => (typeof l === 'string' ? l : l?.name)).filter(Boolean) : []);
+
+/**
+ * Issue number in an agent issue branch name (`<prefix>-<n>-<slug>`), or null for other branches.
+ * @param {string} headRefName
+ * @param {string} prefix `CLAUDE_ISSUE_BRANCH_PREFIX`
+ * @returns {number | null}
+ */
+export function issueNumberFromAgentBranch(headRefName, prefix) {
+  const head = String(headRefName || '');
+  if (!head.startsWith(`${prefix}-`)) return null;
+  const m = /^(\d+)(?:-|$)/.exec(head.slice(prefix.length + 1));
+  const n = m ? parseInt(m[1], 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 /**
  * True for gateway / rate-limit / network errors from `gh`, which are worth retrying.
@@ -45,7 +73,7 @@ export function ownerRepoSlugFromGithubRemote(remoteUrl) {
  * @param {{ repo: string, number: number, extraInstructions?: string }} p
  */
 export function renderIssuePrompt(data, { repo, number, extraInstructions = '' }) {
-  const labels = Array.isArray(data.labels) ? data.labels.map((l) => (typeof l === 'string' ? l : l?.name)).filter(Boolean) : [];
+  const labels = labelNames(data.labels);
   const lines = [
     `# GitHub issue #${data.number ?? number}`,
     '',
@@ -107,24 +135,81 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
     );
   }
 
+  /** @param {string[]} args @returns {Promise<string>} stdout */
+  async function gh(args) {
+    try {
+      return (await ghWithRetry(args)).stdout;
+    } catch (e) {
+      throw new Error(
+        e?.code === 'ENOENT'
+          ? 'GitHub CLI not found. Install gh or set GH_BIN to its full path.'
+          : (typeof e?.stderr === 'string' && e.stderr.trim()) || e?.message || String(e)
+      );
+    }
+  }
+
   return {
     resolveIssueRepo,
+
+    /** @param {string} repo @returns {Promise<OpenIssue[]>} */
+    async listOpenIssues(repo) {
+      const out = await gh(['issue', 'list', '--repo', assertRepoSlug(repo), '--state', 'open', '--json', 'number,title,labels', '--limit', String(ISSUE_LIST_LIMIT)]);
+      const data = JSON.parse(out || '[]');
+      if (!Array.isArray(data)) return [];
+      return data
+        .map((row) => ({ number: Number(row?.number), title: String(row?.title ?? ''), labels: labelNames(row?.labels) }))
+        .filter((row) => Number.isInteger(row.number) && row.number > 0);
+    },
+
+    /**
+     * Open blockers of an issue, from GitHub's native issue dependencies (GitHub recomputes it as
+     * blockers close).
+     * @param {string} repo
+     * @param {number} issueNumber
+     */
+    async blockedByCount(repo, issueNumber) {
+      const out = await gh(['api', `repos/${assertRepoSlug(repo)}/issues/${issueNumber}`, '--jq', '.issue_dependencies_summary.blocked_by // 0']);
+      const n = parseInt(out.trim(), 10);
+      return Number.isFinite(n) && n >= 0 ? n : 0;
+    },
+
+    /**
+     * Open PRs whose head is an agent issue branch, keyed by issue number.
+     * @param {string} repo
+     * @returns {Promise<Map<number, OpenAgentPr>>}
+     */
+    async listOpenAgentPrsByIssue(repo) {
+      const out = await gh(['pr', 'list', '--repo', assertRepoSlug(repo), '--state', 'open', '--json', 'url,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus', '--limit', '100']);
+      const data = JSON.parse(out || '[]');
+      /** @type {Map<number, OpenAgentPr>} */
+      const byIssue = new Map();
+      if (!Array.isArray(data)) return byIssue;
+      for (const row of data) {
+        const n = issueNumberFromAgentBranch(row?.headRefName, settings.issueBranchPrefix);
+        if (n == null || byIssue.has(n)) continue;
+        byIssue.set(n, {
+          url: String(row.url || ''),
+          headSha: String(row.headRefOid || ''),
+          baseRefName: String(row.baseRefName || ''),
+          mergeable: String(row.mergeable || ''),
+          mergeStateStatus: String(row.mergeStateStatus || ''),
+        });
+      }
+      return byIssue;
+    },
+
+    /** Current tip commit of `branch` on GitHub. @param {string} repo @param {string} branch */
+    async branchHeadSha(repo, branch) {
+      return (await gh(['api', `repos/${assertRepoSlug(repo)}/branches/${encodeURIComponent(branch)}`, '--jq', '.commit.sha'])).trim();
+    },
+
     /**
      * @param {{ issueNumber: number, workspaceRoot: string, alias: string | null, extraInstructions?: string }} p
      * @returns {Promise<{ markdown: string, repo: string, number: number, title: string }>}
      */
     async fetchIssuePrompt({ issueNumber, workspaceRoot, alias, extraInstructions = '' }) {
       const repo = await resolveIssueRepo(workspaceRoot, alias);
-      let stdout;
-      try {
-        ({ stdout } = await ghWithRetry(['issue', 'view', String(issueNumber), '--repo', repo, '--json', 'title,body,number,state,url,labels']));
-      } catch (e) {
-        throw new Error(
-          e?.code === 'ENOENT'
-            ? 'GitHub CLI not found. Install gh or set GH_BIN to its full path.'
-            : (typeof e?.stderr === 'string' && e.stderr.trim()) || e?.message || String(e)
-        );
-      }
+      const stdout = await gh(['issue', 'view', String(issueNumber), '--repo', repo, '--json', 'title,body,number,state,url,labels']);
       let data;
       try {
         data = JSON.parse(stdout);

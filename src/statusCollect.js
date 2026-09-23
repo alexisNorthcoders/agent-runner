@@ -2,8 +2,8 @@ import { pidAlive } from './pidAlive.js';
 
 /**
  * One snapshot of the runner's state, shared by `claude:status` (inside the service) and the
- * terminal CLIs (a separate process). Runs, history and cron state come from files under the logs
- * dir, so the CLIs work while the runner is down. The pause flag and lock come from Redis, and
+ * terminal CLIs (a separate process). Runs and history come from files under the logs dir, so the
+ * CLIs work while the runner is down. The pause flag, lock and cron state come from Redis, and
  * Redis being down must not hang or fail a status call, so those lookups are time-boxed. The lock
  * catches a run that holds it without an active file (mid Joplin fetch, or its first write failed).
  *
@@ -63,7 +63,7 @@ export async function collectStatus({
   const t = now();
   const [active, cron, recent, paused, lock] = await Promise.all([
     activeRuns.list(),
-    readCron(),
+    timeBoxed(readCron, null, pauseTimeoutMs),
     history.read({ sinceMs: t - WEEK_MS }),
     timeBoxed(readPause, /** @type {const} */ ('unknown'), pauseTimeoutMs),
     timeBoxed(readLock, null, pauseTimeoutMs),

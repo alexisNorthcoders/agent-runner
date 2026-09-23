@@ -1,15 +1,19 @@
 import { createClient } from 'redis';
 
 /**
- * The narrow slice of Redis the runner uses. The lock, pause flag and outbox depend on this
+ * The narrow slice of Redis the runner uses. The lock, pause flag, outbox and cron state depend on this
  * interface, not on the client, so tests swap in `test/helpers/memoryStore.js`.
  *
  * @typedef {{
  *   get: (key: string) => Promise<string | null>,
+ *   set: (key: string, value: string) => Promise<void>,
  *   setIfAbsent: (key: string, value: string, ttlSeconds: number) => Promise<boolean>,
  *   replaceIfPresent: (key: string, value: string) => Promise<boolean>,
  *   deleteIfField: (key: string, field: string, expected: string) => Promise<boolean>,
  *   del: (key: string) => Promise<void>,
+ *   hashGetAll: (key: string) => Promise<Record<string, string>>,
+ *   hashSet: (key: string, field: string, value: string) => Promise<void>,
+ *   hashDelete: (key: string, field: string) => Promise<void>,
  *   appendToStream: (key: string, fields: Record<string, string>, opts: { minIdMs: number }) => Promise<string>,
  * }} Store
  */
@@ -31,6 +35,9 @@ return 0`;
 export function createRedisStore(client) {
   return {
     get: (key) => client.get(key),
+    async set(key, value) {
+      await client.set(key, value);
+    },
     async setIfAbsent(key, value, ttlSeconds) {
       return (await client.set(key, value, { NX: true, EX: ttlSeconds })) === 'OK';
     },
@@ -43,6 +50,15 @@ export function createRedisStore(client) {
     },
     async del(key) {
       await client.del(key);
+    },
+    async hashGetAll(key) {
+      return { ...(await client.hGetAll(key)) };
+    },
+    async hashSet(key, field, value) {
+      await client.hSet(key, field, value);
+    },
+    async hashDelete(key, field) {
+      await client.hDel(key, field);
     },
     appendToStream(key, fields, { minIdMs }) {
       return client.xAdd(key, '*', fields, {

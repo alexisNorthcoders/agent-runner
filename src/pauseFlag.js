@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
 
 /**
- * Runner-wide pause flag in Redis. While it is set the runner starts no new runs (and the cron,
- * once ported, skips its ticks). Whoever sets it gets a token and only that token clears it, so
+ * Runner-wide pause flag in Redis. While it is set the runner starts no new runs (and the cron
+ * skips its ticks). Whoever sets it gets a token and only that token clears it, so
  * the runner never clears a pause it didn't set, e.g. on startup mid safe-restart. The TTL is a
  * safety net for a setter that dies before clearing.
  *

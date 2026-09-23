@@ -8,7 +8,7 @@ import { createGmailSender } from './mailer.js';
 import { createPostRun } from './postRun.js';
 
 /**
- * The GitHub issue pipeline behind `claude issue:<alias>:<n>`, and later the cron tracer: the two
+ * The GitHub issue pipeline behind `claude issue:<alias>:<n>` and the cron tracer: the two
  * share `prepare` (fetch the issue, branch in place, build the prompt, with resume context) and
  * `finish` (post-run, then one short outbox message). The runner owns the lock and the agent
  * process in between.
@@ -181,6 +181,8 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
     git,
     prs,
     postRun,
+    /** Issue lookups, including the cron's repo-wide ones. */
+    github: issues,
 
     /**
      * Fetch the issue and branch in place in `workspaceRoot` (resuming an unfinished branch), and

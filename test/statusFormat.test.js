@@ -64,7 +64,7 @@ describe('renderStatusText (WhatsApp)', () => {
     const text = renderStatusText(snapshot());
     assert.match(text, /^Agent: idle$/m);
     assert.match(text, /^Paused: no$/m);
-    assert.match(text, /^Cron: not running/m);
+    assert.match(text, /^Cron: not started/m);
     assert.match(text, /no finished runs/);
   });
 
@@ -103,6 +103,8 @@ describe('renderStatusText (WhatsApp)', () => {
     assert.match(renderStatusText(snapshot({ cron, cronAlive: false })), /\[cron process not running\]/);
     const starting = { ...cron, lastTickStartedAt: null, lastTickEndedAt: null, outcome: null };
     assert.match(renderStatusText(snapshot({ cron: starting, cronAlive: true })), /^Cron: starting/m);
+    const paused = { ...cron, outcome: { kind: 'paused' } };
+    assert.match(renderStatusText(snapshot({ cron: paused, cronAlive: true })), /^Cron: last tick 5m00s ago — skipped, agent-runner was paused$/m);
   });
 
   it("totals today's spend and lists the last 3 runs, compactly", () => {

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGithubIssues, githubCliErrorLooksTransient, ownerRepoSlugFromGithubRemote } from '../src/issuePipeline/githubIssue.js';
+import { createGithubIssues, githubCliErrorLooksTransient, issueNumberFromAgentBranch, ownerRepoSlugFromGithubRemote } from '../src/issuePipeline/githubIssue.js';
 import { loadPipelineSettings } from '../src/issuePipeline/settings.js';
 
 describe('githubCliErrorLooksTransient', () => {
@@ -85,5 +85,60 @@ describe('fetchIssuePrompt', () => {
     });
     await assert.rejects(missing.api.fetchIssuePrompt({ issueNumber: 7, workspaceRoot: '/w', alias: 'a' }), /Could not resolve/);
     assert.deepEqual(missing.sleeps, []);
+  });
+});
+
+describe('cron lookups', () => {
+  it('lists open issues with their label names', async () => {
+    const rows = [
+      { number: 3, title: 'A', labels: [{ name: 'ready-for-agent' }] },
+      { number: '4', title: 'B', labels: [] },
+      { number: 0, title: 'junk' },
+    ];
+    const { api, calls } = issues(() => JSON.stringify(rows));
+    assert.deepEqual(await api.listOpenIssues('o/r'), [
+      { number: 3, title: 'A', labels: ['ready-for-agent'] },
+      { number: 4, title: 'B', labels: [] },
+    ]);
+    assert.deepEqual(calls[0][1].slice(0, 6), ['issue', 'list', '--repo', 'o/r', '--state', 'open']);
+  });
+
+  it('reads the native blocked_by count', async () => {
+    const { api, calls } = issues(() => '2\n');
+    assert.equal(await api.blockedByCount('o/r', 9), 2);
+    assert.deepEqual(calls[0][1], ['api', 'repos/o/r/issues/9', '--jq', '.issue_dependencies_summary.blocked_by // 0']);
+  });
+
+  it('keys open agent PRs by the issue number in their branch', async () => {
+    const prs = [
+      { url: 'u1', headRefName: 'claude/issue-39-lobby', headRefOid: 'h1', baseRefName: 'main', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' },
+      { url: 'u2', headRefName: 'feature/x', headRefOid: 'h2', baseRefName: 'main' },
+    ];
+    const { api } = issues(() => JSON.stringify(prs));
+    assert.deepEqual(
+      await api.listOpenAgentPrsByIssue('o/r'),
+      new Map([[39, { url: 'u1', headSha: 'h1', baseRefName: 'main', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' }]])
+    );
+  });
+
+  it('reads a branch tip', async () => {
+    const { api, calls } = issues(() => 'abc123\n');
+    assert.equal(await api.branchHeadSha('o/r', 'main'), 'abc123');
+    assert.deepEqual(calls[0][1], ['api', 'repos/o/r/branches/main', '--jq', '.commit.sha']);
+  });
+
+  it('refuses a malformed repo slug', async () => {
+    const { api } = issues(() => '[]');
+    await assert.rejects(api.listOpenIssues('o/r --flag'), /owner\/repo/);
+  });
+});
+
+describe('issueNumberFromAgentBranch', () => {
+  it('reads the issue number from agent issue branches only', () => {
+    assert.equal(issueNumberFromAgentBranch('claude/issue-39-lobby-ambience', 'claude/issue'), 39);
+    assert.equal(issueNumberFromAgentBranch('claude/issue-7', 'claude/issue'), 7);
+    assert.equal(issueNumberFromAgentBranch('claude/wa-20260101-abc', 'claude/issue'), null);
+    assert.equal(issueNumberFromAgentBranch('issue/42-short', 'claude/issue'), null);
+    assert.equal(issueNumberFromAgentBranch('claude/issue-x-1', 'claude/issue'), null);
   });
 });

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Terminal observability for agent-runner (think `pm2 status`). Reads the files under
- * `logs/agent-runs/` directly, plus the pause flag from Redis, so it works while the runner is down.
+ * `logs/agent-runs/` directly, plus the pause flag, lock and cron state from Redis, so it works
+ * while the runner is down.
  * Also available as `npm run agent:status | agent:watch | agent:history | agent:logs`.
  */
 import { spawn } from 'child_process';
@@ -13,7 +14,7 @@ import { createPauseFlag } from '../src/pauseFlag.js';
 import { createRunLock } from '../src/runLock.js';
 import { createActiveRuns } from '../src/activeRuns.js';
 import { createRunHistory } from '../src/runHistory.js';
-import { readCronState } from '../src/cronState.js';
+import { createCronState } from '../src/cronState.js';
 import { collectStatus } from '../src/statusCollect.js';
 import { ansi, plain, renderHistoryLines, renderStatus } from '../src/statusFormat.js';
 
@@ -67,6 +68,7 @@ function createRedisReader() {
   return {
     readPause: () => withStore((store) => createPauseFlag({ store }).get()),
     readLock: () => withStore((store) => createRunLock({ store, ttlSeconds: config.lockTtlSeconds }).current()),
+    readCron: () => withStore((store) => createCronState({ store }).read()),
     async close() {
       const client = await connecting?.catch(() => null);
       await client?.quit().catch(() => {});
@@ -79,7 +81,7 @@ const collect = () =>
   collectStatus({
     activeRuns,
     history,
-    readCron: () => readCronState({ dir: config.logsDir }),
+    readCron: redis.readCron,
     readPause: redis.readPause,
     readLock: redis.readLock,
   });
