@@ -525,8 +525,8 @@ describe('runner: issue runs', () => {
     assert.match(outboxEntries()[0].text, /merge blocked/);
   });
 
-  it('re-publishes the active-run file with the autofix agent pid, and removes it at the end', async () => {
-    const { runner, starts, finishes, tracked } = issueSetup();
+  it('re-publishes the active-run file for the autofix pass, and counts its cost in history', async () => {
+    const { runner, starts, finishes, tracked, history } = issueSetup();
     await runner.handleCommand({ text: 'claude issue:a:7', replyTo: 'a' });
     starts[0].finish('success');
     await flush();
@@ -543,6 +543,8 @@ describe('runner: issue runs', () => {
     finishes[0].release();
     await runner.idle();
     assert.equal(tracked[1].finished, true);
+    assert.equal(history[0].costUsd.toFixed(2), '0.24');
+    assert.equal(history[0].followUps[0].costUsd, 0.12);
   });
 
   it('explains that post-run itself cannot be interrupted', async () => {

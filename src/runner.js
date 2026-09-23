@@ -356,10 +356,22 @@ export function createRunner({
           runAgent: followUpAgent(a),
         });
         outcome = fin.result;
+        const followUps = a.followUps ?? [];
+        const costs = [agent.usage.costUsd, ...followUps.map((f) => f.costUsd)].filter((c) => c != null);
         return {
           // cron stays quiet about runs that changed nothing
           text: trigger === 'cron' && fin.silent ? null : fin.message,
-          history: { trigger, issueNumber, issueRepo: prep.issue.repo, workspaceAlias: ws.alias, branch: prep.branchName, result: fin.result, followUps: a.followUps ?? [] },
+          history: {
+            trigger,
+            issueNumber,
+            issueRepo: prep.issue.repo,
+            workspaceAlias: ws.alias,
+            branch: prep.branchName,
+            result: fin.result,
+            followUps,
+            // the whole run's spend, autofix included (per-pass costs stay in followUps)
+            costUsd: costs.length ? costs.reduce((x, y) => x + y, 0) : null,
+          },
         };
       });
     } catch (err) {

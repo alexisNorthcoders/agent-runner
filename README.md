@@ -129,8 +129,9 @@ are told the same rule in their prompt preamble.
 - `src/activeRuns.js`, `src/runHistory.js`, `src/cronState.js`: the files under `logs/agent-runs/`.
 - `src/statusCollect.js` + `src/statusFormat.js`: the status snapshot and its terminal/WhatsApp
   rendering. `bin/agent-cli.js` is the terminal CLI.
-- `logs/agent-runs/`: one `<runId>.log` per run (plus `<runId>-autofix.log`), `active/<runId>.json` per in-flight run (live
-  progress), `runs.jsonl` history, and `cron-state.json` (the cron's last tick, once it exists).
+- `logs/agent-runs/`: one `<runId>.log` per run (plus `<runId>-autofix.log`), `active/<runId>.json`
+  per in-flight run (live progress), `runs.jsonl` history (an issue run's `costUsd` includes its
+  autofix pass), and `cron-state.json` (the cron's last tick, once it exists).
 
 ## Tests
 

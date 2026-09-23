@@ -82,6 +82,8 @@ console.log(`agent-runner listening on http://127.0.0.1:${config.port} (workspac
 try {
   const interrupted = await runner.recoverInterruptedRun();
   if (interrupted) console.warn(`agent-runner: reported interrupted run ${interrupted.runId} to owner`);
+  // recovery may have stopped an orphaned agent, which makes its active-run file stale
+  if (interrupted) await activeRuns.removeStale({ ownersGone: true }).catch(() => []);
 } catch (err) {
   console.error('agent-runner: startup recovery failed:', err?.message || err);
 }
