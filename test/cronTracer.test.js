@@ -78,10 +78,13 @@ describe('cronAliasesFromEnv', () => {
   });
 });
 
+/** @param {any} r a result string, a full run outcome, or null */
+const outcomeOf = (r) => (r == null || typeof r === 'object' ? r : { result: r, mergeNetworkError: false });
+
 /**
  * A tracer over fakes: `issues` maps repo → open issues, `repos` maps alias → repo. Every issue run
- * resolves with `result` (a string, or a function of the issue number) unless `startIssueRun` is
- * overridden. State is the real Redis-shaped store over the memory fake, shared across ticks.
+ * resolves with `result` (a result string, a full run outcome, or a function of the issue number
+ * returning either) unless `startIssueRun` is overridden. State is the real Redis-shaped store over the memory fake, shared across ticks.
  * @param {any} [o]
  */
 function harness(o = {}) {
@@ -108,7 +111,7 @@ function harness(o = {}) {
       (async (p) => {
         runs.push(p);
         const r = typeof result === 'function' ? result(p.issueNumber) : result;
-        return { reply: `Started run`, done: Promise.resolve(r) };
+        return { reply: `Started run`, done: Promise.resolve(outcomeOf(r)) };
       }),
     lock: { current: async () => lockHolder },
     pause: { get: async () => paused },
@@ -340,11 +343,61 @@ describe('cron tick: open agent PRs', () => {
       startIssueRun: async (p) => {
         h.runs.push(p);
         h.setOpenPrs(new Map([[REPO, new Map([[5, { url: 'u', headSha: 'h', baseRefName: 'main', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN' }]])]]));
-        return { reply: 'Started', done: Promise.resolve('no_changes') };
+        return { reply: 'Started', done: Promise.resolve(outcomeOf('no_changes')) };
       },
     });
     await h.tracer.tick();
     assert.deepEqual(await h.state.prAttempts(), new Map([[`${REPO}#5`, 'h:base0']]));
+  });
+
+  describe('an approved PR whose merge failed', () => {
+    const approvedPr = { url: PR, headSha: 'head1', baseRefName: 'main', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN' };
+    /**
+     * Each run leaves issue 5's PR open (the review approved, the merge failed) and resolves with `run`.
+     * @param {any} run
+     */
+    function mergeFailed(run) {
+      /** @type {ReturnType<typeof harness>} */
+      let h;
+      h = harness({
+        issues: { [REPO]: [ready(5)], [REPO_P]: [] },
+        startIssueRun: async (p) => {
+          h.runs.push(p);
+          h.setOpenPrs(new Map([[REPO, new Map([[5, approvedPr]])]]));
+          return { reply: 'Started', done: Promise.resolve(run) };
+        },
+      });
+      return h;
+    }
+
+    it('only on a network error: saves no PR attempt, and the next tick works the same issue again', async () => {
+      const h = mergeFailed({ result: 'pr_open', mergeNetworkError: true });
+      assert.deepEqual(await h.tracer.tick(), { kind: 'ran', repo: REPO, issue: 5, result: 'merge_retry', note: 'merge hit a network error' });
+      assert.deepEqual(await h.state.prAttempts(), new Map(), 'the PR is not set aside');
+      assert.deepEqual(await h.state.lastStarted(), new Map(), 'nor is the issue skipped as done');
+      assert.deepEqual(h.sent.map((m) => m.text), [
+        `Cron (bot): ${REPO}#5 passed review, but its merge failed on a network error, so its PR is not set aside. The next tick works it again.`,
+      ]);
+
+      await h.tracer.tick();
+      assert.deepEqual(h.ran(), ['bot#5', 'bot#5'], 'the PR is worked again through the shared pipeline, which retries the merge');
+      assert.equal(h.sent.filter((m) => m.text.includes('parking')).length, 0);
+    });
+
+    it('for a real reason: saves the PR attempt and sets the PR aside, as before', async () => {
+      const h = mergeFailed({ result: 'pr_open', mergeNetworkError: false });
+      h.setIssues({ [REPO]: [ready(5), ready(6)], [REPO_P]: [] });
+      assert.deepEqual(await h.tracer.tick(), { kind: 'ran', repo: REPO, issue: 5, result: 'progress' });
+      assert.deepEqual(await h.state.prAttempts(), new Map([[`${REPO}#5`, 'head1:base0']]));
+
+      h.setIssues({ [REPO]: [ready(5)], [REPO_P]: [] });
+      await h.state.setLastStarted(REPO, 6); // so only the parked PR keeps #5 from running
+      assert.deepEqual(await h.tracer.tick(), { kind: 'no_eligible' });
+      assert.deepEqual(h.ran(), ['bot#5']);
+      const notes = h.sent.filter((m) => m.text.includes('parking'));
+      assert.equal(notes.length, 1);
+      assert.match(notes[0].text, /the review \/ merge gate did not let it merge/);
+    });
   });
 
   it('keeps every issue eligible when the open PR lookup fails', async () => {
@@ -362,7 +415,7 @@ describe('cron runOnce', () => {
       issues: { [REPO]: [ready(1)] },
       startIssueRun: async (p) => {
         h.runs.push(p);
-        return { reply: 'Started', done: new Promise((r) => (finishRun = () => r('merged'))) };
+        return { reply: 'Started', done: new Promise((r) => (finishRun = () => r(outcomeOf('merged')))) };
       },
     });
     const first = h.tracer.runOnce();

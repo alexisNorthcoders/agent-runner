@@ -63,6 +63,12 @@ export function formatRunResult(rec, r) {
  */
 
 /**
+ * How an issue run ended, for the cron: its result, and whether an approved PR's merge failed only
+ * on a network error (so the cron works the PR again instead of setting it aside).
+ * @typedef {{ result: import('./issuePipeline/index.js').IssueRunResult, mergeNetworkError: boolean }} IssueRunOutcome
+ */
+
+/**
  * @param {{
  *   lock: ReturnType<typeof import('./runLock.js').createRunLock>,
  *   pause: ReturnType<typeof import('./pauseFlag.js').createPauseFlag>,
@@ -312,8 +318,9 @@ export function createRunner({
    * workspace, take the lock, fetch the issue and branch in place, run the agent with the
    * implement workflow, then post-run, then one outbox message.
    * @param {{ issueNumber: number, alias: string | null, extraInstructions?: string, replyTo: string, trigger?: 'manual' | 'cron' }} p
-   * @returns {Promise<{ reply: string, done: Promise<import('./issuePipeline/index.js').IssueRunResult | null> | null, refused?: 'busy' | 'paused' }>}
-   *   `done` (null when nothing started) settles once the run has been reported and unlocked.
+   * @returns {Promise<{ reply: string, done: Promise<IssueRunOutcome | null> | null, refused?: 'busy' | 'paused' }>}
+   *   `done` (null when nothing started) settles once the run has been reported and unlocked, with
+   *   the run's result, or null when post-run never reported one.
    *   `refused` says the lock was held or the runner paused, so nothing was tried.
    */
   async function startIssueRun({ issueNumber, alias, extraInstructions = '', replyTo, trigger = 'manual' }) {
@@ -345,7 +352,7 @@ export function createRunner({
     }
     record.label = `issue ${ws.alias}#${issueNumber}${prep.issue.title ? ` "${oneLine(prep.issue.title, 50)}"` : ''}`;
 
-    /** @type {import('./issuePipeline/index.js').IssueRunResult | null} */
+    /** @type {IssueRunOutcome | null} */
     let outcome = null;
     try {
       await launch(record, { prompt: prep.prompt, implement: true, cwd: ws.root }, async (agent, a) => {
@@ -358,7 +365,7 @@ export function createRunner({
           logPath: record.logPath,
           runAgent: followUpAgent(a),
         });
-        outcome = fin.result;
+        outcome = { result: fin.result, mergeNetworkError: fin.mergeNetworkError };
         const followUps = a.followUps ?? [];
         const costs = [agent.usage.costUsd, ...followUps.map((f) => f.costUsd)].filter((c) => c != null);
         return {

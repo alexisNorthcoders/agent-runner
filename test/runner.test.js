@@ -413,7 +413,7 @@ function fakeIssues({ prepareError = null } = {}) {
       },
       finish(p) {
         return new Promise((resolve) => {
-          finishes.push({ ...p, release: (r = { result: 'merged', message: '✅ #7 merged — Fix it', silent: false }) => resolve({ post: {}, ...r }) });
+          finishes.push({ ...p, release: (r = { result: 'merged', message: '✅ #7 merged — Fix it', silent: false }) => resolve({ post: {}, mergeNetworkError: false, ...r }) });
         });
       },
       async commitInterruptedWork(p) {
@@ -564,8 +564,17 @@ describe('runner: issue runs', () => {
     starts[0].finish('success');
     await flush();
     finishes[0].release({ result: 'no_changes', message: 'ℹ️ #7 — Fix it: the agent made no changes.', silent: true });
-    assert.equal(await done, 'no_changes');
+    assert.deepEqual(await done, { result: 'no_changes', mergeNetworkError: false });
     assert.deepEqual(outboxEntries(), []);
+  });
+
+  it('the shared entry point passes on that a merge failed only on a network error', async () => {
+    const { runner, starts, finishes } = issueSetup();
+    const { done } = await runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger: 'cron' });
+    starts[0].finish('success');
+    await flush();
+    finishes[0].release({ result: 'pr_open', message: '⚠️ #7 — Fix it: auto-merge was not enabled (i/o timeout) — needs a look.', silent: false, mergeNetworkError: true });
+    assert.deepEqual(await done, { result: 'pr_open', mergeNetworkError: true });
   });
 
   it('the shared entry point says when it was refused for the lock, unlike a prep failure', async () => {

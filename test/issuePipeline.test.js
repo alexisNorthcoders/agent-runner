@@ -359,6 +359,7 @@ describe('issue pipeline: finish', () => {
 
     assert.equal(fin.message, '✅ #7 merged — Fix it');
     assert.equal(fin.result, 'merged');
+    assert.equal(fin.mergeNetworkError, false);
     assert.equal(autofixPrompts.length, 1);
     assert.match(autofixPrompts[0], /also handle the edge case/);
     assert.match(comments[0], /^VERDICT: REQUEST_CHANGES/);
@@ -374,5 +375,45 @@ describe('issue pipeline: finish', () => {
     assert.equal(await git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']), 'main');
     assert.equal(await git(repo, ['rev-parse', 'HEAD']), await git(origin, ['rev-parse', 'main']));
     assert.equal(await readFile(join(repo, 'fix.txt'), 'utf8'), 'fixed\nedge case\n');
+  });
+
+  it('an approved PR whose merge only hit network errors: says so, with the usual message', async () => {
+    const { repo } = await cloneWithOrigin();
+    const PR = 'https://github.com/o/r/pull/5';
+    const TIMEOUT = 'Post "https://api.github.com/graphql": dial tcp 20.26.156.210:443: i/o timeout';
+    const gh = async (args) => {
+      const [a, b] = args;
+      if (a === 'issue' && b === 'view') return args.includes('state') ? JSON.stringify({ state: 'OPEN' }) : ISSUE_JSON;
+      if (a === 'pr' && b === 'list') return '[]';
+      if (a === 'pr' && b === 'create') return `${PR}\n`;
+      if (a === 'pr' && b === 'comment') return '';
+      if (a === 'api' && args[1] === 'repos/o/r') {
+        return JSON.stringify({ allow_squash_merge: true, allow_merge_commit: false, allow_rebase_merge: false, allow_auto_merge: false });
+      }
+      if (a === 'pr' && b === 'view') return JSON.stringify({ mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', state: 'OPEN' });
+      if (a === 'pr' && b === 'merge') throw Object.assign(new Error('gh failed'), { stderr: TIMEOUT });
+      throw new Error(`unexpected gh ${args.join(' ')}`);
+    };
+    const fetchFn = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ choices: [{ message: { content: 'VERDICT: APPROVE\n\nLooks good.' } }], usage: { total_tokens: 10 } }),
+    });
+    const p = pipeline(gh, { OPENAI_API_KEY: 'k' }, { fetchFn });
+    const prep = await p.prepare({ issueNumber: 7, alias: 'a', workspaceRoot: repo });
+    await writeFile(join(repo, 'fix.txt'), 'fixed\n');
+    const fin = await p.finish({
+      repo,
+      prompt: prep.prompt,
+      issue: prep.issue,
+      agent: { outcome: 'success', exitCode: 0, stderr: '' },
+      preAgentHeadSha: prep.preAgentHeadSha,
+      logPath: join(repo, '..', `${Date.now()}-net.log`),
+      runAgent: async () => assert.fail('no autofix'),
+    });
+    assert.equal(fin.result, 'pr_open');
+    assert.equal(fin.mergeNetworkError, true);
+    assert.equal(fin.post.prAutoMergeResult?.transientNetwork, true);
+    assert.match(fin.message, /^⚠️ #7 — Fix it: auto-merge was not enabled \(.*i\/o timeout\) — needs a look\.$/s);
   });
 });

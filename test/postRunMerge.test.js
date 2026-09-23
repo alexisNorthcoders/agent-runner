@@ -692,3 +692,79 @@ describe('queueAutoMerge: merge-settings read on a network error (issue #5)', ()
     assert.equal(sleeps.length, 0);
   });
 });
+
+describe('queueAutoMerge: says whether a failed merge was only a network error (issue #6)', () => {
+  const PR = 'https://github.com/alexisNorthcoders/home-manuals/pull/10';
+  const TIMEOUT = 'Post "https://api.github.com/graphql": dial tcp 20.26.156.210:443: i/o timeout';
+  /** @param {string} stderr @returns {any} */
+  const ghError = (stderr) => Object.assign(new Error('gh failed'), { stderr });
+
+  /**
+   * @param {{ autoMerge?: boolean, caps?: (n: number) => any, view?: object, merge: (args: string[], n: number) => any }} o
+   *   `caps` / `merge` return a `gh` error for that call, or null to succeed
+   */
+  function setup({ autoMerge = false, caps = () => null, view = { mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', state: 'OPEN' }, merge }) {
+    let capsReads = 0;
+    let merges = 0;
+    const exec = callbackExec(() => (_cmd, args, _opts, cb) => {
+      if (args[0] === 'api' && !args.includes('-X')) {
+        const err = caps(++capsReads);
+        if (err) return cb(err, '', err.stderr);
+        return cb(null, JSON.stringify({ allow_squash_merge: true, allow_merge_commit: false, allow_rebase_merge: false, allow_auto_merge: autoMerge }), '');
+      }
+      if (args[0] === 'pr' && args[1] === 'view') return cb(null, JSON.stringify(view), '');
+      if (args[0] === 'pr' && args[1] === 'merge') {
+        const err = merge(args, ++merges);
+        return err ? cb(err, '', err.stderr) : cb(null, '', '');
+      }
+      cb(new Error(`unexpected exec: ${args.join(' ')}`));
+    });
+    return createGithubPr({
+      exec,
+      settings: loadPipelineSettings({ CLAUDE_POST_RUN_MERGEABLE_POLL_MS: '0', CLAUDE_POST_RUN_MERGEABLE_MAX_WAIT_MS: '2000' }),
+      sleep: async () => {},
+    });
+  }
+
+  it('flags a direct merge that timed out on the network twice', async () => {
+    const r = await setup({ merge: () => ghError(TIMEOUT) }).queueAutoMerge('/repo', PR);
+    assert.equal(r.ok, false);
+    assert.equal(r.transientNetwork, true);
+  });
+
+  it('flags an auto-merge request that failed on the network', async () => {
+    const r = await setup({ autoMerge: true, merge: () => ghError(TIMEOUT) }).queueAutoMerge('/repo', PR);
+    assert.equal(r.ok, false);
+    assert.equal(r.transientNetwork, true);
+  });
+
+  it('flags a merge-settings read that failed on the network twice', async () => {
+    const r = await setup({ caps: () => ghError(TIMEOUT), merge: () => null }).queueAutoMerge('/repo', PR);
+    assert.equal(r.ok, false);
+    assert.equal(r.transientNetwork, true);
+  });
+
+  it('does not flag a PR that conflicts with its base', async () => {
+    const r = await setup({ view: { mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY', state: 'OPEN' }, merge: () => null }).queueAutoMerge('/repo', PR);
+    assert.equal(r.ok, false);
+    assert.equal(r.transientNetwork, false);
+  });
+
+  it('does not flag a real merge refusal, even after an earlier network error', async () => {
+    const r = await setup({ merge: (_a, n) => ghError(n === 1 ? TIMEOUT : 'GraphQL: Required status check "test" is failing') }).queueAutoMerge('/repo', PR);
+    assert.equal(r.ok, false);
+    assert.equal(r.transientNetwork, false);
+  });
+
+  it('does not flag bad auth on the merge-settings read', async () => {
+    const r = await setup({ caps: () => ghError('HTTP 401: Bad credentials'), merge: () => null }).queueAutoMerge('/repo', PR);
+    assert.equal(r.ok, false);
+    assert.equal(r.transientNetwork, false);
+  });
+
+  it('does not flag an auto-merge refusal', async () => {
+    const r = await setup({ autoMerge: true, merge: () => ghError('GraphQL: Pull request is in draft state') }).queueAutoMerge('/repo', PR);
+    assert.equal(r.ok, false);
+    assert.equal(r.transientNetwork, false);
+  });
+});
