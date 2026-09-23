@@ -8,6 +8,9 @@ import { createPauseFlag } from './pauseFlag.js';
 import { createOutbox } from './outbox.js';
 import { createAgentBackend } from './agentBackend/index.js';
 import { createRunHistory } from './runHistory.js';
+import { createActiveRuns } from './activeRuns.js';
+import { readCronState } from './cronState.js';
+import { collectStatus } from './statusCollect.js';
 import { createJoplinClient } from './joplin.js';
 import { buildPreamble } from './preamble.js';
 import { createRunner } from './runner.js';
@@ -34,13 +37,18 @@ const redis = await connectRedis({ url: config.redisUrl });
 const store = createRedisStore(redis);
 const lock = createRunLock({ store, ttlSeconds: config.lockTtlSeconds });
 const outbox = createOutbox({ store });
+const pause = createPauseFlag({ store });
+const history = createRunHistory({ dir: config.logsDir });
+const activeRuns = createActiveRuns({ dir: config.logsDir });
 
 const runner = createRunner({
   lock,
-  pause: createPauseFlag({ store }),
+  pause,
   outbox,
   backend: createAgentBackend({ timeoutMs: config.agentTimeoutMs }),
-  history: createRunHistory({ dir: config.logsDir }),
+  history,
+  activeRuns,
+  statusSnapshot: () => collectStatus({ activeRuns, history, readCron: () => readCronState({ dir: config.logsDir }), readPause: pause.get }),
   joplin: createJoplinClient(config.joplin),
   launchSafeRestart,
   workspaceRoot: config.workspaceRoot,
@@ -59,6 +67,12 @@ await new Promise((resolve, reject) => {
   process.exit(1);
 });
 console.log(`agent-runner listening on http://127.0.0.1:${config.port} (workspace ${config.workspaceRoot})`);
+
+// Runs killed with the previous process (e.g. a restart mid-run) would otherwise show as `stale`
+// forever. Orphaned ones (agent still alive) are kept. No run of ours has started yet, so every
+// file's owner is a dead process.
+const removed = await activeRuns.removeStale({ ownersGone: true }).catch(() => []);
+if (removed.length) console.warn(`agent-runner: removed stale active-run files: ${removed.join(', ')}`);
 
 try {
   const interrupted = await runner.recoverInterruptedRun();
