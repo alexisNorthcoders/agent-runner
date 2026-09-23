@@ -145,6 +145,12 @@ export function createCronTracer({ startIssueRun, lock, pause, state, workspaces
       return rows;
     }
     const { rows: kept, parked } = partitionIssuesWithOpenPr(rows, repo, loaded.openPrs, loaded.baseShaByBranch, attempted);
+    // forget notices for this repo's PRs that aren't parked any more (retried, merged or closed)
+    const parkedNow = new Set(parked.map((p) => issueKey(repo, p.number)));
+    for (const key of notified.keys()) {
+      if (!key.startsWith(`${repo}#`) || parkedNow.has(key)) continue;
+      await state.clearParkNotice(repo, Number(key.slice(repo.length + 1)));
+    }
     for (const p of parked) {
       if (notified.get(issueKey(repo, p.number)) === p.stateKey) continue;
       const why = p.state === 'conflict' ? 'it still conflicts with the default branch' : 'the review / merge gate did not let it merge';
@@ -193,8 +199,9 @@ export function createCronTracer({ startIssueRun, lock, pause, state, workspaces
         await state.setLastStarted(repo, issue.number);
         outcome.result = 'progress';
       } else {
-        outcome.result = 'no_progress';
-        outcome.note = result ?? 'no result';
+        // failed, timeout and no_changes stay distinct in the tick state; none of them is progress
+        outcome.result = result || 'no_progress';
+        if (!result) outcome.note = 'no result';
         // a failed or timed-out run has already reported to owner, but an empty one is silent
         if (result === 'no_changes') {
           await tell(`Cron (${alias}): ${repo}#${issue.number} made no changes, so it doesn't count as progress. The next tick retries it.`);

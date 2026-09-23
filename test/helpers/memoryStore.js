@@ -79,6 +79,12 @@ export function createMemoryStore() {
       if (!hashes.has(key)) hashes.set(key, new Map());
       hashes.get(key)?.set(field, value);
     },
+    async hashDelete(key, field) {
+      check();
+      const h = hashes.get(key);
+      h?.delete(field);
+      if (h && !h.size) hashes.delete(key);
+    },
     async appendToStream(key, fields, { minIdMs }) {
       check();
       const ms = Math.max(Date.now(), lastMs);

@@ -60,6 +60,9 @@ function contract(setup) {
     await store.hashSet(k('h'), 'b', '2');
     await store.hashSet(k('h'), 'a', '3');
     assert.deepEqual(await store.hashGetAll(k('h')), { a: '3', b: '2' });
+    await store.hashDelete(k('h'), 'a');
+    await store.hashDelete(k('h'), 'missing');
+    assert.deepEqual(await store.hashGetAll(k('h')), { b: '2' });
     await store.del(k('h'));
     assert.deepEqual(await store.hashGetAll(k('h')), {});
   });

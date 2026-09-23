@@ -13,6 +13,7 @@ import { createClient } from 'redis';
  *   del: (key: string) => Promise<void>,
  *   hashGetAll: (key: string) => Promise<Record<string, string>>,
  *   hashSet: (key: string, field: string, value: string) => Promise<void>,
+ *   hashDelete: (key: string, field: string) => Promise<void>,
  *   appendToStream: (key: string, fields: Record<string, string>, opts: { minIdMs: number }) => Promise<string>,
  * }} Store
  */
@@ -55,6 +56,9 @@ export function createRedisStore(client) {
     },
     async hashSet(key, field, value) {
       await client.hSet(key, field, value);
+    },
+    async hashDelete(key, field) {
+      await client.hDel(key, field);
     },
     appendToStream(key, fields, { minIdMs }) {
       return client.xAdd(key, '*', fields, {

@@ -247,7 +247,10 @@ describe('cron tick: progress', () => {
   for (const result of ['no_changes', 'failed', 'timeout', null]) {
     it(`a ${result ?? 'missing'} result is not progress, so the next tick retries the issue`, async () => {
       const h = harness({ issues: { [REPO]: [ready(32)] }, result });
-      assert.deepEqual(await h.tracer.tick(), { kind: 'ran', repo: REPO, issue: 32, result: 'no_progress', note: result ?? 'no result' });
+      assert.deepEqual(
+        await h.tracer.tick(),
+        result ? { kind: 'ran', repo: REPO, issue: 32, result } : { kind: 'ran', repo: REPO, issue: 32, result: 'no_progress', note: 'no result' }
+      );
       assert.deepEqual(await h.state.lastStarted(), new Map());
       // failed and timed-out runs report themselves; the runner keeps an empty one silent
       assert.deepEqual(
@@ -326,6 +329,7 @@ describe('cron tick: open agent PRs', () => {
     h.setBaseSha('main2');
     await h.tracer.tick();
     assert.deepEqual(h.ran(), ['bot#39', 'bot#41', 'bot#41', 'bot#39'], 'the base branch moved, so the PR gets another attempt');
+    assert.deepEqual(await h.state.parkNotices(), new Map(), 'no longer parked, so the stale notice is forgotten');
   });
 
   it('records the state of a PR a fresh run just opened, so a blocked one is not re-run next tick', async () => {

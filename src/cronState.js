@@ -131,6 +131,9 @@ export function createCronState({ store, now = Date.now, pid = process.pid }) {
 
     /** @param {string} repo @param {number} number @param {string} stateKey */
     setParkNotice: (repo, number, stateKey) => store.hashSet(CRON_PARK_NOTICES_KEY, issueKey(repo, number), stateKey),
+
+    /** The PR is no longer parked. @param {string} repo @param {number} number */
+    clearParkNotice: (repo, number) => store.hashDelete(CRON_PARK_NOTICES_KEY, issueKey(repo, number)),
   };
 }
 

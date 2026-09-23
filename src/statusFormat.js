@@ -98,7 +98,7 @@ function describeCronOutcome(o) {
     case 'no_eligible':
       return 'idle, no eligible issue';
     case 'ran': {
-      const label = { progress: 'made progress', no_progress: 'no lasting progress', prep_failed: 'issue fetch or git prep failed', failed: 'failed' }[o.result] ?? o.result;
+      const label = { progress: 'made progress', no_progress: 'no lasting progress', prep_failed: 'issue fetch or git prep failed', failed: 'failed', timeout: 'timed out', no_changes: 'made no changes' }[o.result] ?? o.result;
       return `worked ${o.repo}#${o.issue}, ${label}${o.note ? ` (${o.note})` : ''}`;
     }
     case 'error':
