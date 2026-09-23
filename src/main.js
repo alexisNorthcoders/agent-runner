@@ -1,0 +1,77 @@
+import { spawn } from 'child_process';
+import { mkdirSync } from 'fs';
+import { join } from 'path';
+import { loadConfig } from './config.js';
+import { connectRedis, createRedisStore } from './redisStore.js';
+import { createRunLock } from './runLock.js';
+import { createPauseFlag } from './pauseFlag.js';
+import { createOutbox } from './outbox.js';
+import { createAgentBackend } from './agentBackend/index.js';
+import { createRunHistory } from './runHistory.js';
+import { createJoplinClient } from './joplin.js';
+import { buildPreamble } from './preamble.js';
+import { createRunner } from './runner.js';
+import { createHttpServer } from './http.js';
+
+const config = loadConfig();
+
+/**
+ * Run `bin/safe-restart.js` fully detached. The `sh … &` double fork re-parents it away from this
+ * process, so the `pm2 restart` it issues (which kills this process tree) doesn't kill it too.
+ * @param {string} replyTo
+ */
+function launchSafeRestart(replyTo) {
+  const logFile = join(config.repoRoot, 'logs', 'safe-restart.log');
+  mkdirSync(join(config.repoRoot, 'logs'), { recursive: true });
+  spawn(
+    'sh',
+    ['-c', 'setsid "$0" bin/safe-restart.js --reply-to "$1" >> "$2" 2>&1 < /dev/null &', process.execPath, replyTo, logFile],
+    { cwd: config.repoRoot, detached: true, stdio: 'ignore' }
+  ).unref();
+}
+
+const redis = await connectRedis({ url: config.redisUrl });
+const store = createRedisStore(redis);
+const lock = createRunLock({ store, ttlSeconds: config.lockTtlSeconds });
+const outbox = createOutbox({ store });
+
+const runner = createRunner({
+  lock,
+  pause: createPauseFlag({ store }),
+  outbox,
+  backend: createAgentBackend({ timeoutMs: config.agentTimeoutMs }),
+  history: createRunHistory({ dir: config.logsDir }),
+  joplin: createJoplinClient(config.joplin),
+  launchSafeRestart,
+  workspaceRoot: config.workspaceRoot,
+  logsDir: config.logsDir,
+  preamble: buildPreamble({ repoRoot: config.repoRoot }),
+});
+
+const server = createHttpServer({ runner });
+// Bind before recovery: if another runner holds the port we exit here, so any lock found below
+// really was left by a dead process.
+await new Promise((resolve, reject) => {
+  server.once('error', reject);
+  server.listen(config.port, '127.0.0.1', () => resolve(undefined));
+}).catch((err) => {
+  console.error(`agent-runner: cannot listen on 127.0.0.1:${config.port}:`, err.message);
+  process.exit(1);
+});
+console.log(`agent-runner listening on http://127.0.0.1:${config.port} (workspace ${config.workspaceRoot})`);
+
+try {
+  const interrupted = await runner.recoverInterruptedRun();
+  if (interrupted) console.warn(`agent-runner: reported interrupted run ${interrupted.runId} to owner`);
+} catch (err) {
+  console.error('agent-runner: startup recovery failed:', err?.message || err);
+}
+
+// A run in flight is left alone: PM2 kills the agent with this process tree, and the lock left
+// in Redis makes the next start report the run as interrupted.
+for (const sig of /** @type {const} */ (['SIGINT', 'SIGTERM'])) {
+  process.once(sig, () => {
+    server.close();
+    redis.quit().finally(() => process.exit(0));
+  });
+}
