@@ -2,17 +2,36 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Never restart agent-runner directly
+
+Agent runs are child processes of the `agent-runner` PM2 app. **Never run `pm2 restart|reload|stop|delete agent-runner`**
+(or `killall node`). Use `npm run safe-restart`, which refuses while a run is active. If you are
+running inside agent-runner, your own run is the active one, so safe-restart will refuse. Say in
+your summary that a restart is needed, and the user will send `claude:restart`. Restarting other
+PM2 apps (including `whatsapp`) is fine.
+
 ## What this is
 
 `agent-runner` is a standalone PM2 service on the Raspberry Pi that runs headless coding-agent
-sessions (Claude CLI today, behind an agent-neutral `AgentBackend` seam): freeform runs, the
-GitHub issue pipeline (fetch → branch → agent → commit → PR → review → merge) and a cron issue
-tracer. It was split out of the WhatsApp bot (`alexisNorthcoders/WhatsappBot`). The bot is a thin
-front end that forwards `claude…` messages over localhost HTTP and delivers this service's Redis
-outbox. The design record is WhatsappBot `docs/adr/0001-agent-runner-out-of-process.md`, and the
-work is tracked in WhatsappBot #102.
+sessions (Claude CLI today, behind an agent-neutral `AgentBackend` seam). It was split out of the
+WhatsApp bot (`alexisNorthcoders/WhatsappBot`). The bot is a thin front end that forwards `claude…`
+messages over localhost HTTP (`POST /command`, `GET /status` on 127.0.0.1) and delivers this
+service's Redis outbox (`agent-runner:outbox` stream). The design record is WhatsappBot
+`docs/adr/0001-agent-runner-out-of-process.md`, and the work is tracked in WhatsappBot #102.
 
-The code is still being built (see the open issues here). Update this file as the structure lands.
+Built so far: freeform runs, `claude joplin:<note>`, `claude:stop`, `claude:restart` /
+`npm run safe-restart`, the Redis single-flight lock and pause flag, and startup recovery. Still to
+come (see the open issues): the GitHub issue pipeline (fetch → branch → agent → commit → PR →
+review → merge) and the cron issue tracer. Layout and Redis keys are in `README.md`.
+
+## Conventions
+
+- Node ESM, no build. Tests are `node:test` with injected fakes (`npm test`), and `npm run typecheck`
+  runs `tsc --checkJs` over JSDoc types. Run both before committing.
+- Modules say "agent", not "claude". Claude-specific code stays in `src/agentBackend/claude.js`
+  (and its stream parser). User-facing commands stay `claude*`.
+- Redis access goes through the `Store` interface (`src/redisStore.js`). Tests use
+  `test/helpers/memoryStore.js`, kept honest by `test/store.contract.test.js`.
 
 ## Agent skills
 
