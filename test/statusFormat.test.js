@@ -101,6 +101,8 @@ describe('renderStatusText (WhatsApp)', () => {
     const cron = { pid: 5, intervalMs: 30 * MIN, lastTickStartedAt: ago(6 * MIN), lastTickEndedAt: ago(5 * MIN), outcome: { kind: 'ran', repo: 'bot', issue: 12, result: 'progress' } };
     assert.match(renderStatusText(snapshot({ cron, cronAlive: true })), /^Cron: last tick 5m00s ago — worked bot#12, made progress$/m);
     assert.match(renderStatusText(snapshot({ cron, cronAlive: false })), /\[cron process not running\]/);
+    const retry = { ...cron, outcome: { kind: 'ran', repo: 'bot', issue: 12, result: 'merge_retry', note: 'merge hit a network error' } };
+    assert.match(renderStatusText(snapshot({ cron: retry, cronAlive: true })), /— worked bot#12, merge retried next tick \(merge hit a network error\)$/m);
     const starting = { ...cron, lastTickStartedAt: null, lastTickEndedAt: null, outcome: null };
     assert.match(renderStatusText(snapshot({ cron: starting, cronAlive: true })), /^Cron: starting/m);
     const paused = { ...cron, outcome: { kind: 'paused' } };

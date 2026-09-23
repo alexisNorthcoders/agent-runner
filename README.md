@@ -124,7 +124,7 @@ curl -s localhost:3790/command -H 'content-type: application/json' \
 | `agent-runner:paused` | string (JSON) | Pause flag set by safe-restart. It is TTL'd, and only its setter (by token) clears it. The cron skips its ticks while it's set. |
 | `agent-runner:cron:state` | string (JSON) | The cron's last tick (`pid`, `intervalMs`, times, outcome), for the status views. |
 | `agent-runner:cron:last-started` | hash | `owner/repo` → the last issue the cron made progress on there. |
-| `agent-runner:cron:pr-attempts` | hash | `owner/repo#n` → the PR state (`headSha:baseSha`) the cron last worked. |
+| `agent-runner:cron:pr-attempts` | hash | `owner/repo#n` → the PR state (`headSha:baseSha`) the cron last worked. Not written when an approved PR's merge failed only on a network error, so the next tick works it again. |
 | `agent-runner:cron:park-notices` | hash | `owner/repo#n` → the parked PR state the owner was last told about. |
 
 ```sh

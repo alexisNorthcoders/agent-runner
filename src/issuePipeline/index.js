@@ -111,6 +111,16 @@ export function classifyIssueRunResult({ agentOk, agent, post, postErrMessage = 
 }
 
 /**
+ * The review gate let the PR merge, but the merge failed only because GitHub could not be reached.
+ * Nothing is wrong with the PR, so the cron works it again rather than setting it aside.
+ * @param {import('./postRun.js').PostRunResult | null} post
+ */
+export function mergeFailedOnNetwork(post) {
+  const merge = post?.prAutoMergeResult;
+  return Boolean(merge && !merge.ok && merge.transientNetwork);
+}
+
+/**
  * Resume-prompt section for a branch whose PR is open but never merged. A conflict is resolved by
  * merging (not rebasing) the default branch in, so the fix pushes as a fast-forward.
  * @param {{ url: string, state: string }} pr
@@ -228,8 +238,9 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
      *   logPath: string,
      *   runAgent: import('./postRun.js').RunAgent,
      * }} p
-     * @returns {Promise<{ result: IssueRunResult, message: string, silent: boolean, post: import('./postRun.js').PostRunResult }>}
+     * @returns {Promise<{ result: IssueRunResult, message: string, silent: boolean, mergeNetworkError: boolean, post: import('./postRun.js').PostRunResult }>}
      *   `silent` marks a run with nothing to report (the agent changed nothing), which cron can skip.
+     *   `mergeNetworkError` marks an approved PR whose merge failed only on a network error.
      */
     async finish({ repo, prompt, issue, agent, preAgentHeadSha, logPath, runAgent }) {
       const agentOk = agent.outcome === 'success';
@@ -256,7 +267,7 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
             : `ℹ️ #${issue.number}${issue.title ? ` — ${issue.title}` : ''}: the agent made no changes.`;
       }
       if (result === 'failed' || result === 'timeout') message += `\nLog: ${logPath}`;
-      return { result, message, silent, post };
+      return { result, message, silent, mergeNetworkError: mergeFailedOnNetwork(post), post };
     },
 
     /**

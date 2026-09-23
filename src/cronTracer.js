@@ -14,7 +14,9 @@ import { errorMessageFromUnknown } from './issuePipeline/index.js';
  *   not picked again in its repo, even while still open. A failed, empty or timed-out run is
  *   retried next tick.
  * - An issue with an open agent PR is worked once per PR state (head commit + base tip). While the
- *   state is unchanged the issue is parked, and the owner is told once.
+ *   state is unchanged the issue is parked, and the owner is told once. The exception is a PR that
+ *   passed review but whose merge failed only on a network error: no attempt is recorded, and it is
+ *   not progress, so the next tick works it again and post-run retries the merge.
  * - An issue that GitHub's native dependencies report as blocked is skipped.
  *
  * @typedef {import('./issuePipeline/githubIssue.js').OpenIssue} OpenIssue
@@ -193,9 +195,18 @@ export function createCronTracer({ startIssueRun, lock, pause, state, workspaces
       await tell(`Cron (${alias}): could not start #${issue.number} in ${repo}: ${truncate(started.reply)}`);
       return outcome;
     }
+    let mergeNetworkError = false;
     try {
-      const result = await started.done;
-      if (result && PROGRESS.has(result)) {
+      const run = await started.done;
+      const result = run?.result;
+      mergeNetworkError = Boolean(run?.mergeNetworkError);
+      if (mergeNetworkError) {
+        outcome.result = 'merge_retry';
+        outcome.note = 'merge hit a network error';
+        await tell(
+          `Cron (${alias}): ${repo}#${issue.number} passed review, but its merge failed on a network error, so its PR is not set aside. The next tick works it again.`
+        );
+      } else if (result && PROGRESS.has(result)) {
         await state.setLastStarted(repo, issue.number);
         outcome.result = 'progress';
       } else {
@@ -213,7 +224,7 @@ export function createCronTracer({ startIssueRun, lock, pause, state, workspaces
       outcome.note = truncate(e, 200);
       await tell(`Cron (${alias}): the run for ${repo}#${issue.number} failed: ${truncate(e)}`);
     } finally {
-      await recordPrState(repo, issue.number);
+      if (!mergeNetworkError) await recordPrState(repo, issue.number);
     }
     return outcome;
   }

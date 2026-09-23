@@ -117,7 +117,16 @@ function parsePullUrl(prUrl) {
 const isPullUrl = (u) => PULL_URL_RE.test(String(u || '').trim());
 
 /**
- * @typedef {{ ok: boolean, error?: string, staleHeadSynced?: boolean, mergedDirectly?: boolean, mergeMethod?: 'squash' | 'merge' | 'rebase' }} MergeResult
+ * @typedef {{
+ *   ok: boolean,
+ *   error?: string,
+ *   transientNetwork?: boolean,
+ *   staleHeadSynced?: boolean,
+ *   mergedDirectly?: boolean,
+ *   mergeMethod?: 'squash' | 'merge' | 'rebase',
+ * }} MergeResult
+ *   `transientNetwork` (set on every failure) says the merge failed only because GitHub could not be
+ *   reached, so running it again later may well succeed; false means a real blocker.
  */
 
 /**
@@ -190,14 +199,17 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
     let staleHeadSynced = false;
     /** @type {string | undefined} */
     let classification;
+    let lastViewError = '';
     while (now() - start < maxWaitMs) {
       polls++;
       const view = await viewMergeability(repo, prUrl);
       if (!view.ok) {
+        lastViewError = view.error || '';
         log('waitForMergeable: pr view failed', view.error);
         await sleep(pollMs);
         continue;
       }
+      lastViewError = '';
       classification = classifyGithubPrMergeability(view);
       log(`waitForMergeable poll #${polls}`, { classification, mergeable: view.mergeable, mergeStateStatus: view.mergeStateStatus, state: view.state });
       if (classification === 'ready' || classification === 'closed') {
@@ -223,6 +235,8 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
     return {
       ok: false,
       error: `Timed out after ${maxWaitMs}ms waiting for PR mergeability (last=${classification || 'unknown'}; polls=${polls}).`,
+      // never got an answer from GitHub, only network errors
+      transientNetwork: !classification && githubErrorLooksTransientNetwork(lastViewError),
       waitedMs: now() - start,
       polls,
       classification,
@@ -296,23 +310,40 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
   async function queueAutoMerge(repo, prUrl) {
     const url = String(prUrl || '').trim();
     const parsed = parsePullUrl(url);
-    if (!parsed) return { ok: false, error: 'Invalid PR URL for gh pr merge' };
+    if (!parsed) return { ok: false, error: 'Invalid PR URL for gh pr merge', transientNetwork: false };
 
     const caps = await repoMergeCapabilities(repo, parsed.owner, parsed.repo);
     if (!caps.ok) {
-      return { ok: false, error: `Could not read repository merge settings (GitHub API): ${caps.error}. Fix \`gh auth\` or network, then retry.` };
+      return {
+        ok: false,
+        error: `Could not read repository merge settings (GitHub API): ${caps.error}. Fix \`gh auth\` or network, then retry.`,
+        transientNetwork: githubErrorLooksTransientNetwork(caps.error || ''),
+      };
     }
     const strategy = pickGithubMergeStrategy(caps);
     if (!strategy) {
       return {
         ok: false,
+        transientNetwork: false,
         error: 'No merge method is allowed on this repository (squash, merge commit, and rebase are all disabled). Enable at least one under **Settings → General → Pull requests**.',
       };
     }
     const flag = `--${strategy}`;
     const mergeAuto = () => gh(repo, ['pr', 'merge', url, '--auto', flag]);
     const mergeDirect = () => gh(repo, ['pr', 'merge', url, flag]);
-    const fail = (error, extra = {}) => ({ ok: false, error, mergeMethod: strategy, ...extra });
+    /**
+     * @param {string} error the whole story, for the report
+     * @param {boolean} transientNetwork whether the error that decided the failure was a network error
+     * @param {{ staleHeadSynced?: boolean }} [extra]
+     * @returns {MergeResult}
+     */
+    const fail = (error, transientNetwork, extra = {}) => ({
+      ok: false,
+      error,
+      transientNetwork,
+      mergeMethod: strategy,
+      ...extra,
+    });
 
     /** @param {string} errFromAuto @param {{ staleHeadSynced?: boolean }} [extra] @returns {Promise<MergeResult>} */
     async function directMergeFallback(errFromAuto, extra = {}) {
@@ -320,7 +351,7 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
       const why = String(errFromAuto || '').trim();
       const ready = await waitForMergeable(repo, url);
       const synced = { staleHeadSynced: Boolean(extra.staleHeadSynced || ready.staleHeadSynced) };
-      if (!ready.ok) return fail(`${why}\n\nDirect merge fallback aborted: ${ready.error || 'PR not mergeable yet'}`, synced);
+      if (!ready.ok) return fail(`${why}\n\nDirect merge fallback aborted: ${ready.error || 'PR not mergeable yet'}`, Boolean(ready.transientNetwork), synced);
       try {
         await mergeDirect();
         return { ok: true, mergedDirectly: true, mergeMethod: strategy, ...synced };
@@ -329,7 +360,7 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
         const transient = githubErrorLooksTransientNetwork(errDirect);
         const stale = githubPrMergeErrorLooksStaleHead(errDirect);
         if (!transient && !(settings.staleHeadSync && (stale || githubPrMergeErrorLooksNotYetMergeable(errDirect)))) {
-          return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}`, synced);
+          return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}`, false, synced);
         }
         log(
           transient
@@ -342,13 +373,15 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
         if (!transient && stale) {
           const sync = await updateBranch(repo, url);
           if (!sync.ok) {
-            return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`, synced);
+            return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`, githubErrorLooksTransientNetwork(sync.error || ''), synced);
           }
           synced.staleHeadSynced = !sync.noOp || synced.staleHeadSynced;
         }
         const readyAgain = await waitForMergeable(repo, url);
         synced.staleHeadSynced = synced.staleHeadSynced || Boolean(readyAgain.staleHeadSynced);
-        if (!readyAgain.ok) return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}\n\nRetry wait: ${readyAgain.error || 'PR not mergeable'}`, synced);
+        if (!readyAgain.ok) {
+          return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}\n\nRetry wait: ${readyAgain.error || 'PR not mergeable'}`, Boolean(readyAgain.transientNetwork), synced);
+        }
         if (readyAgain.classification === 'closed') {
           // a merge request that timed out on our side may still have landed on GitHub
           const view = await viewMergeability(repo, url);
@@ -358,7 +391,8 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
           await mergeDirect();
           return { ok: true, mergedDirectly: true, mergeMethod: strategy, ...synced };
         } catch (eRetry) {
-          return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}\n\nAfter wait/retry: ${String(execErrorText(eRetry)).trim()}`, synced);
+          const errRetry = String(execErrorText(eRetry)).trim();
+          return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}\n\nAfter wait/retry: ${errRetry}`, githubErrorLooksTransientNetwork(errRetry), synced);
         }
       }
     }
@@ -372,17 +406,17 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
     } catch (e) {
       const errFirst = String(execErrorText(e)).trim();
       if (githubPrMergeErrorLooksNoAutoMergeGate(errFirst)) return directMergeFallback(errFirst);
-      if (!settings.staleHeadSync || !githubPrMergeErrorLooksStaleHead(errFirst)) return fail(errFirst);
+      if (!settings.staleHeadSync || !githubPrMergeErrorLooksStaleHead(errFirst)) return fail(errFirst, githubErrorLooksTransientNetwork(errFirst));
       log('queueAutoMerge: stale head blocked auto-merge; update-branch then retry', url);
       const sync = await updateBranch(repo, url);
-      if (!sync.ok) return fail(`${errFirst}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`);
+      if (!sync.ok) return fail(`${errFirst}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`, githubErrorLooksTransientNetwork(sync.error || ''));
       try {
         await mergeAuto();
         return { ok: true, staleHeadSynced: !sync.noOp, mergeMethod: strategy };
       } catch (e2) {
         const errSecond = String(execErrorText(e2)).trim();
         if (githubPrMergeErrorLooksNoAutoMergeGate(errSecond)) return directMergeFallback(errSecond, { staleHeadSynced: !sync.noOp });
-        return fail(`${errFirst}\n\nAfter update-branch: ${errSecond}`);
+        return fail(`${errFirst}\n\nAfter update-branch: ${errSecond}`, githubErrorLooksTransientNetwork(errSecond));
       }
     }
   }
