@@ -667,6 +667,21 @@ describe('queueAutoMerge: merge-settings read on a network error (issue #5)', ()
     assert.equal(sleeps.length, 1);
   });
 
+  for (const stderr of [
+    'dial tcp: lookup api.github.com: Temporary failure in name resolution (EAI_AGAIN)',
+    'HTTP 502: 502 Bad Gateway (https://api.github.com/repos/acme/widget)',
+    'HTTP 503: 503 Service Unavailable (https://api.github.com/repos/acme/widget)',
+    'HTTP 504: 504 Gateway Timeout (https://api.github.com/repos/acme/widget)',
+  ]) {
+    it(`retries once after a network error: ${stderr.slice(0, 40)}…`, async () => {
+      const { prs, sleeps, counts } = setup((n) => (n === 1 ? ghError(stderr) : null));
+      const r = await prs.queueAutoMerge('/repo', PR);
+      assert.equal(r.ok, true);
+      assert.deepEqual(counts(), { capsReads: 2, merges: 1 });
+      assert.equal(sleeps.length, 1);
+    });
+  }
+
   it('does not retry a permanent error such as bad auth', async () => {
     const { prs, sleeps, counts } = setup(() => ghError('HTTP 401: Bad credentials (https://api.github.com/repos/acme/widget)'));
     const r = await prs.queueAutoMerge('/repo', PR);
