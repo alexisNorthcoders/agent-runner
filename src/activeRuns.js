@@ -1,6 +1,7 @@
-import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'fs/promises';
+import { readdir, readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { pidAlive } from './pidAlive.js';
+import { writeJsonAtomic } from './jsonFile.js';
 
 /**
  * One `active/<runId>.json` file per in-flight run, rewritten (throttled) as it progresses and
@@ -17,12 +18,6 @@ import { pidAlive } from './pidAlive.js';
  */
 
 export const PROGRESS_THROTTLE_MS = 1500;
-
-async function writeJsonAtomic(path, data) {
-  const tmp = `${path}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(data), 'utf8');
-  await rename(tmp, path);
-}
 
 /**
  * @param {{ dir: string, isAlive?: (pid: number) => boolean, throttleMs?: number, now?: () => number }} p
@@ -85,7 +80,7 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
           await writeJsonAtomic(path, { ...record, ...(p ?? {}), updatedAt: new Date(now()).toISOString() });
         });
 
-      const ready = enqueue(() => mkdir(activeDir, { recursive: true })).then(() => write(null));
+      const ready = write(null);
 
       /** @param {import('./agentBackend/index.js').AgentProgress} p */
       function update(p) {

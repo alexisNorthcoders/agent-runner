@@ -46,6 +46,19 @@ describe('collectStatus', () => {
     assert.equal(hanging.paused, 'unknown');
   });
 
+  it('shows a lock holder that has no active file yet (e.g. mid Joplin fetch), without duplicating tracked runs', async () => {
+    const lock = { runId: 'b', label: 'joplin:plan', startedAt: '2026-09-24T11:59:00Z', ownerPid: 42 };
+    const s = await collectStatus(deps({ readLock: async () => lock }).deps);
+    assert.deepEqual(s.active.map((r) => [r.runId, r.health]), [['a', 'running'], ['b', 'running']]);
+    const same = await collectStatus(deps({ readLock: async () => ({ runId: 'a', ownerPid: 42 }) }).deps);
+    assert.deepEqual(same.active.map((r) => r.runId), ['a']);
+  });
+
+  it('ignores a lock it cannot read', async () => {
+    const s = await collectStatus(deps({ readLock: async () => { throw new Error('down'); } }).deps);
+    assert.deepEqual(s.active.map((r) => r.runId), ['a']);
+  });
+
   it('marks no cron as not alive', async () => {
     const s = await collectStatus(deps({ readCron: async () => null }).deps);
     assert.equal(s.cron, null);

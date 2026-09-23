@@ -1,5 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from 'fs/promises';
+import { readFile } from 'fs/promises';
 import { join } from 'path';
+import { writeJsonAtomic } from './jsonFile.js';
 
 /**
  * `cron-state.json`: the cron issue tracer's last tick, for `claude:status` and the terminal CLIs.
@@ -46,9 +47,5 @@ export async function writeCronTick({ dir, outcome, intervalMs, startedAt, now =
     lastTickEndedAt: new Date(now()).toISOString(),
     outcome,
   };
-  await mkdir(dir, { recursive: true });
-  const path = join(dir, FILE);
-  const tmp = `${path}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(state), 'utf8');
-  await rename(tmp, path);
+  await writeJsonAtomic(join(dir, FILE), state);
 }

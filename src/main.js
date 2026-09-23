@@ -48,13 +48,20 @@ const runner = createRunner({
   backend: createAgentBackend({ timeoutMs: config.agentTimeoutMs }),
   history,
   activeRuns,
-  statusSnapshot: () => collectStatus({ activeRuns, history, readCron: () => readCronState({ dir: config.logsDir }), readPause: pause.get }),
+  statusSnapshot: () => collectStatus({ activeRuns, history, readCron: () => readCronState({ dir: config.logsDir }), readPause: pause.get, readLock: lock.current }),
   joplin: createJoplinClient(config.joplin),
   launchSafeRestart,
   workspaceRoot: config.workspaceRoot,
   logsDir: config.logsDir,
   preamble: buildPreamble({ repoRoot: config.repoRoot }),
 });
+
+// Runs killed with the previous process (e.g. a restart mid-run) would otherwise show as `stale`
+// forever. Orphaned ones (agent still alive) are kept. This runs before the port is bound, so no
+// run of ours has started and every file's owner is a previous process (whose pid may be reused).
+// If another runner is up, its runs have live agents and are kept too.
+const removed = await activeRuns.removeStale({ ownersGone: true }).catch(() => []);
+if (removed.length) console.warn(`agent-runner: removed stale active-run files: ${removed.join(', ')}`);
 
 const server = createHttpServer({ runner });
 // Bind before recovery: if another runner holds the port we exit here, so any lock found below
@@ -67,12 +74,6 @@ await new Promise((resolve, reject) => {
   process.exit(1);
 });
 console.log(`agent-runner listening on http://127.0.0.1:${config.port} (workspace ${config.workspaceRoot})`);
-
-// Runs killed with the previous process (e.g. a restart mid-run) would otherwise show as `stale`
-// forever. Orphaned ones (agent still alive) are kept. No run of ours has started yet, so every
-// file's owner is a dead process.
-const removed = await activeRuns.removeStale({ ownersGone: true }).catch(() => []);
-if (removed.length) console.warn(`agent-runner: removed stale active-run files: ${removed.join(', ')}`);
 
 try {
   const interrupted = await runner.recoverInterruptedRun();

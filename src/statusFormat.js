@@ -45,10 +45,10 @@ export function formatCost(usd) {
   return usd == null ? '-' : `$${usd.toFixed(usd < 10 ? 2 : 1)}`;
 }
 
-/** `claude-haiku-4-5-20251001` → `haiku-4-5` @param {string | null | undefined} model */
+/** Drops a trailing date stamp: `claude-haiku-4-5-20251001` → `claude-haiku-4-5` @param {string | null | undefined} model */
 export function shortModel(model) {
   if (!model) return '-';
-  return model.replace(/^claude-/, '').replace(/-\d{8}$/, '');
+  return model.replace(/-\d{8}$/, '');
 }
 
 /** @param {HistoryEntry['tokens']} t */

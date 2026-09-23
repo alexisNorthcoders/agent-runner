@@ -55,7 +55,7 @@ describe('status formatting helpers', () => {
     assert.equal(formatTokens(2_300_000), '2.3M');
     assert.equal(formatCost(0.4213), '$0.42');
     assert.equal(formatCost(null), '-');
-    assert.equal(shortModel('claude-haiku-4-5-20251001'), 'haiku-4-5');
+    assert.equal(shortModel('claude-haiku-4-5-20251001'), 'claude-haiku-4-5');
   });
 });
 

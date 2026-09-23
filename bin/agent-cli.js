@@ -10,6 +10,7 @@ import { createClient } from 'redis';
 import { loadConfig } from '../src/config.js';
 import { createRedisStore } from '../src/redisStore.js';
 import { createPauseFlag } from '../src/pauseFlag.js';
+import { createRunLock } from '../src/runLock.js';
 import { createActiveRuns } from '../src/activeRuns.js';
 import { createRunHistory } from '../src/runHistory.js';
 import { readCronState } from '../src/cronState.js';
@@ -32,35 +33,56 @@ const activeRuns = createActiveRuns({ dir: config.logsDir });
 const history = createRunHistory({ dir: config.logsDir });
 
 /**
- * Pause lookups over a client that fails fast instead of retrying forever, and reconnects on the
- * next call (for `watch`). A down Redis shows as "unknown".
+ * Redis over a client that fails fast instead of retrying forever (unlike the service's
+ * `connectRedis`), and reconnects on the next call after a failure (for `watch`). A down Redis
+ * shows as "unknown" in the status.
  */
-function createPauseReader() {
-  /** @type {ReturnType<typeof createClient> | null} */
-  let client = null;
-  return {
-    async get() {
-      if (!client) {
-        const fresh = createClient({ url: config.redisUrl, socket: { connectTimeout: 1000, reconnectStrategy: false } });
-        fresh.on('error', () => {});
-        await fresh.connect();
-        client = fresh;
-      }
+function createRedisReader() {
+  /** @type {Promise<ReturnType<typeof createClient>> | null} */
+  let connecting = null;
+  const connect = () =>
+    (connecting ??= (async () => {
+      const client = createClient({ url: config.redisUrl, socket: { connectTimeout: 1000, reconnectStrategy: false } });
+      client.on('error', () => {});
       try {
-        return await createPauseFlag({ store: createRedisStore(client) }).get();
+        await client.connect();
+        return client;
       } catch (err) {
+        connecting = null;
         client.disconnect().catch(() => {});
-        client = null;
         throw err;
       }
+    })());
+  /** @template T @param {(store: import('../src/redisStore.js').Store) => Promise<T>} fn */
+  async function withStore(fn) {
+    const client = await connect();
+    try {
+      return await fn(createRedisStore(client));
+    } catch (err) {
+      connecting = null;
+      client.disconnect().catch(() => {});
+      throw err;
+    }
+  }
+  return {
+    readPause: () => withStore((store) => createPauseFlag({ store }).get()),
+    readLock: () => withStore((store) => createRunLock({ store, ttlSeconds: config.lockTtlSeconds }).current()),
+    async close() {
+      const client = await connecting?.catch(() => null);
+      await client?.quit().catch(() => {});
     },
-    close: () => client?.quit().catch(() => {}),
   };
 }
 
-const pauseReader = createPauseReader();
+const redis = createRedisReader();
 const collect = () =>
-  collectStatus({ activeRuns, history, readCron: () => readCronState({ dir: config.logsDir }), readPause: () => pauseReader.get() });
+  collectStatus({
+    activeRuns,
+    history,
+    readCron: () => readCronState({ dir: config.logsDir }),
+    readPause: redis.readPause,
+    readLock: redis.readLock,
+  });
 
 /** @param {string[]} args */
 async function status(args) {
@@ -130,5 +152,5 @@ try {
   console.error(err?.message || String(err));
   process.exitCode = 1;
 } finally {
-  await pauseReader.close();
+  await redis.close();
 }
