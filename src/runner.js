@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { parseCommand } from './commands.js';
 import { OWNER } from './outbox.js';
@@ -8,7 +9,9 @@ import { renderHistoryText, renderStatusText } from './statusFormat.js';
 
 /**
  * The runner: turns a `claude…` command into at most one agent run at a time and reports every
- * outcome through the outbox. HTTP (src/http.js) and startup (src/main.js) are thin shells over it.
+ * outcome through the outbox. A request that arrives while busy (or paused) waits in the run queue
+ * and starts when the runs ahead of it have finished. HTTP (src/http.js) and startup (src/main.js)
+ * are thin shells over it.
  */
 
 const MAX_OUTBOX_TEXT = 30_000;
@@ -72,6 +75,7 @@ export function formatRunResult(rec, r) {
  * @param {{
  *   lock: ReturnType<typeof import('./runLock.js').createRunLock>,
  *   pause: ReturnType<typeof import('./pauseFlag.js').createPauseFlag>,
+ *   queue: ReturnType<typeof import('./runQueue.js').createRunQueue>,
  *   outbox: ReturnType<typeof import('./outbox.js').createOutbox>,
  *   backend: import('./agentBackend/index.js').AgentBackend,
  *   history: Pick<ReturnType<typeof import('./runHistory.js').createRunHistory>, 'append' | 'read'>,
@@ -94,6 +98,7 @@ export function formatRunResult(rec, r) {
 export function createRunner({
   lock,
   pause,
+  queue,
   outbox,
   backend,
   history,
@@ -116,6 +121,9 @@ export function createRunner({
   let active = null;
   /** Settles when the active run has been reported and its lock released. */
   let settled = Promise.resolve();
+  /** The latest queue drain; one runs at a time. */
+  let draining = /** @type {Promise<void> | null} */ (null);
+  let lastDrain = Promise.resolve();
 
   /** @param {string} runId */
   const trackProgress = (runId) => (p) => {
@@ -235,6 +243,7 @@ export function createRunner({
         } catch (err) {
           logger.error(`run ${runId}: lock release failed (expires on its own):`, err?.message || err);
         }
+        drainQueue();
       });
     return a;
   }
@@ -273,6 +282,7 @@ export function createRunner({
   /**
    * @param {{ kind: 'freeform', prompt: string } | { kind: 'joplin', noteQuery: string }} cmd
    * @param {string} replyTo
+   * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
    */
   async function startRun(cmd, replyTo) {
     const record = newRecord({
@@ -282,7 +292,7 @@ export function createRunner({
       workspaceRoot,
     });
     const refused = await acquire(record);
-    if (refused) return refused.reply;
+    if (refused) return { reply: refused.reply, started: false, refused: refused.why };
 
     try {
       let prompt;
@@ -293,11 +303,11 @@ export function createRunner({
           note = await joplin.getNote(cmd.noteQuery);
         } catch (err) {
           await lock.release(record.runId);
-          return `Failed to read Joplin note: ${err?.message || err}`;
+          return { reply: `Failed to read Joplin note: ${err?.message || err}`, started: false };
         }
         if (!note.body.trim()) {
           await lock.release(record.runId);
-          return `Joplin note "${note.title}" (${note.id}) is empty. Nothing to run.`;
+          return { reply: `Joplin note "${note.title}" (${note.id}) is empty. Nothing to run.`, started: false };
         }
         prompt = note.body.trim();
         record.label = `Joplin note "${note.title}"`;
@@ -306,10 +316,10 @@ export function createRunner({
         prompt = cmd.prompt;
       }
       await launch(record, { prompt, cwd: workspaceRoot }, async (result) => ({ text: formatRunResult(record, result) }));
-      return `Started run ${record.runId}${source} in ${workspaceRoot}.\nLog: ${record.logPath}`;
+      return { reply: `Started run ${record.runId}${source} in ${workspaceRoot}.\nLog: ${record.logPath}`, started: true };
     } catch (err) {
       await lock.release(record.runId).catch(() => {});
-      return `Could not start the agent: ${err?.message || err}`;
+      return { reply: `Could not start the agent: ${err?.message || err}`, started: false };
     }
   }
 
@@ -321,10 +331,13 @@ export function createRunner({
    * @returns {Promise<{ reply: string, done: Promise<IssueRunOutcome | null> | null, refused?: 'busy' | 'paused' }>}
    *   `done` (null when nothing started) settles once the run has been reported and unlocked, with
    *   the run's result, or null when post-run never reported one.
-   *   `refused` says the lock was held or the runner paused, so nothing was tried.
+   *   `refused` says the lock was held, the runner paused or (for the cron) requests are queued, so
+   *   nothing was tried.
    */
   async function startIssueRun({ issueNumber, alias, extraInstructions = '', replyTo, trigger = 'manual' }) {
     if (!workspaces || !issues) return { reply: 'claude issue:<n> is not configured on this runner.', done: null };
+    // queued requests go first; the cron tries again on a later tick
+    if (trigger === 'cron' && (await queue.length()) > 0) return { reply: 'Requests are queued.', done: null, refused: 'busy' };
     let ws;
     try {
       ws = await workspaces.resolveIssueWorkspace(alias);
@@ -415,6 +428,97 @@ export function createRunner({
     }
   }
 
+  /**
+   * Start a run request now. `refused` means it couldn't take the lock (busy or paused).
+   * @param {import('./runQueue.js').QueuedRun['cmd']} cmd
+   * @param {string} replyTo
+   * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
+   */
+  async function startCommand(cmd, replyTo) {
+    if (cmd.kind !== 'issue') return startRun(cmd, replyTo);
+    const r = await startIssueRun({ ...cmd, replyTo });
+    return { reply: r.reply, started: r.done != null, ...(r.refused ? { refused: r.refused } : {}) };
+  }
+
+  /** @param {import('./runQueue.js').QueuedRun['cmd']} cmd */
+  const labelFor = (cmd) =>
+    cmd.kind === 'freeform'
+      ? oneLine(cmd.prompt, 60)
+      : cmd.kind === 'joplin'
+        ? `joplin:${cmd.noteQuery}`
+        : `issue ${cmd.alias ? `${cmd.alias}#` : '#'}${cmd.issueNumber}`;
+
+  /**
+   * A run request from a user: start it now if nothing is ahead of it, else queue it.
+   * @param {import('./runQueue.js').QueuedRun['cmd']} cmd
+   * @param {string} replyTo
+   */
+  async function submit(cmd, replyTo) {
+    let why = 'busy';
+    if ((await queue.length()) === 0) {
+      const r = await startCommand(cmd, replyTo);
+      if (!r.refused) return r.reply;
+      why = r.refused;
+    }
+    const label = labelFor(cmd);
+    const pos = await queue.push({ id: randomUUID(), cmd, replyTo, label, queuedAt: new Date(now()).toISOString() });
+    if (pos == null) return `The queue is full (${queue.maxLength} waiting). Try again later, or send claude:queue clear.`;
+    let ahead = '';
+    if (why === 'paused') {
+      const p = await pause.get();
+      ahead = ` agent-runner is paused${p ? ` (${p.reason})` : ''}.`;
+    } else {
+      const cur = await lock.current();
+      if (cur) ahead = ` ${capitalize(describeRun(cur))} is in progress.`;
+    }
+    // in case the runner went idle between the start attempt and the push
+    drainQueue();
+    return `Queued (position ${pos}): ${label}.${ahead} It will start when the runs ahead of it finish.`;
+  }
+
+  /**
+   * Start queued requests, oldest first, until one is running (or the queue is empty, or the runner
+   * is busy or paused). Called when a run finishes, on startup and on a timer, which picks the
+   * queue back up after a pause ends. Each request's "started" (or failure) reply goes to the outbox.
+   */
+  function drainQueue() {
+    if (draining) return draining;
+    draining = (async () => {
+      try {
+        for (;;) {
+          if ((await pause.get()) || (await lock.current())) return;
+          const item = await queue.shift();
+          if (!item) return;
+          const r = await startCommand(item.cmd, item.replyTo);
+          if (r.refused) {
+            await queue.unshift(item);
+            return;
+          }
+          const text = r.started ? `Queued request "${item.label}": ${r.reply}` : `Queued request "${item.label}" did not start: ${r.reply}`;
+          await outbox.send({ replyTo: item.replyTo, text }).catch((err) => logger.error('queue: outbox write failed:', err?.message || err));
+          if (r.started) return;
+        }
+      } catch (err) {
+        logger.error('queue: drain failed:', err?.message || err);
+      } finally {
+        draining = null;
+      }
+    })();
+    lastDrain = draining;
+    return draining;
+  }
+
+  /** @param {boolean} clear */
+  async function queueCommand(clear) {
+    const items = await queue.list();
+    if (clear) {
+      await queue.clear();
+      return items.length ? `Dropped ${items.length} queued request${items.length === 1 ? '' : 's'}.` : 'The queue is already empty.';
+    }
+    if (!items.length) return 'The queue is empty.';
+    return [`Queued (${items.length}):`, ...items.map((it, i) => `${i + 1}. ${it.label}`)].join('\n');
+  }
+
   async function stop() {
     if (active) {
       active.stopRequested = true;
@@ -451,25 +555,26 @@ export function createRunner({
           return { reply: await stop() };
         case 'restart':
           return { reply: await restart(replyTo) };
-        case 'issue':
-          return { reply: (await startIssueRun({ ...cmd, replyTo })).reply };
+        case 'queue':
+          return { reply: await queueCommand(cmd.clear) };
         case 'status':
           return { reply: renderStatusText(await statusSnapshot()) };
         case 'history':
           return { reply: renderHistoryText(await history.read({ limit: cmd.count }), now()) };
         default:
-          return { reply: await startRun(cmd, replyTo) };
+          return { reply: await submit(cmd, replyTo) };
       }
     },
 
-    /** @returns {Promise<{ busy: boolean, activeRun: (import('./runLock.js').RunRecord & Partial<import('./agentBackend/index.js').AgentProgress> & { phase?: ActiveRun['phase'] }) | null, paused: boolean }>} */
+    /** @returns {Promise<{ busy: boolean, activeRun: (import('./runLock.js').RunRecord & Partial<import('./agentBackend/index.js').AgentProgress> & { phase?: ActiveRun['phase'] }) | null, paused: boolean, queued: number }>} */
     async status() {
-      const [held, paused] = await Promise.all([lock.current(), pause.get()]);
+      const [held, paused, queued] = await Promise.all([lock.current(), pause.get(), queue.length()]);
       const live = active && held?.runId === active.record.runId ? { ...active.progress, phase: active.phase } : null;
       return {
         busy: Boolean(held),
         activeRun: held ? { ...held, ...(live ?? {}) } : null,
         paused: Boolean(paused),
+        queued,
       };
     },
 
@@ -505,8 +610,12 @@ export function createRunner({
     },
 
     startIssueRun,
+    drainQueue,
 
-    /** Resolves once the current run (if any) has been reported and unlocked. */
-    idle: () => settled,
+    /** Resolves once the current run (if any) has been reported and unlocked, and the queue drain it kicked off is done. */
+    idle: async () => {
+      await settled;
+      await lastDrain;
+    },
   };
 }

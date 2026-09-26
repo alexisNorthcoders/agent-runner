@@ -28,12 +28,19 @@ WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-resta
 | `claude joplin:<note title or id>` | Use a note from the `WhatsApp Bot` notebook as the instructions (Joplin Data API). |
 | `claude issue:<alias>:<n> [extra instructions]` | Implement GitHub issue `n` in the allowlisted `<alias>` workspace, then commit, PR, review and merge. See [Issue runs](#issue-runs). |
 | `claude issue:<n> [extra instructions]` | The same, in the `CLAUDE_ISSUE_DEFAULT_ALIAS` workspace. |
-| `claude:stop` | Kill the active run. Its "stopped" report lands in the outbox. |
+| `claude:stop` | Kill the active run. Its "stopped" report lands in the outbox, and the next queued request starts. |
+| `claude:queue` | List the requests waiting for the agent. |
+| `claude:queue clear` | Drop every waiting request. |
 | `claude:restart` | Run safe-restart in the background, then report to the outbox. |
 | `claude:status` | Active run (with orphaned/stale warnings), pause, last cron tick, today's spend, last 3 runs. |
 | `claude:history [n]` | The last `n` finished runs (default 10, max 30) with outcome, duration, cost and tokens. |
 
-There is one run at a time and no queue: a request while busy is rejected. Status and history
+There is one run at a time. A run request (`claude …`, `joplin:`, `issue:`) that arrives while a
+run is active, the runner is paused, or other requests are already waiting joins a FIFO queue
+(max 20) and gets a "Queued (position n)" reply. When a run finishes, the oldest queued request
+starts, and its "Started run …" reply (or why it couldn't start) goes to the outbox. The queue is
+in Redis, so it survives a restart, and the runner re-checks it every 15s (e.g. after a pause
+ends). The cron skips its tick while anything is queued. Status and history
 replies are a single compact message, with no log paths or excerpts.
 
 ## Terminal status
@@ -104,9 +111,9 @@ State is in Redis (below) and starts fresh: nothing is migrated from the bot's J
 
 ## HTTP API (127.0.0.1 only, no auth)
 
-- `POST /command {text, replyTo}` → `{reply}`. The reply is synchronous ("Started run X", "busy…",
+- `POST /command {text, replyTo}` → `{reply}`. The reply is synchronous ("Started run X", "Queued (position n)…",
   a usage/parse error). `replyTo` is opaque and is echoed on the run's outbox messages.
-- `GET /status` → `{busy, activeRun, paused}`. `activeRun` includes live progress (`lastActivity`,
+- `GET /status` → `{busy, activeRun, paused, queued}`. `activeRun` includes live progress (`lastActivity`,
   `turns`, tokens).
 
 ```sh
@@ -121,6 +128,7 @@ curl -s localhost:3790/command -H 'content-type: application/json' \
 | --- | --- | --- |
 | `agent-runner:outbox` | stream | Messages for the bot: `XADD {replyTo, text, runId, ts}`, trimmed to ~7 days (`MINID ~`). System messages use `replyTo=owner`. |
 | `agent-runner:lock` | string (JSON) | Single-flight lock holding the active run's record. It is TTL'd, and on startup a leftover lock is reported to `owner` as an interrupted run. |
+| `agent-runner:queue` | list (JSON) | Run requests waiting for the agent, oldest first: `{id, cmd, replyTo, label, queuedAt}`. |
 | `agent-runner:paused` | string (JSON) | Pause flag set by safe-restart. It is TTL'd, and only its setter (by token) clears it. The cron skips its ticks while it's set. |
 | `agent-runner:cron:state` | string (JSON) | The cron's last tick (`pid`, `intervalMs`, times, outcome), for the status views. |
 | `agent-runner:cron:last-started` | hash | `owner/repo` → the last issue the cron made progress on there. |
@@ -145,7 +153,7 @@ are told the same rule in their prompt preamble.
 - `src/commands.js`: parses `claude…` text.
 - `src/agentBackend/`: the `AgentBackend` seam. `claude.js` holds everything Claude-specific (CLI
   flags, stream-json parsing, cost/tokens, `/implement`).
-- `src/runLock.js`, `src/pauseFlag.js`, `src/outbox.js`, `src/cronState.js`: Redis state over
+- `src/runLock.js`, `src/runQueue.js`, `src/pauseFlag.js`, `src/outbox.js`, `src/cronState.js`: Redis state over
   `src/redisStore.js`.
 - `src/cronTracer.js`: the cron issue tracer (picking, parking, progress), over `runner.startIssueRun`.
 - `src/safeRestart.js` + `bin/safe-restart.js`: restart decision logic and the CLI.

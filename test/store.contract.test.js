@@ -67,6 +67,21 @@ function contract(setup) {
     assert.deepEqual(await store.hashGetAll(k('h')), {});
   });
 
+  it('list ops keep FIFO order, with push-front for a put-back', async () => {
+    const { store } = setup();
+    const key = k('list');
+    assert.equal(await store.listPopFront(key), null);
+    assert.equal(await store.listLength(key), 0);
+    assert.equal(await store.listPushBack(key, 'a'), 1);
+    assert.equal(await store.listPushBack(key, 'b'), 2);
+    assert.equal(await store.listPopFront(key), 'a');
+    assert.equal(await store.listPushFront(key, 'a2'), 2);
+    assert.deepEqual(await store.listAll(key), ['a2', 'b']);
+    assert.equal(await store.listLength(key), 2);
+    await store.del(key);
+    assert.deepEqual(await store.listAll(key), []);
+  });
+
   it('appendToStream adds entries with a MINID trim', async () => {
     const { store, readStream } = setup();
     const key = k('stream');

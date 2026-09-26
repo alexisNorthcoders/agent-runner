@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createRunner } from '../src/runner.js';
 import { createRunLock } from '../src/runLock.js';
 import { createPauseFlag } from '../src/pauseFlag.js';
+import { createRunQueue } from '../src/runQueue.js';
 import { createOutbox, OUTBOX_KEY } from '../src/outbox.js';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
@@ -49,6 +50,7 @@ function setup(overrides = {}) {
   const store = createMemoryStore();
   const lock = createRunLock({ store, ttlSeconds: 60 });
   const pause = createPauseFlag({ store });
+  const queue = createRunQueue({ store, maxLength: 3 });
   const outbox = createOutbox({ store });
   const { backend, starts } = fakeBackend();
   /** @type {any[]} */
@@ -81,6 +83,7 @@ function setup(overrides = {}) {
   const runner = createRunner({
     lock,
     pause,
+    queue,
     outbox,
     backend,
     history: {
@@ -110,6 +113,7 @@ function setup(overrides = {}) {
     store,
     lock,
     pause,
+    queue,
     runner,
     starts,
     history,
@@ -147,13 +151,89 @@ describe('runner: freeform runs', () => {
     assert.equal(history[0].runId, 'run-1');
   });
 
-  it('rejects a second request while busy, without starting anything', async () => {
-    const { runner, starts } = setup();
+  it('queues a second request while busy, then starts it when the first run finishes', async () => {
+    const { runner, starts, lock, outboxEntries } = setup();
     await runner.handleCommand({ text: 'claude one', replyTo: 'a' });
     const { reply } = await runner.handleCommand({ text: 'claude two', replyTo: 'b' });
-    assert.match(reply, /busy/i);
-    assert.match(reply, /run-1/);
+    assert.match(reply, /Queued \(position 1\): two\. Run run-1 \(one\) is in progress/);
     assert.equal(starts.length, 1);
+
+    starts[0].finish();
+    await runner.idle();
+    assert.equal(starts.length, 2);
+    assert.equal(starts[1].opts.prompt, 'two');
+    assert.equal((await lock.current())?.replyTo, 'b');
+    const [done1, started2] = outboxEntries();
+    assert.equal(done1.replyTo, 'a');
+    assert.equal(started2.replyTo, 'b');
+    assert.match(started2.text, /^Queued request "two": Started run run-\d+ in /);
+    assert.equal((await runner.status()).queued, 0);
+  });
+
+  it('runs queued requests one at a time, in order', async () => {
+    const { runner, starts } = setup();
+    for (const t of ['one', 'two', 'three']) await runner.handleCommand({ text: `claude ${t}`, replyTo: 'a' });
+    assert.equal((await runner.status()).queued, 2);
+    starts[0].finish();
+    await runner.idle();
+    assert.equal(starts.length, 2);
+    assert.equal(starts[1].opts.prompt, 'two');
+    starts[1].finish();
+    await runner.idle();
+    assert.deepEqual(starts.map((s) => s.opts.prompt), ['one', 'two', 'three']);
+  });
+
+  it('a new request waits behind queued ones even if the runner looks idle', async () => {
+    const { runner, queue, starts, pause } = setup();
+    const token = await pause.set('safe-restart');
+    await runner.handleCommand({ text: 'claude first', replyTo: 'a' });
+    await pause.clear(/** @type {string} */ (token));
+    const { reply } = await runner.handleCommand({ text: 'claude second', replyTo: 'a' });
+    assert.match(reply, /Queued \(position 2\)/);
+    await runner.idle();
+    assert.deepEqual(starts.map((s) => s.opts.prompt), ['first']);
+    assert.deepEqual((await queue.list()).map((q) => q.label), ['second']);
+  });
+
+  it('refuses a request when the queue is full', async () => {
+    const { runner } = setup();
+    for (const t of ['0', '1', '2', '3']) await runner.handleCommand({ text: `claude ${t}`, replyTo: 'a' });
+    const { reply } = await runner.handleCommand({ text: 'claude overflow', replyTo: 'a' });
+    assert.match(reply, /queue is full/);
+  });
+
+  it('reports a queued request that fails to start, and moves on to the next', async () => {
+    const { runner, starts, outboxEntries } = setup();
+    await runner.handleCommand({ text: 'claude one', replyTo: 'a' });
+    await runner.handleCommand({ text: 'claude joplin:missing', replyTo: 'b' });
+    await runner.handleCommand({ text: 'claude three', replyTo: 'c' });
+    starts[0].finish();
+    await runner.idle();
+    assert.deepEqual(starts.map((s) => s.opts.prompt), ['one', 'three']);
+    const failed = outboxEntries().find((e) => e.replyTo === 'b');
+    assert.match(failed?.text ?? '', /did not start: Failed to read Joplin note/);
+  });
+
+  it('claude:queue lists the waiting requests, and claude:queue clear drops them', async () => {
+    const { runner, starts } = setup();
+    assert.equal((await runner.handleCommand({ text: 'claude:queue', replyTo: 'a' })).reply, 'The queue is empty.');
+    for (const t of ['one', 'two', 'three']) await runner.handleCommand({ text: `claude ${t}`, replyTo: 'a' });
+    assert.equal((await runner.handleCommand({ text: 'claude:queue', replyTo: 'a' })).reply, 'Queued (2):\n1. two\n2. three');
+    assert.equal((await runner.handleCommand({ text: 'claude:queue clear', replyTo: 'a' })).reply, 'Dropped 2 queued requests.');
+    starts[0].finish();
+    await runner.idle();
+    assert.equal(starts.length, 1);
+  });
+
+  it('drains a queue left by a previous process once the pause is lifted', async () => {
+    const { runner, queue, pause, starts } = setup();
+    await queue.push({ id: 'q1', cmd: { kind: 'freeform', prompt: 'left over' }, replyTo: 'a', label: 'left over', queuedAt: '' });
+    const token = await pause.set('safe-restart');
+    await runner.drainQueue();
+    assert.equal(starts.length, 0);
+    await pause.clear(/** @type {string} */ (token));
+    await runner.drainQueue();
+    assert.equal(starts[0]?.opts.prompt, 'left over');
   });
 
   it('reports a failed run with the error and log path', async () => {
@@ -167,11 +247,11 @@ describe('runner: freeform runs', () => {
     assert.match(msg.text, /\/logs\/x\.log/);
   });
 
-  it('refuses to start while paused', async () => {
+  it('queues instead of starting while paused', async () => {
     const { runner, pause, starts } = setup();
     await pause.set('safe-restart');
     const { reply } = await runner.handleCommand({ text: 'claude x', replyTo: 'a' });
-    assert.match(reply, /paused/);
+    assert.match(reply, /Queued \(position 1\).*paused \(safe-restart\)/);
     assert.equal(starts.length, 0);
   });
 
@@ -182,7 +262,7 @@ describe('runner: freeform runs', () => {
     pause.get = async () => (++calls === 1 ? null : realGet());
     await pause.set('safe-restart');
     const { reply } = await runner.handleCommand({ text: 'claude x', replyTo: 'a' });
-    assert.match(reply, /paused/);
+    assert.match(reply, /Queued.*paused/);
     assert.equal(starts.length, 0);
     assert.equal(await lock.current(), null);
   });
@@ -280,7 +360,7 @@ describe('runner: claude:restart', () => {
 describe('runner: status', () => {
   it('reports idle, then the active run with live progress', async () => {
     const { runner, starts, pause } = setup();
-    assert.deepEqual(await runner.status(), { busy: false, activeRun: null, paused: false });
+    assert.deepEqual(await runner.status(), { busy: false, activeRun: null, paused: false, queued: 0 });
     await runner.handleCommand({ text: 'claude job', replyTo: 'a' });
     starts[0].opts.onProgress({ model: 'm', turns: 2, outputTokens: 5, contextTokens: 9, lastActivity: 'Bash: ls' });
     const s = await runner.status();
@@ -491,11 +571,19 @@ describe('runner: issue runs', () => {
     assert.equal(await lock.current(), null);
   });
 
-  it('is refused while busy, before touching the repo', async () => {
+  it('is queued while busy, before touching the repo', async () => {
     const { runner, prepares } = issueSetup();
     await runner.handleCommand({ text: 'claude something', replyTo: 'a' });
     const { reply } = await runner.handleCommand({ text: 'claude issue:a:7', replyTo: 'b' });
-    assert.match(reply, /busy/);
+    assert.match(reply, /Queued \(position 1\): issue a#7/);
+    assert.equal(prepares.length, 0);
+  });
+
+  it('the cron backs off while requests are queued', async () => {
+    const { runner, prepares, queue } = issueSetup();
+    await queue.push({ id: 'q1', cmd: { kind: 'freeform', prompt: 'x' }, replyTo: 'a', label: 'x', queuedAt: '' });
+    const r = await runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger: 'cron' });
+    assert.equal(r.refused, 'busy');
     assert.equal(prepares.length, 0);
   });
 

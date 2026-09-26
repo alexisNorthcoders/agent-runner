@@ -9,6 +9,8 @@ export function createMemoryStore() {
   const hashes = new Map();
   /** @type {Map<string, Array<{ id: string, fields: Record<string, string> }>>} */
   const streams = new Map();
+  /** @type {Map<string, string[]>} */
+  const lists = new Map();
   let seq = 0;
   let lastMs = 0;
   /** @type {Error | null} */
@@ -69,6 +71,7 @@ export function createMemoryStore() {
       check();
       kv.delete(key);
       hashes.delete(key);
+      lists.delete(key);
     },
     async hashGetAll(key) {
       check();
@@ -95,6 +98,35 @@ export function createMemoryStore() {
       entries.push({ id, fields: { ...fields } });
       streams.set(key, entries);
       return id;
+    },
+    async listPushBack(key, value) {
+      check();
+      const l = lists.get(key) ?? [];
+      l.push(value);
+      lists.set(key, l);
+      return l.length;
+    },
+    async listPushFront(key, value) {
+      check();
+      const l = lists.get(key) ?? [];
+      l.unshift(value);
+      lists.set(key, l);
+      return l.length;
+    },
+    async listPopFront(key) {
+      check();
+      const l = lists.get(key);
+      const v = l?.shift() ?? null;
+      if (l && !l.length) lists.delete(key);
+      return v;
+    },
+    async listAll(key) {
+      check();
+      return [...(lists.get(key) ?? [])];
+    },
+    async listLength(key) {
+      check();
+      return lists.get(key)?.length ?? 0;
     },
   };
 }

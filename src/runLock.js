@@ -1,6 +1,6 @@
 /**
  * Single-flight lock for agent runs, in Redis so the safe-restart CLI (and later the bot) can see
- * it. There is no queue: a request while the lock is held is rejected. The lock value is the
+ * it. A request while the lock is held waits in the run queue (src/runQueue.js). The lock value is the
  * active run's record, which doubles as the "interrupted run" marker read on startup.
  *
  * @typedef {{

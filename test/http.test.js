@@ -16,7 +16,7 @@ describe('http API', () => {
       return { reply: `got ${req.text}` };
     },
     async status() {
-      return { busy: false, activeRun: null, paused: false };
+      return { busy: false, activeRun: null, paused: false, queued: 0 };
     },
   };
   /** @type {import('http').Server} */
@@ -59,7 +59,7 @@ describe('http API', () => {
   it('GET /status returns the runner status', async () => {
     const res = await fetch(`${base}/status`);
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { busy: false, activeRun: null, paused: false });
+    assert.deepEqual(await res.json(), { busy: false, activeRun: null, paused: false, queued: 0 });
   });
 
   it('404s anything else', async () => {

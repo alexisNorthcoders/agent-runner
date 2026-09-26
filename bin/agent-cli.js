@@ -16,6 +16,7 @@ import { createActiveRuns } from '../src/activeRuns.js';
 import { createRunHistory } from '../src/runHistory.js';
 import { createCronState } from '../src/cronState.js';
 import { collectStatus } from '../src/statusCollect.js';
+import { createRunQueue } from '../src/runQueue.js';
 import { ansi, plain, renderHistoryLines, renderStatus } from '../src/statusFormat.js';
 
 const USAGE = `agent-cli: observability for agent-runner
@@ -69,6 +70,7 @@ function createRedisReader() {
     readPause: () => withStore((store) => createPauseFlag({ store }).get()),
     readLock: () => withStore((store) => createRunLock({ store, ttlSeconds: config.lockTtlSeconds }).current()),
     readCron: () => withStore((store) => createCronState({ store }).read()),
+    readQueue: () => withStore((store) => createRunQueue({ store }).list()),
     async close() {
       const client = await connecting?.catch(() => null);
       await client?.quit().catch(() => {});
@@ -84,6 +86,7 @@ const collect = () =>
     readCron: redis.readCron,
     readPause: redis.readPause,
     readLock: redis.readLock,
+    readQueue: redis.readQueue,
   });
 
 /** @param {string[]} args */
