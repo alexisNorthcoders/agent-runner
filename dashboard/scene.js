@@ -39,7 +39,7 @@
  * @typedef {'stamped' | 'folder' | 'injured' | 'asleep' | 'home' | 'dizzy' | 'shrug' | 'idle'} RestingState
  *   How a room's last run went: merged (a stamp, papers to the out tray), a PR left open (a folder
  *   on the boss's desk), failed (an injured worker), timed out (asleep at the desk), stopped (the
- *   worker gone home, the lights off), interrupted by a restart (a dizzy worker), no changes (a
+ *   worker gone home, the room dark), interrupted by a restart (a dizzy worker), no changes (a
  *   shrug and a tumbleweed). `idle`, the neutral fallback, shows nothing.
  *
  * @typedef {{
@@ -132,7 +132,7 @@ function placeOf(r, cubicles) {
 }
 
 /** Each resting state, in words for the hover. @type {Record<RestingState, string>} */
-const SAID = {
+const HOVER_WORDS = {
   stamped: 'merged',
   folder: 'PR open',
   injured: 'failed, needs a look',
@@ -191,7 +191,7 @@ function reduceOutcomes(history, run, cubicles) {
       quick: h.durationMs != null && h.durationMs < QUICK_MS,
       runId: h.runId,
       label: h.label,
-      outcome: SAID[state] || (h.result ? `${h.outcome} (${h.result})` : h.outcome),
+      outcome: HOVER_WORDS[state] || (h.result ? `${h.outcome} (${h.result})` : h.outcome),
       endedAt: Date.parse(h.endedAt),
       prUrl: h.prUrl ?? null,
     });

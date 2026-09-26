@@ -636,7 +636,7 @@ describe('runner: issue runs', () => {
   });
 
   it('runs the autofix pass as the active agent, which claude:stop can stop', async () => {
-    const { runner, starts, finishes, outboxEntries } = issueSetup();
+    const { runner, starts, finishes, outboxEntries, history } = issueSetup();
     await runner.handleCommand({ text: 'claude issue:a:7', replyTo: 'a' });
     starts[0].finish('success');
     await flush();
@@ -659,6 +659,8 @@ describe('runner: issue runs', () => {
     finishes[0].release({ result: 'pr_open', message: '⚠️ #7 — Fix it: merge blocked by the autofix pass — needs a look.', silent: false });
     await runner.idle();
     assert.match(outboxEntries()[0].text, /merge blocked/);
+    // the run was stopped, though its first pass succeeded (the office shows it gone home)
+    assert.equal(history[0].outcome, 'stopped');
   });
 
   it('re-publishes the active-run file for the autofix pass, and counts its cost in history', async () => {

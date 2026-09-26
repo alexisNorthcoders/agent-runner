@@ -57,7 +57,8 @@ import { spend, totalTokens } from './statusFormat.js';
  * }} OfficeHistoryEntry
  *   A finished run. `outcome` is the agent's (`success`, `failed`, `timeout`, `stopped`,
  *   `spawn_error`), or `interrupted` for a run a restart cut off; `result` is an issue run's
- *   pipeline result (`merged`, `pr_open`, `pushed`, `no_changes`, …), and `prUrl` its PR's. `tokens` is the total over input, output and cache.
+ *   pipeline result (`merged`, `pr_open`, `pushed`, `no_changes`, …), and `prUrl` its PR's.
+ *   `tokens` is the total over input, output and cache.
  *
  * @typedef {{ runs: number, costUsd: number, tokens: number }} SpendTotals
  *

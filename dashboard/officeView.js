@@ -5,7 +5,7 @@
 // gives, so the reducer only says what happens and when, as are the ends of runs (the stamp coming
 // down, the papers to the out tray) from when the run ended.
 import { formatClock } from './format.js';
-import { WALL, cartSlots, cubicleDesk, deskAt, placeRect, roomAt, workerRect } from './layout.js';
+import { WALL, cartSlots, cubicleDesk, deskAt, placeName, placeRect, roomAt, workerRect } from './layout.js';
 import * as s from './sprites.js';
 
 /** @typedef {import('./sprites.js').Ctx} Ctx */
@@ -30,7 +30,7 @@ const TRAY_SHEETS = 6;
 const TUMBLE_EVERY_MS = 9000;
 const TUMBLE_MS = 3000;
 /** Resting states that keep moving: Zzz, stars, the tumbleweed. */
-const RESTLESS = new Set(['asleep', 'dizzy', 'shrug']);
+const ANIMATED_STATES = new Set(['asleep', 'dizzy', 'shrug']);
 /** The most folders the boss's desk holds. */
 const FOLDERS_MAX = 4;
 
@@ -94,7 +94,7 @@ function deliveryTimes(run) {
  */
 export const animating = (scene, t) =>
   !scene.dark &&
-  (!!scene.run || t - scene.boss.since < WALK_MS || scene.outcomes.some((o) => RESTLESS.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
+  (!!scene.run || t - scene.boss.since < WALK_MS || scene.outcomes.some((o) => ANIMATED_STATES.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
 
 /** Whether the mail carrier is out delivering at `t`, away from the reception desk. @param {Scene} scene @param {number} t */
 function carrierOut(scene, t) {
@@ -139,7 +139,7 @@ function drawRun(ctx, layout, scene, t) {
 
 /**
  * How each room's last run left it, until its next run: the stamp and the out tray, the injured,
- * sleeping, dizzy or shrugging worker, the tumbleweed, or the lights off where the worker went home.
+ * sleeping, dizzy or shrugging worker, the tumbleweed, or a dark, empty room where the worker went home.
  * A PR left open is a folder on the boss's desk instead (drawFolders).
  * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {number} t
  */
@@ -186,7 +186,7 @@ function drawOutcomes(ctx, layout, scene, t) {
       }
       case 'shrug': {
         s.shruggingWorker(ctx, w);
-        const roll = (t - o.endedAt) % TUMBLE_EVERY_MS;
+        const roll = since % TUMBLE_EVERY_MS;
         if (roll >= 0 && roll < TUMBLE_MS) {
           const floorY = area.y + area.h - 3;
           s.tumbleweed(ctx, lerp(area.x + 4, area.x + area.w - 11, roll / TUMBLE_MS), floorY, Math.floor(t / 120));
@@ -194,7 +194,7 @@ function drawOutcomes(ctx, layout, scene, t) {
         break;
       }
       case 'home':
-        s.lightsOff(ctx, area);
+        s.roomDark(ctx, area);
         break;
     }
   }
@@ -208,8 +208,7 @@ function drawFolders(ctx, layout, scene) {
   const d = layout.desks.boss;
   const open = scene.outcomes.filter((o) => o.state === 'folder').slice(0, FOLDERS_MAX);
   open.forEach((o, i) => {
-    const name = o.place.room === 'cubicle' ? (scene.cubicles.find((c) => c.alias === /** @type {{ alias: string }} */ (o.place).alias)?.name ?? '') : layout.rooms[o.place.room].name;
-    s.folder(ctx, d.x + (i % 2) * 29, d.y - 1 - Math.floor(i / 2) * 9, 27, name);
+    s.folder(ctx, d.x + (i % 2) * 29, d.y - 1 - Math.floor(i / 2) * 9, 27, placeName(layout, scene.cubicles, o.place));
   });
 }
 

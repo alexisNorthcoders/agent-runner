@@ -553,13 +553,15 @@ export function createRunner({
           // cron stays quiet about runs that changed nothing
           text: trigger === 'cron' && fin.silent ? null : fin.message,
           history: {
+            // a claude:stop that cut the autofix short stops the run, whatever the first pass did
+            ...(followUps.some((f) => f.outcome === 'stopped') ? { outcome: 'stopped' } : {}),
             trigger,
             issueNumber,
             issueRepo: prep.issue.repo,
             workspaceAlias: ws.alias,
             branch: prep.branchName,
             result: fin.result,
-            prUrl: fin.post?.prResult?.ok ? (fin.post.prResult.url ?? null) : null,
+            prUrl: prUrlOf(fin.post),
             followUps,
             // the whole run's spend, autofix included (per-pass costs stay in followUps)
             costUsd: costs.length ? costs.reduce((x, y) => x + y, 0) : null,
@@ -575,6 +577,9 @@ export function createRunner({
       done: settled.then(() => outcome),
     };
   }
+
+  /** The PR a post-run opened or found, if any. @param {import('./issuePipeline/postRun.js').PostRunResult | null | undefined} post */
+  const prUrlOf = (post) => (post?.prResult?.ok ? (post.prResult.url ?? null) : null);
 
   /**
    * WIP-commit an interrupted issue run's leftover work. Returns the sentence for the report.

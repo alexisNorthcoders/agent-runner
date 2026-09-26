@@ -77,7 +77,7 @@ The figure at a desk working the active **Run**: typing in the `agent` phase, st
 The sheets on the **Worker**'s desk: one per few turns and per few minutes, to a cap, and never shrinking during a run.
 
 **Outcome**:
-How a room's last **Run** went, shown in that room until its next run starts: stamped (merged), a folder on the boss's desk (PR open), injured (failed), asleep (timed out), gone home with the lights off (stopped), dizzy (interrupted by a restart), or a shrug and a tumbleweed (no changes). It comes from the room's latest history row.
+How a room's last **Run** went, shown in that room until its next run starts: stamped (merged), a folder on the boss's desk (PR open), injured (failed), asleep (timed out), gone home, their room dark (stopped; not **Lights off**, which is the whole office), dizzy (interrupted by a restart), or a shrug and a tumbleweed (no changes). It comes from the room's latest history row.
 _Avoid_: result (that's an issue run's pipeline result, one input to it), status
 
 **Cubicle filter**:

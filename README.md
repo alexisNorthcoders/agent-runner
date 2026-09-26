@@ -314,7 +314,7 @@ restart (for rooms with a run in the feed's 7 days):
 | PR open, or pushed without a PR | A folder on the boss's desk, labelled with the room |
 | Failed, or couldn't start | An injured worker (bandage, ice pack) |
 | Timed out | Asleep at the desk, Zzz |
-| Stopped (`claude:stop`) | The worker has gone home, and that room's lights are off |
+| Stopped (`claude:stop`, the autofix pass's too) | The worker has gone home, and that room is dark |
 | Interrupted by a restart | A drunk, dizzy worker |
 | No changes | A shrug, and a tumbleweed rolls by now and then |
 
@@ -342,9 +342,9 @@ characters fit a sign at every size.
 
 The code is split so the rules are testable and the art is replaceable: `scene.js` is the pure
 scene reducer (snapshot + previous scene → scene, tested: room placement, phases, pile growth,
-when each animation starts, and each room's last outcome), `layout.js` places the rooms, cubicles and desks and hit-tests clicks
-(tested), `sprites.js` draws every sprite procedurally (swap it for sprite sheets later),
-and `officeView.js` draws a scene on a layout with the sprites, tweening the animations from the
+when each animation starts, and each room's last outcome), `layout.js` places the rooms, cubicles
+and desks and hit-tests clicks (tested), `sprites.js` draws every sprite procedurally (swap it for
+sprite sheets later), and `officeView.js` draws a scene on a layout with the sprites, tweening the animations from the
 times the scene gives.
 
 ### nginx

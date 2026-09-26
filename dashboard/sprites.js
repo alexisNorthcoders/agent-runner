@@ -677,8 +677,8 @@ export function tumbleweed(ctx, x, y, frame) {
   }
 }
 
-/** One room (or cubicle) with its lights off. @param {Ctx} ctx @param {Rect} r */
-export function lightsOff(ctx, r) {
+/** One room (or cubicle) gone dark, its worker gone home. @param {Ctx} ctx @param {Rect} r */
+export function roomDark(ctx, r) {
   ctx.fillStyle = PALETTE.night;
   ctx.fillRect(r.x, r.y, r.w, r.h);
 }

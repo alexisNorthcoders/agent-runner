@@ -104,6 +104,16 @@ export function placeRect(layout, cubicles, place) {
 }
 
 /**
+ * A place's name, as on its sign: the cubicle's department sign, or the room's name plate.
+ * @param {Layout} layout @param {Array<{ alias: string, name: string }>} cubicles @param {import('./scene.js').Place} place
+ */
+export function placeName(layout, cubicles, place) {
+  if (place.room !== 'cubicle') return layout.rooms[place.room].name;
+  const { alias } = place;
+  return cubicles.find((c) => c.alias === alias)?.name ?? alias;
+}
+
+/**
  * The room a worker's place is in (a cubicle's is the bullpen).
  * @param {Layout} layout @param {import('./scene.js').Place} place
  * @returns {Room}

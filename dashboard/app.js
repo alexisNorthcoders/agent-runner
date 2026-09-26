@@ -2,7 +2,7 @@
 // floor on a canvas, and renders the panel's Now, History and Office tabs as text and tables. No
 // build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeSnapshot.js.
 import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, what } from './format.js';
-import { cartSlots, clickFilter, deskAt, fitScene, inside, layoutOffice, placeRect, workerRect } from './layout.js';
+import { cartSlots, clickFilter, deskAt, fitScene, inside, layoutOffice, placeName, placeRect, workerRect } from './layout.js';
 import { applyLogEvent } from './logPane.js';
 import { animating, drawOffice } from './officeView.js';
 import { reduceScene, samePlace } from './scene.js';
@@ -298,8 +298,11 @@ function hovered() {
     const o = scene.outcomes.find((x) => samePlace(x.place, { room: 'cubicle', alias: c.alias }));
     return `${c.name}${c.name === c.alias ? '' : ` (${c.alias})`}${c.doNotDisturb ? ': do not disturb' : ''}${lastRun(o)}`;
   }
-  const room = scene.outcomes.find((o) => o.place.room !== 'cubicle' && inside(/** @type {any} */ (placeRect(layout, scene.cubicles, o.place)), x, y));
-  if (room) return `${layout.rooms[/** @type {'annex' | 'library'} */ (room.place.room)].name}${lastRun(room)}`;
+  const room = scene.outcomes.find((o) => {
+    const r = o.place.room !== 'cubicle' && placeRect(layout, scene.cubicles, o.place);
+    return r && inside(r, x, y);
+  });
+  if (room) return `${placeName(layout, scene.cubicles, room.place)}${lastRun(room)}`;
   return null;
 }
 
