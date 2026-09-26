@@ -77,6 +77,21 @@ dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
+#log-lines {
+  height: 50vh;
+  overflow: auto;
+  margin: 0;
+  padding: 0.5rem;
+  border: 1px solid #8884;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#log-follow {
+  font: inherit;
+  font-size: 0.85rem;
+  margin-left: 0.5rem;
+}
 .dim {
   opacity: 0.6;
 }

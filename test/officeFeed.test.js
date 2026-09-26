@@ -192,4 +192,58 @@ describe('office feed', () => {
     const b = await t.connect();
     assert.equal(b.res.status, 503);
   });
+
+  it('sends the active run log tail after the first snapshot, then streams new lines', async () => {
+    const lt = fakeLogTail({ runId: 'r1', lines: ['a', 'b'] });
+    t = await setup({ logTail: lt });
+    const c = await t.connect();
+    await until(() => c.events.length === 2);
+    assert.equal(lt.starts, 1);
+    assert.equal(c.events[0].event, 'snapshot');
+    assert.deepEqual(c.events[1], { event: 'log', data: { runId: 'r1', reset: true, lines: ['a', 'b'] } });
+    lt.emit({ runId: 'r1', reset: false, lines: ['c'] });
+    await until(() => c.events.length === 3);
+    assert.deepEqual(c.events[2], { event: 'log', data: { runId: 'r1', reset: false, lines: ['c'] } });
+  });
+
+  it('sends no tail while no run is active, and follows the log only while clients are connected', async () => {
+    const lt = fakeLogTail({ runId: null, lines: [] });
+    t = await setup({ logTail: lt });
+    const a = await t.connect();
+    const b = await t.connect();
+    await until(() => a.events.length === 1 && b.events.length === 1);
+    await wait(30);
+    assert.deepEqual(a.events.map((e) => e.event), ['snapshot']);
+    assert.equal(lt.stops, 0);
+    a.close();
+    await until(() => t?.feed.clients() === 1);
+    assert.equal(lt.stops, 0);
+    b.close();
+    await until(() => lt.stops === 1);
+  });
 });
+
+/** @param {{ runId: string | null, lines: string[] }} tail */
+function fakeLogTail(tail) {
+  /** @type {Set<(e: any) => void>} */
+  const listeners = new Set();
+  const lt = {
+    starts: 0,
+    stops: 0,
+    async start() {
+      lt.starts++;
+    },
+    stop() {
+      lt.stops++;
+    },
+    tail: () => tail,
+    /** @param {(e: any) => void} fn */
+    onLines(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    /** @param {any} e */
+    emit: (e) => listeners.forEach((fn) => fn(e)),
+  };
+  return lt;
+}
