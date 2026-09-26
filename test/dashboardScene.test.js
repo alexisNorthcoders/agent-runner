@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { reduceScene } from '../dashboard/scene.js';
+import { PILE_MAX, reduceScene } from '../dashboard/scene.js';
 
 const NOW = Date.parse('2026-09-26T12:00:00Z');
 const iso = (ms) => new Date(NOW + ms).toISOString();
@@ -140,5 +140,189 @@ describe('office scene: reception', () => {
       { id: 'q2', label: 'issue bot#7' },
     ]);
     assert.deepEqual(reduceScene(snap(), null, up).reception.letters, []);
+  });
+});
+
+/** An OfficeRun, `over` on top. @returns {any} */
+function run(over = {}) {
+  return {
+    runId: 'r1',
+    kind: 'issue',
+    trigger: 'manual',
+    label: 'issue dots#7',
+    workspaceAlias: 'dots',
+    issueNumber: 7,
+    room: null,
+    health: 'running',
+    phase: 'agent',
+    model: 'claude-x',
+    turns: 0,
+    outputTokens: 0,
+    contextTokens: 0,
+    lastActivity: null,
+    startedAt: iso(-1_000),
+    elapsedMs: 1_000,
+    agentPid: 42,
+    ...over,
+  };
+}
+
+const running = (over = {}) => {
+  const r = run(over);
+  return snap({ activeRun: r, active: [r] });
+};
+
+/** Reduce a sequence of snapshots, each at its `now`, returning every scene. @param {Array<[any, number]>} steps */
+function play(steps) {
+  const scenes = [];
+  let prev = null;
+  for (const [s, now] of steps) scenes.push((prev = reduceScene(s, prev, { ...up, now })));
+  return scenes;
+}
+
+describe('office scene: a run starting', () => {
+  it('puts the worker in the right room, delivered the right way, for each trigger and kind', () => {
+    const cases = [
+      [{ kind: 'issue', trigger: 'cron', workspaceAlias: 'chess-trainer' }, { room: 'cubicle', alias: 'chess-trainer' }, 'envelope'],
+      [{ kind: 'issue', trigger: 'manual', workspaceAlias: 'dots' }, { room: 'cubicle', alias: 'dots' }, 'phone'],
+      [{ kind: 'freeform', trigger: 'manual', workspaceAlias: null, issueNumber: null }, { room: 'annex' }, 'phone'],
+      [{ kind: 'joplin', trigger: 'manual', workspaceAlias: null, issueNumber: null }, { room: 'library' }, 'phone'],
+    ];
+    for (const [over, place, by] of cases) {
+      const scene = reduceScene(running(over), null, up);
+      assert.deepEqual(scene.run?.place, place, JSON.stringify(over));
+      assert.equal(scene.run?.delivery.by, by, JSON.stringify(over));
+    }
+  });
+
+  it("times the delivery from the run's start, so a page opened mid-run doesn't replay it", () => {
+    const scene = reduceScene(running({ startedAt: iso(-600_000), elapsedMs: 600_000 }), null, up);
+    assert.equal(scene.run?.delivery.at, NOW - 600_000);
+  });
+
+  it('sends an issue run for a workspace without a cubicle to the Annex', () => {
+    assert.deepEqual(reduceScene(running({ workspaceAlias: 'gone' }), null, up).run?.place, { room: 'annex' });
+  });
+
+  it('has no worker while idle, or for a scheduled job (their rooms come later)', () => {
+    assert.equal(reduceScene(snap(), null, up).run, null);
+    assert.equal(reduceScene(running({ kind: 'job', trigger: 'schedule', room: 'reddit-bot', workspaceAlias: null }), null, up).run, null);
+  });
+
+  it('keeps the worker in place while the runner is down', () => {
+    const lit = reduceScene(running(), null, up);
+    const dark = reduceScene(running(), lit, { ...up, up: false });
+    assert.equal(dark.dark, true);
+    assert.deepEqual(dark.run?.place, lit.run?.place);
+  });
+});
+
+describe('office scene: working', () => {
+  it('types at the desk during the agent phase, with the last activity in a speech bubble', () => {
+    const scene = reduceScene(running({ lastActivity: 'Bash: npm test' }), null, up);
+    assert.equal(scene.run?.work, 'typing');
+    assert.equal(scene.run?.bubble, 'Bash: npm test');
+  });
+
+  it('shortens the bubble and tidies it for the pixel font', () => {
+    const long = `Bash: ${'x'.repeat(200)}`;
+    const bubble = reduceScene(running({ lastActivity: long }), null, up).run?.bubble ?? '';
+    assert.ok(bubble.length <= 48 && bubble.endsWith('...'), bubble);
+    assert.equal(reduceScene(running({ lastActivity: 'writing…' }), null, up).run?.bubble, 'writing...');
+    assert.equal(reduceScene(running({ lastActivity: 'Bash: a\n  b' }), null, up).run?.bubble, 'Bash: a b');
+    assert.equal(reduceScene(running({ lastActivity: null }), null, up).run?.bubble, null);
+  });
+
+  it('grows the paper pile with turns and elapsed time', () => {
+    const pile = (over, now = NOW) => reduceScene(running(over), null, { ...up, now }).run?.pile ?? -1;
+    assert.equal(pile({ turns: 0, elapsedMs: 0 }), 0);
+    assert.ok(pile({ turns: 20, elapsedMs: 0 }) > pile({ turns: 5, elapsedMs: 0 }));
+    assert.ok(pile({ turns: 0, elapsedMs: 20 * 60_000 }) > pile({ turns: 0, elapsedMs: 60_000 }));
+    // elapsed keeps counting between snapshots
+    assert.ok(pile({ turns: 0, elapsedMs: 0 }, NOW + 20 * 60_000) > 0);
+  });
+
+  it('caps the pile, so a very long run is visibly high but stays on the desk', () => {
+    const top = reduceScene(running({ turns: 10_000, elapsedMs: 10 * 3_600_000 }), null, up).run?.pile ?? 0;
+    assert.equal(top, PILE_MAX);
+    assert.ok(reduceScene(running({ turns: 40, elapsedMs: 40 * 60_000 }), null, up).run?.pile >= PILE_MAX / 2);
+  });
+
+  it("never shrinks the pile during a run (the autofix pass counts its turns from zero), and starts a new run's from scratch", () => {
+    const [a, b, c] = play([
+      [running({ turns: 30, elapsedMs: 0 }), NOW],
+      [running({ turns: 1, elapsedMs: 0 }), NOW],
+      [running({ runId: 'r2', turns: 1, elapsedMs: 0 }), NOW],
+    ]);
+    assert.ok(a.run.pile > 0);
+    assert.equal(b.run.pile, a.run.pile);
+    assert.equal(c.run.pile, 0);
+  });
+});
+
+describe('office scene: post-run', () => {
+  const agent = running({ phase: 'agent', lastActivity: 'Edit: a.js' });
+  const post = running({ phase: 'post-run', lastActivity: 'Edit: a.js' });
+  const autofix = running({ phase: 'agent', lastActivity: 'Edit: b.js' });
+
+  it("brings the boss to the worker's desk for the review, and hides the bubble", () => {
+    const [a, b] = play([
+      [agent, NOW],
+      [post, NOW + 5_000],
+    ]);
+    assert.equal(a.boss.at, null);
+    assert.equal(b.run.work, 'reviewed');
+    assert.equal(b.run.bubble, null);
+    assert.deepEqual(b.boss, { at: { room: 'cubicle', alias: 'dots' }, from: null, since: NOW + 5_000 });
+  });
+
+  it('has the worker scribble during the autofix, with the boss still watching', () => {
+    const [, b, c] = play([
+      [agent, NOW],
+      [post, NOW + 5_000],
+      [autofix, NOW + 9_000],
+    ]);
+    assert.equal(c.run.work, 'scribbling');
+    assert.equal(c.run.bubble, 'Edit: b.js');
+    // the boss doesn't walk in again
+    assert.deepEqual(c.boss, b.boss);
+  });
+
+  it('sends the boss back to their office when the run ends', () => {
+    const [, , c] = play([
+      [agent, NOW],
+      [post, NOW + 5_000],
+      [snap(), NOW + 20_000],
+    ]);
+    assert.equal(c.run, null);
+    assert.deepEqual(c.boss, { at: null, from: { room: 'cubicle', alias: 'dots' }, since: NOW + 20_000 });
+  });
+
+  it('sends the boss back when the next run starts straight away', () => {
+    const [, , c] = play([
+      [agent, NOW],
+      [post, NOW + 5_000],
+      [running({ runId: 'r2', kind: 'freeform', workspaceAlias: null }), NOW + 20_000],
+    ]);
+    assert.equal(c.run.work, 'typing');
+    assert.deepEqual(c.boss, { at: null, from: { room: 'cubicle', alias: 'dots' }, since: NOW + 20_000 });
+  });
+
+  it("puts the boss straight at the desk when the page opens mid-review (no walk it didn't see)", () => {
+    const scene = reduceScene(post, reduceScene(null, null, { ...up, up: false }), up);
+    assert.deepEqual(scene.boss, { at: { room: 'cubicle', alias: 'dots' }, from: null, since: 0 });
+  });
+
+  it("keeps the boss in their office through a freeform or Joplin run's post-run (it has no review)", () => {
+    for (const kind of ['freeform', 'joplin']) {
+      const other = { kind, workspaceAlias: null, issueNumber: null };
+      const scenes = play([
+        [running(other), NOW],
+        [running({ ...other, phase: 'post-run' }), NOW + 5_000],
+        [snap(), NOW + 9_000],
+      ]);
+      for (const s of scenes) assert.deepEqual(s.boss, { at: null, from: null, since: 0 }, kind);
+      assert.equal(scenes[1].run.work, 'typing', kind);
+    }
   });
 });

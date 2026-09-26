@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { CART_CAPACITY, cartSlots, fitScene, inside, layoutOffice } from '../dashboard/layout.js';
+import { CART_CAPACITY, cartSlots, clickFilter, cubicleDesk, deskAt, fitScene, inside, layoutOffice, workerRect } from '../dashboard/layout.js';
 
 /** @param {{ x: number, y: number, w: number, h: number }} a @param {{ x: number, y: number, w: number, h: number }} b */
 const within = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
@@ -25,6 +25,11 @@ describe('office layout', () => {
         assert.equal(l.cubicles.length, count);
         for (const c of l.cubicles) assert.ok(within(c, l.rooms.bullpen.rect), `cubicle ${JSON.stringify(c)}`);
         for (const part of [l.door, l.clock, l.desk, l.cart]) assert.ok(within(part, l.rooms.reception.rect));
+        for (const id of /** @type {const} */ (['boss', 'annex', 'library'])) {
+          assert.ok(within(l.desks[id], l.rooms[id].rect), `${id} desk`);
+          assert.ok(within(workerRect(l.desks[id]), l.rooms[id].rect), `${id} worker`);
+        }
+        for (const c of l.cubicles) assert.ok(within(workerRect(cubicleDesk(c)), c), `worker in ${JSON.stringify(c)}`);
       }
     });
   }
@@ -45,6 +50,29 @@ describe('office layout', () => {
     assert.match(full.at(-1).label, /^\+3 more: L11 · L12 · L13$/);
     for (const s of full) assert.ok(within(s.rect, l.cart));
     assert.ok(inside(full[0].rect, full[0].rect.x, full[0].rect.y));
+  });
+});
+
+describe('workers and clicks on the floor', () => {
+  const l = layoutOffice(3, 'wide', 640);
+  const cubicles = [{ alias: 'bot' }, { alias: 'dots' }, { alias: 'chess' }];
+  const centre = (r) => [r.x + r.w / 2, r.y + r.h / 2];
+
+  it("finds a worker's desk: a cubicle's, the Annex's or the Library's", () => {
+    assert.deepEqual(deskAt(l, cubicles, { room: 'cubicle', alias: 'dots' }), cubicleDesk(l.cubicles[1]));
+    assert.deepEqual(deskAt(l, cubicles, { room: 'annex' }), l.desks.annex);
+    assert.deepEqual(deskAt(l, cubicles, { room: 'library' }), l.desks.library);
+    assert.equal(deskAt(l, cubicles, { room: 'cubicle', alias: 'gone' }), null);
+  });
+
+  it('filters to a cubicle (or its worker) on click, and clears on a second click or on empty floor', () => {
+    const [x, y] = centre(l.cubicles[1]);
+    assert.equal(clickFilter(l, cubicles, x, y, null), 'dots');
+    assert.equal(clickFilter(l, cubicles, x, y, 'dots'), null);
+    const w = workerRect(cubicleDesk(l.cubicles[1]));
+    assert.equal(clickFilter(l, cubicles, w.x + 1, w.y + 1, 'bot'), 'dots');
+    const [ax, ay] = centre(l.rooms.annex.rect);
+    assert.equal(clickFilter(l, cubicles, ax, ay, 'dots'), null);
   });
 });
 

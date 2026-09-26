@@ -2,9 +2,9 @@
 // floor on a canvas, and renders the panel's Now, History and Office tabs as text and tables. No
 // build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeSnapshot.js.
 import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, what } from './format.js';
-import { cartSlots, fitScene, inside, layoutOffice } from './layout.js';
+import { cartSlots, clickFilter, deskAt, fitScene, inside, layoutOffice, workerRect } from './layout.js';
 import { applyLogEvent } from './logPane.js';
-import { drawOffice } from './officeView.js';
+import { animating, drawOffice } from './officeView.js';
 import { reduceScene } from './scene.js';
 
 const FEED_URL = 'feed';
@@ -12,6 +12,8 @@ const RECONNECT_MS = 3000;
 // the feed resends the snapshot every 30s, so this much silence means the connection is dead
 const SILENCE_MS = 75_000;
 const TABS = ['now', 'history', 'office'];
+/** How often the floor is redrawn while something on it moves. */
+const REDRAW_MS = 100;
 
 /** @type {any} the last OfficeSnapshot */
 let snap = null;
@@ -31,6 +33,8 @@ let config = {};
 let scene = null;
 /** @type {import('./layout.js').Layout | null} */
 let layout = null;
+/** the workspace the panel is filtered to, picked by clicking its cubicle */
+let filter = null;
 /** where the pointer is over the scene, in CSS pixels relative to the canvas, for the hover tip */
 let pointer = null;
 const sceneCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene'));
@@ -99,13 +103,26 @@ function renderNow() {
   return out;
 }
 
+/** A note that the tab is filtered to a workspace, or nothing. */
+function filterNote() {
+  if (!filter) return null;
+  const clear = h('a', { href: '#' }, 'show all');
+  clear.addEventListener('click', (e) => {
+    e.preventDefault();
+    setFilter(null);
+  });
+  return h('p', { class: 'filter' }, `Showing ${filter} only (click its cubicle again or `, clear, ')');
+}
+
 function renderHistory() {
   const t = now();
+  const rows = filter ? snap.history.filter((r) => r.workspaceAlias === filter) : snap.history;
   return [
     h('p', null, `Today: ${formatTotals(snap.spend.today)}`, h('br'), `7 days: ${formatTotals(snap.spend.week)}`),
+    filterNote(),
     table(
       ['ended', 'kind', 'trigger', 'what', 'outcome', 'took', 'model', 'turns', 'total tok', 'cost'],
-      snap.history.map((r) => [
+      rows.map((r) => [
         ago(r.endedAt, t),
         r.kind ?? '-',
         r.trigger,
@@ -117,7 +134,7 @@ function renderHistory() {
         formatTokens(r.tokens),
         formatCost(r.costUsd),
       ]),
-      'No finished runs in the last 7 days.'
+      filter ? `No finished runs in ${filter} in the last 7 days.` : 'No finished runs in the last 7 days.'
     ),
   ];
 }
@@ -204,7 +221,8 @@ function render() {
 // --- the office floor ---
 
 function drawScene() {
-  scene = reduceScene(snap, scene, { up, now: snap ? now() : Date.now(), config });
+  const t = snap ? now() : Date.now();
+  scene = reduceScene(snap, scene, { up, now: t, config });
   const floor = document.getElementById('floor');
   const canvas = sceneCanvas;
   const dpr = window.devicePixelRatio || 1;
@@ -214,11 +232,16 @@ function drawScene() {
   // the tip until the pointer moves again
   if (!sameLayout(layout, next) || canvas.width !== next.width * fit.scale || canvas.height !== next.height * fit.scale) pointer = null;
   layout = next;
-  buffer.width = layout.width;
-  buffer.height = layout.height;
-  drawOffice(buffer.getContext('2d'), layout, scene);
-  canvas.width = layout.width * fit.scale;
-  canvas.height = layout.height * fit.scale;
+  // resizing clears a canvas, so only when the size changes (this runs every animation frame)
+  if (buffer.width !== layout.width || buffer.height !== layout.height) {
+    buffer.width = layout.width;
+    buffer.height = layout.height;
+  }
+  drawOffice(buffer.getContext('2d'), layout, scene, { t, filter });
+  if (canvas.width !== layout.width * fit.scale || canvas.height !== layout.height * fit.scale) {
+    canvas.width = layout.width * fit.scale;
+    canvas.height = layout.height * fit.scale;
+  }
   canvas.style.width = `${canvas.width / dpr}px`;
   canvas.style.height = `${canvas.height / dpr}px`;
   const ctx = canvas.getContext('2d');
@@ -227,15 +250,35 @@ function drawScene() {
   showTip();
 }
 
+/** The pointer in the scene's internal pixels. @param {{ x: number, y: number }} p */
+function scenePoint(p) {
+  return { x: (p.x * layout.width) / sceneCanvas.clientWidth, y: (p.y * layout.height) / sceneCanvas.clientHeight };
+}
+
+/** @param {string | null} alias */
+function setFilter(alias) {
+  filter = alias;
+  render();
+}
+
+/** A click on a cubicle (or its worker) filters the panel to its workspace; again, or elsewhere, clears it. @param {MouseEvent} e */
+function clickFloor(e) {
+  if (!scene || !layout || scene.dark) return;
+  const r = sceneCanvas.getBoundingClientRect();
+  const { x, y } = scenePoint({ x: e.clientX - r.left, y: e.clientY - r.top });
+  setFilter(clickFilter(layout, scene.cubicles, x, y, filter));
+}
+
 /** Same floor plan: same size and the same rooms in the same places. @param {any} a @param {any} b */
 const sameLayout = (a, b) => !!a && JSON.stringify(a) === JSON.stringify(b);
 
 /** What's under the pointer: a letter's label, the cron countdown, or a cubicle's workspace. */
 function hovered() {
   if (!pointer || !scene || !layout || scene.dark) return null;
-  const canvas = sceneCanvas;
-  const x = (pointer.x * layout.width) / canvas.clientWidth;
-  const y = (pointer.y * layout.height) / canvas.clientHeight;
+  const { x, y } = scenePoint(pointer);
+  const run = scene.run;
+  const desk = run && deskAt(layout, scene.cubicles, run.place);
+  if (run && desk && inside(workerRect(desk), x, y)) return `${run.label ?? run.runId}${run.activity ? `: ${run.activity}` : ''}`;
   const slot = cartSlots(layout, scene.reception.letters).find((sl) => inside(sl.rect, x, y));
   if (slot) return slot.label;
   if (scene.reception.countdownMs != null && inside(layout.clock, x, y)) return `Next cron tick in ${formatDuration(scene.reception.countdownMs)}`;
@@ -315,6 +358,7 @@ window.addEventListener('hashchange', () => {
 document.getElementById('log-follow').addEventListener('click', toggleFollow);
 sceneCanvas.addEventListener('pointermove', trackPointer);
 sceneCanvas.addEventListener('pointerdown', trackPointer);
+sceneCanvas.addEventListener('click', clickFloor);
 sceneCanvas.addEventListener('pointerleave', () => {
   pointer = null;
   showTip();
@@ -329,5 +373,7 @@ fetch('office.json', { cache: 'no-cache' })
   });
 // keeps elapsed times and countdowns moving between snapshots
 setInterval(() => snap && render(), 1000);
+// and the floor's animations in between
+setInterval(() => scene && snap && animating(scene, now()) && drawScene(), REDRAW_MS);
 render();
 connect();

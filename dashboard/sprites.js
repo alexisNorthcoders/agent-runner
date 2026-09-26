@@ -41,6 +41,12 @@ export const PALETTE = {
   envelopeEdge: '#b49a5a',
   books: ['#a33b3b', '#3b6ea3', '#3b8a4f', '#b08a2e', '#6b4a8a'],
   window: '#9fd0f0',
+  shirt: '#e8e2d0',
+  tie: '#8a2f3a',
+  suit: '#34343c',
+  bald: '#d9a97c',
+  bubble: '#ffffff',
+  selected: '#ffd84a',
   night: 'rgba(6, 8, 22, 0.84)',
 };
 
@@ -57,7 +63,9 @@ const GLYPHS = /** @type {Record<string, string>} */ ({
   9: '111101111001110', ' ': '000000000000000', '-': '000000111000000', ':': '000010000010000', '.': '000000000000010',
   '!': '010010010000010', '?': '110001010000010', '/': '001001010100100', '&': '010101010101011', "'": '010010000000000',
   '#': '101111101111101', _: '000000000000111', '+': '000010111010000', ',': '000000000010100', '(': '010100100100010',
-  ')': '010001001001010',
+  ')': '010001001001010', '=': '000111000111000', '>': '100010001010100', '<': '001010100010001', '*': '000101010101000',
+  '|': '010010010010010', '"': '101101000000000', ';': '000010000010100', '[': '110100100100110', ']': '011001001001011',
+  '%': '101001010100101', '@': '010101111100011', $: '011110010011110', '~': '000011110000000', '`': '100010000000000',
 });
 
 /** Pixels per character, spacing included. */
@@ -237,10 +245,10 @@ export function table(ctx, x, y) {
 // --- the bullpen ---
 
 /**
- * A cubicle: partitions on three sides, a desk, and its department sign on the back partition.
- * @param {Ctx} ctx @param {Rect} r @param {string} sign
+ * A cubicle: partitions on three sides, its desk, and its department sign on the back partition.
+ * @param {Ctx} ctx @param {Rect} r @param {Rect} d the desk @param {string} sign
  */
-export function cubicle(ctx, r, sign) {
+export function cubicle(ctx, r, d, sign) {
   const x = r.x + 2;
   const y = r.y + 2;
   const w = r.w - 4;
@@ -259,7 +267,16 @@ export function cubicle(ctx, r, sign) {
   ctx.fillStyle = PALETTE.signBg;
   ctx.fillRect(x + Math.floor((w - sw) / 2), y + 3, sw, 7);
   text(ctx, name, x + w / 2, y + 4, PALETTE.signText, { center: true });
-  desk(ctx, x + 6, y + Math.min(h - 16, 28), w - 12);
+  desk(ctx, d.x, d.y, d.w);
+}
+
+/** A cubicle picked as the panel's filter: a bright outline. @param {Ctx} ctx @param {Rect} r */
+export function selected(ctx, r) {
+  ctx.fillStyle = PALETTE.selected;
+  ctx.fillRect(r.x, r.y, r.w, 1);
+  ctx.fillRect(r.x, r.y + r.h - 1, r.w, 1);
+  ctx.fillRect(r.x, r.y, 1, r.h);
+  ctx.fillRect(r.x + r.w - 1, r.y, 1, r.h);
 }
 
 /** A "Do not disturb" sign hanging on a cubicle's right partition. @param {Ctx} ctx @param {Rect} r the cubicle */
@@ -383,4 +400,140 @@ export function letter(ctx, r, pile) {
 export function darkness(ctx, w, h) {
   ctx.fillStyle = PALETTE.night;
   ctx.fillRect(0, 0, w, h);
+}
+
+// --- people at work ---
+
+/**
+ * A worker seated at a desk, in `r` (workerRect): head, shirt and tie, and hands on the desktop.
+ * `hands`: 0 for still, else which hand is up (1 or 2), for typing and scribbling.
+ * @param {Ctx} ctx @param {Rect} r @param {0 | 1 | 2} hands
+ */
+export function worker(ctx, r, hands) {
+  const { x, y } = r;
+  ctx.fillStyle = PALETTE.hair;
+  ctx.fillRect(x + 2, y, 6, 2);
+  ctx.fillStyle = PALETTE.skin;
+  ctx.fillRect(x + 2, y + 2, 6, 5);
+  ctx.fillStyle = PALETTE.ink;
+  ctx.fillRect(x + 6, y + 4, 1, 1);
+  ctx.fillStyle = PALETTE.shirt;
+  ctx.fillRect(x + 1, y + 7, 8, 10);
+  ctx.fillStyle = PALETTE.tie;
+  ctx.fillRect(x + 5, y + 8, 1, 5);
+  // arms down to the desktop, a hand lifted while working
+  ctx.fillStyle = PALETTE.shirt;
+  ctx.fillRect(x, y + 9, 1, 7);
+  ctx.fillRect(x + 9, y + 9, 1, 7);
+  ctx.fillStyle = PALETTE.skin;
+  ctx.fillRect(x + 1, y + (hands === 1 ? 15 : 17), 2, 2);
+  ctx.fillRect(x + 7, y + (hands === 2 ? 15 : 17), 2, 2);
+}
+
+/** Scribbles flying off the worker's paper (the autofix). @param {Ctx} ctx @param {Rect} r workerRect @param {number} frame */
+export function scribbles(ctx, r, frame) {
+  ctx.fillStyle = PALETTE.ink;
+  const marks = [
+    [-3, 2],
+    [12, 1],
+    [-2, 8],
+    [13, 7],
+    [11, -2],
+    [-4, -1],
+  ];
+  for (let i = 0; i < 3; i++) {
+    const [dx, dy] = marks[(frame + i * 2) % marks.length];
+    ctx.fillRect(r.x + dx, r.y + dy, 2, 1);
+    ctx.fillRect(r.x + dx + 1, r.y + dy + 1, 1, 1);
+  }
+}
+
+/**
+ * The boss: bald, in a dark suit. Seated (behind their desk) or standing, with `step` moving the
+ * legs while walking.
+ * @param {Ctx} ctx @param {number} x @param {number} y top of the head @param {{ seated?: boolean, step?: number }} [o]
+ */
+export function boss(ctx, x, y, o = {}) {
+  ctx.fillStyle = PALETTE.bald;
+  ctx.fillRect(x + 2, y, 6, 6);
+  ctx.fillStyle = PALETTE.hair;
+  ctx.fillRect(x + 1, y + 2, 1, 3);
+  ctx.fillRect(x + 8, y + 2, 1, 3);
+  ctx.fillStyle = PALETTE.ink;
+  ctx.fillRect(x + 3, y + 3, 1, 1);
+  ctx.fillRect(x + 6, y + 3, 1, 1);
+  ctx.fillStyle = PALETTE.suit;
+  ctx.fillRect(x + 1, y + 6, 8, 9);
+  ctx.fillStyle = PALETTE.white;
+  ctx.fillRect(x + 4, y + 6, 2, 2);
+  ctx.fillStyle = PALETTE.tie;
+  ctx.fillRect(x + 4, y + 8, 2, 4);
+  if (o.seated) return;
+  const step = (o.step ?? 0) % 2;
+  ctx.fillStyle = PALETTE.suit;
+  ctx.fillRect(x + 2, y + 15, 2, step ? 3 : 4);
+  ctx.fillRect(x + 6, y + 15, 2, step ? 4 : 3);
+}
+
+/** A pile of `n` sheets on a desk, standing on (x, y). @param {Ctx} ctx @param {number} x @param {number} y @param {number} n */
+export function paperPile(ctx, x, y, n) {
+  for (let i = 0; i < n; i++) {
+    ctx.fillStyle = i % 2 ? PALETTE.paper : PALETTE.tileLine;
+    ctx.fillRect(x + (i % 3 === 1 ? 1 : 0), y - i - 1, 6, 1);
+  }
+}
+
+/**
+ * A speech bubble with `label` (fitted to `maxW`), its tail pointing down at (x, y), kept inside
+ * `bounds` left to right.
+ * @param {Ctx} ctx @param {number} x @param {number} y @param {string} label @param {number} maxW @param {Rect} bounds
+ */
+export function speechBubble(ctx, x, y, label, maxW, bounds) {
+  const str = fitText(label, maxW - 4);
+  const w = textWidth(str) + 4;
+  const bx = Math.round(Math.max(bounds.x + 1, Math.min(x - w / 2, bounds.x + bounds.w - w - 1)));
+  const by = y - 11;
+  ctx.fillStyle = PALETTE.ink;
+  ctx.fillRect(bx - 1, by - 1, w + 2, 11);
+  ctx.fillStyle = PALETTE.bubble;
+  ctx.fillRect(bx, by, w, 9);
+  ctx.fillRect(x, by + 9, 2, 1);
+  ctx.fillRect(x, by + 10, 1, 1);
+  text(ctx, str, bx + 2, by + 2, PALETTE.ink);
+}
+
+/** The reception phone ringing: lines flashing around it. @param {Ctx} ctx @param {Rect} r the reception desk @param {number} frame */
+export function phoneRinging(ctx, r, frame) {
+  if (frame % 2) return;
+  const x = r.x + 5;
+  const y = r.y + 1;
+  ctx.fillStyle = PALETTE.red;
+  ctx.fillRect(x - 3, y - 3, 1, 3);
+  ctx.fillRect(x + 8, y - 3, 1, 3);
+  ctx.fillRect(x - 1, y - 5, 1, 2);
+  ctx.fillRect(x + 6, y - 5, 1, 2);
+}
+
+/**
+ * The mail carrier on foot (feet at `y`), carrying a run: an interoffice envelope (the cron), a
+ * letter (a phone call), or nothing on the way back.
+ * @param {Ctx} ctx @param {number} x @param {number} y @param {number} step @param {'envelope' | 'phone' | null} carrying
+ */
+export function walkingCarrier(ctx, x, y, step, carrying) {
+  mailCarrier(ctx, x, y - 20);
+  ctx.fillStyle = PALETTE.ink;
+  ctx.fillRect(x + 2, y - 4, 2, step % 2 ? 4 : 3);
+  ctx.fillRect(x + 5, y - 4, 2, step % 2 ? 3 : 4);
+  if (carrying === 'envelope') {
+    // interoffice: the big brown one, with its string
+    ctx.fillStyle = PALETTE.envelopeEdge;
+    ctx.fillRect(x + 7, y - 11, 7, 9);
+    ctx.fillStyle = PALETTE.red;
+    ctx.fillRect(x + 10, y - 10, 1, 2);
+  } else if (carrying === 'phone') {
+    ctx.fillStyle = PALETTE.envelope;
+    ctx.fillRect(x + 7, y - 9, 7, 5);
+    ctx.fillStyle = PALETTE.envelopeEdge;
+    ctx.fillRect(x + 8, y - 8, 5, 1);
+  }
 }

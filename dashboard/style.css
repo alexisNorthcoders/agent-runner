@@ -142,3 +142,11 @@ dd {
     overflow-x: auto;
   }
 }
+#scene {
+  cursor: pointer;
+}
+.filter {
+  padding: 0.2rem 0.5rem;
+  background: #ffd84a33;
+  border-left: 3px solid #ffd84a;
+}
