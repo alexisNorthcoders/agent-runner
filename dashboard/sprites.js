@@ -537,3 +537,148 @@ export function walkingCarrier(ctx, x, y, step, carrying) {
     ctx.fillRect(x + 8, y - 8, 5, 1);
   }
 }
+
+// --- how the last run went ---
+
+/**
+ * A rubber stamp: its handle and red pad, over (x, y) where it lands. `up` lifts it off the paper.
+ * @param {Ctx} ctx @param {number} x @param {number} y @param {number} up @param {boolean} big
+ */
+export function stamp(ctx, x, y, up, big) {
+  const w = big ? 8 : 5;
+  const top = y - up;
+  ctx.fillStyle = PALETTE.woodDark;
+  ctx.fillRect(x + Math.floor(w / 2) - 1, top - (big ? 7 : 5), 3, big ? 5 : 3);
+  ctx.fillRect(x + Math.floor(w / 2) - 2, top - (big ? 9 : 6), 5, 2);
+  ctx.fillStyle = PALETTE.wood;
+  ctx.fillRect(x, top - 2, w, 2);
+  ctx.fillStyle = PALETTE.red;
+  ctx.fillRect(x, top, w, 1);
+}
+
+/** A sheet with a red stamp mark, lying on a desk at (x, y). @param {Ctx} ctx @param {number} x @param {number} y */
+export function stampedSheet(ctx, x, y) {
+  ctx.fillStyle = PALETTE.paper;
+  ctx.fillRect(x, y, 6, 4);
+  ctx.fillStyle = PALETTE.red;
+  ctx.fillRect(x + 1, y + 1, 3, 2);
+}
+
+/** The out tray, with `n` stamped sheets in it. @param {Ctx} ctx @param {number} x @param {number} y @param {number} n */
+export function outTray(ctx, x, y, n) {
+  for (let i = 0; i < n; i++) {
+    ctx.fillStyle = i % 2 ? PALETTE.paper : PALETTE.tileLine;
+    ctx.fillRect(x + 1, y - i, 7, 1);
+  }
+  if (n) {
+    ctx.fillStyle = PALETTE.red;
+    ctx.fillRect(x + 3, y - n + 1, 2, 1);
+  }
+  ctx.fillStyle = PALETTE.partition;
+  ctx.fillRect(x, y + 1, 9, 2);
+  ctx.fillRect(x, y - 1, 1, 2);
+  ctx.fillRect(x + 8, y - 1, 1, 2);
+}
+
+/** A manila folder, `label` on its tab. @param {Ctx} ctx @param {number} x @param {number} y @param {number} w @param {string} label */
+export function folder(ctx, x, y, w, label) {
+  ctx.fillStyle = PALETTE.envelopeEdge;
+  ctx.fillRect(x, y, w, 8);
+  ctx.fillRect(x + 1, y - 1, 6, 1);
+  ctx.fillStyle = PALETTE.envelope;
+  ctx.fillRect(x + 1, y + 1, w - 2, 6);
+  text(ctx, fitText(label, w - 4), x + 2, y + 2, PALETTE.ink);
+}
+
+/** A worker's bandage round the head, and an ice pack on top. @param {Ctx} ctx @param {Rect} r workerRect */
+export function bandage(ctx, r) {
+  ctx.fillStyle = PALETTE.white;
+  ctx.fillRect(r.x + 1, r.y + 2, 8, 2);
+  ctx.fillRect(r.x + 1, r.y + 4, 1, 2);
+  ctx.fillStyle = PALETTE.window;
+  ctx.fillRect(r.x + 3, r.y - 2, 5, 3);
+  ctx.fillStyle = PALETTE.white;
+  ctx.fillRect(r.x + 4, r.y - 1, 1, 1);
+}
+
+/**
+ * A worker asleep, slumped over the desk: head down on their arms at the desktop (the desk's top at `deskY`).
+ * @param {Ctx} ctx @param {Rect} r workerRect @param {number} deskY
+ */
+export function sleepingWorker(ctx, r, deskY) {
+  const { x } = r;
+  ctx.fillStyle = PALETTE.shirt;
+  ctx.fillRect(x + 1, deskY - 8, 8, 8);
+  ctx.fillRect(x - 1, deskY - 2, 12, 2);
+  ctx.fillStyle = PALETTE.hair;
+  ctx.fillRect(x + 2, deskY - 6, 6, 4);
+  ctx.fillStyle = PALETTE.skin;
+  ctx.fillRect(x + 3, deskY - 2, 4, 1);
+}
+
+/** Zzz rising from a sleeper's head at (x, y). @param {Ctx} ctx @param {number} x @param {number} y @param {number} frame */
+export function zzz(ctx, x, y, frame) {
+  const n = (frame % 3) + 1;
+  for (let i = 0; i < n; i++) text(ctx, 'Z', x + i * 3, y - i * 5, PALETTE.white);
+}
+
+/** Stars circling a dizzy head at (x, y). @param {Ctx} ctx @param {number} x @param {number} y @param {number} frame */
+export function dizzyStars(ctx, x, y, frame) {
+  const spots = [
+    [0, 0],
+    [4, -2],
+    [8, 0],
+    [4, 2],
+  ];
+  ctx.fillStyle = PALETTE.selected;
+  for (let i = 0; i < 2; i++) {
+    const [dx, dy] = spots[(frame + i * 2) % spots.length];
+    ctx.fillRect(x + dx, y + dy, 1, 3);
+    ctx.fillRect(x + dx - 1, y + dy + 1, 3, 1);
+  }
+}
+
+/** Rosy cheeks, for the drunk, dizzy worker. @param {Ctx} ctx @param {Rect} r workerRect */
+export function flushed(ctx, r) {
+  ctx.fillStyle = PALETTE.red;
+  ctx.fillRect(r.x + 3, r.y + 5, 1, 1);
+  ctx.fillRect(r.x + 7, r.y + 5, 1, 1);
+}
+
+/** A worker shrugging: hands up by the shoulders. @param {Ctx} ctx @param {Rect} r workerRect */
+export function shruggingWorker(ctx, r) {
+  worker(ctx, r, 0);
+  const { x, y } = r;
+  // wipe the resting hands, raise the arms
+  ctx.fillStyle = PALETTE.shirt;
+  ctx.fillRect(x - 2, y + 7, 2, 3);
+  ctx.fillRect(x + 10, y + 7, 2, 3);
+  ctx.fillStyle = PALETTE.skin;
+  ctx.fillRect(x - 3, y + 5, 2, 2);
+  ctx.fillRect(x + 11, y + 5, 2, 2);
+}
+
+/** A tumbleweed, rolling (feet at y). @param {Ctx} ctx @param {number} x @param {number} y @param {number} frame */
+export function tumbleweed(ctx, x, y, frame) {
+  const bounce = frame % 4 === 1 ? 1 : 0;
+  ctx.fillStyle = PALETTE.woodFloorLine;
+  ctx.fillRect(x + 1, y - 6 - bounce, 5, 6);
+  ctx.fillRect(x, y - 5 - bounce, 7, 4);
+  ctx.fillStyle = PALETTE.woodDark;
+  const twigs = [
+    [1, -5],
+    [4, -4],
+    [2, -2],
+    [5, -2],
+  ];
+  for (let i = 0; i < 2; i++) {
+    const [dx, dy] = twigs[(frame + i * 2) % twigs.length];
+    ctx.fillRect(x + dx, y + dy - bounce, 1, 1);
+  }
+}
+
+/** One room (or cubicle) gone dark, its worker gone home. @param {Ctx} ctx @param {Rect} r */
+export function roomDark(ctx, r) {
+  ctx.fillStyle = PALETTE.night;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+}

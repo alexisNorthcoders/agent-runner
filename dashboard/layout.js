@@ -92,6 +92,28 @@ export function deskAt(layout, cubicles, place) {
 }
 
 /**
+ * The area a place takes up on the floor: its cubicle, or its whole room. Null when `place` names
+ * a cubicle the layout doesn't have.
+ * @param {Layout} layout @param {Array<{ alias: string }>} cubicles the scene's, in the layout's order
+ * @param {import('./scene.js').Place} place
+ * @returns {Rect | null}
+ */
+export function placeRect(layout, cubicles, place) {
+  if (place.room !== 'cubicle') return layout.rooms[place.room].rect;
+  return layout.cubicles[cubicles.findIndex((c) => c.alias === place.alias)] ?? null;
+}
+
+/**
+ * A place's name, as on its sign: the cubicle's department sign, or the room's name plate.
+ * @param {Layout} layout @param {Array<{ alias: string, name: string }>} cubicles @param {import('./scene.js').Place} place
+ */
+export function placeName(layout, cubicles, place) {
+  if (place.room !== 'cubicle') return layout.rooms[place.room].name;
+  const { alias } = place;
+  return cubicles.find((c) => c.alias === alias)?.name ?? alias;
+}
+
+/**
  * The room a worker's place is in (a cubicle's is the bullpen).
  * @param {Layout} layout @param {import('./scene.js').Place} place
  * @returns {Room}

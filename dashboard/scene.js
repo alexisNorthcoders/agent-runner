@@ -36,6 +36,27 @@
  *   Where the boss is: `at` a worker's desk, or null for their own office. `from` and `since`:
  *   where they last walked from and when (0 when there's no walk to show).
  *
+ * @typedef {'stamped' | 'folder' | 'injured' | 'asleep' | 'home' | 'dizzy' | 'shrug' | 'idle'} RestingState
+ *   How a room's last run went: merged (a stamp, papers to the out tray), a PR left open (a folder
+ *   on the boss's desk), failed (an injured worker), timed out (asleep at the desk), stopped (the
+ *   worker gone home, the room dark), interrupted by a restart (a dizzy worker), no changes (a
+ *   shrug and a tumbleweed). `idle`, the neutral fallback, shows nothing.
+ *
+ * @typedef {{
+ *   place: Place,
+ *   state: RestingState,
+ *   quick: boolean,
+ *   runId: string,
+ *   label: string | null,
+ *   outcome: string,
+ *   recorded: string,
+ *   endedAt: number,
+ *   prUrl: string | null,
+ * }} SceneOutcome
+ *   A room's last run, shown there until the next run in it starts. `quick`: a short run, just a
+ *   quick stamp. `outcome`: said in words, for the hover. `recorded`: the history row's own
+ *   outcome and result (`success, pushed`), so the hover can tell apart rows that share a state. `endedAt` on the snapshot's clock.
+ *
  * @typedef {{
  *   dark: boolean,
  *   backInFive: boolean,
@@ -43,23 +64,27 @@
  *   reception: { countdownMs: number | null, letters: SceneLetter[] },
  *   run: SceneRun | null,
  *   boss: SceneBoss,
+ *   outcomes: SceneOutcome[],
  * }} Scene
  *   `dark`: the runner is down. `backInFive`: the owner's general pause, as a sign on the front
  *   door. `countdownMs`: time to the next cron tick, null when there's no cron to count down to.
- *   `run`: the active run's worker, if any.
+ *   `run`: the active run's worker, if any. `outcomes`: each room's last run, but the active run's
+ *   room.
  *
  * @typedef {{ cubicles?: Array<{ alias: string, name?: string }> }} OfficeConfig
  *   `dashboard/office.json`: cubicle names and order, by workspace alias.
  */
 
 /** @type {Scene} */
-const EMPTY = { dark: false, backInFive: false, cubicles: [], reception: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 } };
+const EMPTY = { dark: false, backInFive: false, cubicles: [], reception: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [] };
 
 /** The most sheets a desk's pile holds. */
 export const PILE_MAX = 16;
 /** A sheet on the pile per this many turns, and per this much elapsed time. */
 const TURNS_PER_SHEET = 5;
 const MS_PER_SHEET = 3 * 60_000;
+/** A run shorter than this gets just a quick stamp. */
+const QUICK_MS = 5 * 60_000;
 /** The speech bubble's longest text, before the view fits it to the room. */
 const BUBBLE_CHARS = 48;
 
@@ -84,7 +109,7 @@ export function cubicleOrder(aliases, config) {
 }
 
 /** @param {Place | null} a @param {Place | null} b */
-const samePlace = (a, b) => a === b || (!!a && !!b && (a.room === 'cubicle' ? b.room === 'cubicle' && a.alias === b.alias : a.room === b.room));
+export const samePlace = (a, b) => a === b || (!!a && !!b && (a.room === 'cubicle' ? b.room === 'cubicle' && a.alias === b.alias : a.room === b.room));
 
 /** `s` on one line, with the pixel font's characters, cut to `n`. @param {string | null} s @param {number} n */
 function shorten(s, n) {
@@ -97,7 +122,8 @@ function shorten(s, n) {
  * The room a run is worked in: its workspace's cubicle for an issue run, the Library for a Joplin
  * run, the Annex for freeform runs (and an issue run whose workspace has no cubicle). Null for a
  * scheduled job, whose rooms aren't in the office yet.
- * @param {import('../src/officeSnapshot.js').OfficeRun} r @param {SceneCubicle[]} cubicles
+ * @param {{ kind: string | null, workspaceAlias: string | null }} r a run, in flight or finished
+ * @param {SceneCubicle[]} cubicles
  * @returns {Place | null}
  */
 function placeOf(r, cubicles) {
@@ -105,6 +131,76 @@ function placeOf(r, cubicles) {
   if (r.kind === 'joplin') return { room: 'library' };
   if (r.kind === 'issue' && cubicles.some((c) => c.alias === r.workspaceAlias)) return { room: 'cubicle', alias: /** @type {string} */ (r.workspaceAlias) };
   return { room: 'annex' };
+}
+
+/** Each resting state, in words for the hover. @type {Record<RestingState, string>} */
+const HOVER_WORDS = {
+  stamped: 'merged',
+  folder: 'PR open',
+  injured: 'failed, needs a look',
+  asleep: 'timed out',
+  home: 'stopped',
+  dizzy: 'interrupted by a restart',
+  shrug: 'no changes',
+  idle: '',
+};
+
+/**
+ * How a finished run left its room. The agent's outcome says it first when it was cut short
+ * (stopped, timed out, interrupted by a restart), since an issue run then records `failed`; then
+ * an issue run's pipeline result. A run with no result (freeform, Joplin, a job) that succeeded
+ * gets the stamp. Anything this page doesn't know is `idle`.
+ * @param {Pick<import('../src/officeSnapshot.js').OfficeHistoryEntry, 'outcome' | 'result'>} h
+ * @returns {RestingState}
+ */
+export function restingState({ outcome, result }) {
+  if (outcome === 'interrupted') return 'dizzy';
+  if (outcome === 'stopped') return 'home';
+  if (outcome === 'timeout' || result === 'timeout') return 'asleep';
+  if (outcome === 'failed' || outcome === 'spawn_error' || result === 'failed') return 'injured';
+  if (outcome !== 'success') return 'idle';
+  switch (result) {
+    case null:
+    case 'merged':
+      return 'stamped';
+    case 'pr_open':
+    case 'pushed':
+      return 'folder';
+    case 'no_changes':
+      return 'shrug';
+    default:
+      return 'idle';
+  }
+}
+
+/**
+ * Each room's last run (the history is newest first), but the room the active run is in: its
+ * next run has started. Rooms no run has ended in (in the feed's 7 days) show nothing.
+ * @param {import('../src/officeSnapshot.js').OfficeHistoryEntry[]} history
+ * @param {SceneRun | null} run @param {SceneCubicle[]} cubicles
+ * @returns {SceneOutcome[]}
+ */
+function reduceOutcomes(history, run, cubicles) {
+  /** @type {SceneOutcome[]} */
+  const out = [];
+  for (const h of history) {
+    const place = placeOf(h, cubicles);
+    if (!place || out.some((o) => samePlace(o.place, place))) continue;
+    const state = restingState(h);
+    const recorded = h.result ? `${h.outcome}, ${h.result}` : h.outcome;
+    out.push({
+      place,
+      state,
+      quick: h.durationMs != null && h.durationMs < QUICK_MS,
+      runId: h.runId,
+      label: h.label,
+      outcome: HOVER_WORDS[state] || recorded,
+      recorded,
+      endedAt: Date.parse(h.endedAt),
+      prUrl: h.prUrl ?? null,
+    });
+  }
+  return out.filter((o) => !samePlace(o.place, run?.place ?? null));
 }
 
 /**
@@ -180,5 +276,6 @@ export function reduceScene(snap, prev, { up, now, config }) {
     },
     run,
     boss: reduceBoss(run, prev, now),
+    outcomes: reduceOutcomes(snap.history, run, cubicles),
   };
 }

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { CART_CAPACITY, cartSlots, clickFilter, cubicleDesk, deskAt, fitScene, inside, layoutOffice, workerRect } from '../dashboard/layout.js';
+import { CART_CAPACITY, cartSlots, clickFilter, cubicleDesk, deskAt, fitScene, inside, layoutOffice, placeName, placeRect, workerRect } from '../dashboard/layout.js';
 
 /** @param {{ x: number, y: number, w: number, h: number }} a @param {{ x: number, y: number, w: number, h: number }} b */
 const within = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
@@ -63,6 +63,20 @@ describe('workers and clicks on the floor', () => {
     assert.deepEqual(deskAt(l, cubicles, { room: 'annex' }), l.desks.annex);
     assert.deepEqual(deskAt(l, cubicles, { room: 'library' }), l.desks.library);
     assert.equal(deskAt(l, cubicles, { room: 'cubicle', alias: 'gone' }), null);
+  });
+
+  it("finds a place's area, for its last run's scene and hover: its cubicle, or its room", () => {
+    assert.deepEqual(placeRect(l, cubicles, { room: 'cubicle', alias: 'chess' }), l.cubicles[2]);
+    assert.deepEqual(placeRect(l, cubicles, { room: 'annex' }), l.rooms.annex.rect);
+    assert.deepEqual(placeRect(l, cubicles, { room: 'library' }), l.rooms.library.rect);
+    assert.equal(placeRect(l, cubicles, { room: 'cubicle', alias: 'gone' }), null);
+  });
+
+  it("names a place as its sign does, for the boss's folders and the hover", () => {
+    const named = [{ alias: 'bot', name: 'Customer Svc' }];
+    assert.equal(placeName(l, named, { room: 'cubicle', alias: 'bot' }), 'Customer Svc');
+    assert.equal(placeName(l, named, { room: 'cubicle', alias: 'gone' }), 'gone');
+    assert.equal(placeName(l, named, { room: 'annex' }), 'ANNEX');
   });
 
   it('filters to a cubicle (or its worker) on click, and clears on a second click or on empty floor', () => {
