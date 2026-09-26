@@ -135,7 +135,7 @@ skipped, and `owner` is told once per change of the errors.
     "at": "02:00",                     // daily, HH:MM UTC
     "logFile": "/home/alexis/Projects/reddit-bot/reports/cron-cleanup.log",  // optional
     "env": { "CLAUDE_AGENT_BIN": "/home/alexis/.local/bin/claude" },         // optional, added to the runner's env
-    "timeoutMinutes": 20               // optional, 1–60; default AGENT_TIMEOUT_MS
+    "timeoutMinutes": 30               // optional, 1–60; default 60
   }
 ]
 ```

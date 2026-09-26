@@ -3,6 +3,9 @@
  * it. A request while the lock is held waits in the run queue (src/runQueue.js). The lock value is the
  * active run's record, which doubles as the "interrupted run" marker read on startup.
  *
+ * @typedef {'manual' | 'cron' | 'schedule'} RunTrigger
+ *   `cron`: the cron issue tracer. `schedule`: a scheduled job. `manual`: WhatsApp or HTTP.
+ *
  * @typedef {{
  *   runId: string,
  *   kind?: string,
@@ -15,7 +18,7 @@
  *   agentPid?: number | null,
  *   workspaceAlias?: string,
  *   issueNumber?: number,
- *   trigger?: 'manual' | 'cron' | 'schedule',
+ *   trigger?: RunTrigger,
  *   jobName?: string,
  *   room?: string,
  * }} RunRecord

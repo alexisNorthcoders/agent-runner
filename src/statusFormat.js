@@ -258,7 +258,7 @@ export function renderStatusText(d) {
   if (!d.active.length) out.push('Agent: idle');
   for (const r of d.active) {
     const progress = r.health === 'running' && !isJob(r) ? `, ${r.turns ?? 0} turns, ${formatTokens(r.outputTokens ?? 0)} out tok` : '';
-    out.push(`Agent: ${clip(what(r), 60)} (${r.health}, ${formatDuration(since(d.now, r.startedAt))}${progress})`);
+    out.push(`${isJob(r) ? 'Job' : 'Agent'}: ${clip(what(r), 60)} (${r.health}, ${formatDuration(since(d.now, r.startedAt))}${progress})`);
     if (r.health === 'orphaned') out.push(`⚠ Orphaned: agent-runner restarted but agent pid ${r.agentPid} is still running; nothing will report its result.`);
     else if (r.health === 'stale') out.push('⚠ Stale: leftover from a crash (no live process).');
     else if (r.lastActivity) out.push(`Phase: ${clip(r.lastActivity, 100)}`);

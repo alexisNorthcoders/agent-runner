@@ -52,7 +52,7 @@ export function loadConfig(env = process.env) {
       aliases: cronAliasesFromEnv(env),
     },
     // scheduled jobs (src/scheduledJobs.js): a JSON array, re-read every tick; missing = none
-    jobsFile: env.SCHEDULED_JOBS_FILE?.trim() || join(REPO_ROOT, 'scheduled-jobs.json'),
+    jobs: { file: env.SCHEDULED_JOBS_FILE?.trim() || join(REPO_ROOT, 'scheduled-jobs.json') },
     joplin: {
       baseUrl: env.JOPLIN_API_URL?.trim() || 'http://127.0.0.1:41184',
       token: env.JOPLIN_API_TOKEN?.trim() || '',

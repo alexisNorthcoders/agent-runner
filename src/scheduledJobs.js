@@ -33,6 +33,8 @@ import { OWNER } from './outbox.js';
 export const JOBS_LAST_FIRED_KEY = 'agent-runner:jobs:last-fired';
 export const JOB_TICK_MS = 30_000;
 export const MAX_JOB_TIMEOUT_MINUTES = 60;
+/** A job's timeout unless it sets `timeoutMinutes`: crontab had none, but a hung job mustn't hold the lock for good. */
+export const DEFAULT_JOB_TIMEOUT_MINUTES = 60;
 
 const NAME_RE = /^[a-zA-Z0-9_.-]+$/;
 const AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;

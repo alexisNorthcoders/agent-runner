@@ -82,7 +82,6 @@ const runner = createRunner({
   workspaces,
   issues,
   jobs: createJobLauncher(),
-  jobTimeoutMs: config.agentTimeoutMs,
   workspaceRoot: config.workspaceRoot,
   logsDir: config.logsDir,
   preamble: buildPreamble({ repoRoot: config.repoRoot }),
@@ -132,7 +131,7 @@ queueTimer.unref();
 // whatever was already queued.
 const scheduler = createJobScheduler({
   store,
-  loadJobs: () => loadJobsFile(config.jobsFile),
+  loadJobs: () => loadJobsFile(config.jobs.file),
   submitJob: runner.submitJob,
   outbox,
 });

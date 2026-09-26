@@ -16,7 +16,7 @@ import { spend, totalTokens } from './statusFormat.js';
  * @typedef {{
  *   runId: string,
  *   kind: string | null,
- *   trigger: 'manual' | 'cron' | 'schedule',
+ *   trigger: import('./runLock.js').RunTrigger,
  *   label: string | null,
  *   workspaceAlias: string | null,
  *   issueNumber: number | null,
@@ -39,7 +39,7 @@ import { spend, totalTokens } from './statusFormat.js';
  * @typedef {{
  *   runId: string,
  *   kind: string | null,
- *   trigger: 'manual' | 'cron' | 'schedule',
+ *   trigger: import('./runLock.js').RunTrigger,
  *   label: string | null,
  *   workspaceAlias: string | null,
  *   issueNumber: number | null,
@@ -85,7 +85,7 @@ import { spend, totalTokens } from './statusFormat.js';
  * @typedef {{
  *   runId: string,
  *   kind: string | null,
- *   trigger: 'manual' | 'cron' | 'schedule',
+ *   trigger: import('./runLock.js').RunTrigger,
  *   label: string | null,
  *   workspaceAlias: string | null,
  *   issueNumber: number | null,
@@ -119,7 +119,7 @@ import { spend, totalTokens } from './statusFormat.js';
 /** @param {string | null | undefined} iso @param {number} now */
 const elapsedSince = (iso, now) => (iso && Number.isFinite(Date.parse(iso)) ? now - Date.parse(iso) : null);
 
-/** @param {unknown} trigger @returns {'manual' | 'cron' | 'schedule'} */
+/** @param {unknown} trigger @returns {import('./runLock.js').RunTrigger} */
 const triggerOf = (trigger) => (trigger === 'cron' || trigger === 'schedule' ? trigger : 'manual');
 
 /** @param {unknown} room @returns {string | null} */

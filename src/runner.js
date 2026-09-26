@@ -3,6 +3,7 @@ import { join } from 'path';
 import { parseCommand } from './commands.js';
 import { ALL, applyPauseCommand, describeManualPause } from './manualPause.js';
 import { OWNER } from './outbox.js';
+import { DEFAULT_JOB_TIMEOUT_MINUTES } from './scheduledJobs.js';
 import { decideSafeRestart } from './safeRestart.js';
 import { describeRun, UNKNOWN_RUN_ID } from './runLock.js';
 import { pidAlive } from './pidAlive.js';
@@ -142,7 +143,7 @@ export function createRunner({
   workspaces,
   issues,
   jobs,
-  jobTimeoutMs = 20 * 60 * 1000,
+  jobTimeoutMs = DEFAULT_JOB_TIMEOUT_MINUTES * 60_000,
   workspaceRoot,
   logsDir,
   preamble,
