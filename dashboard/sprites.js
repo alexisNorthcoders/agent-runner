@@ -50,6 +50,9 @@ export const PALETTE = {
   sticky: '#ffe66b',
   stickyEdge: '#d9b83a',
   padlock: '#8a8f99',
+  overalls: '#5f7f3a',
+  mopHead: '#b9b4a6',
+  visor: '#3fae5a',
   night: 'rgba(6, 8, 22, 0.84)',
 };
 
@@ -248,10 +251,10 @@ export function table(ctx, x, y) {
 // --- the bullpen ---
 
 /**
- * A cubicle: partitions on three sides, its desk, and its department sign on the back partition.
- * @param {Ctx} ctx @param {Rect} r @param {Rect} d the desk @param {string} sign
+ * A cubicle: partitions on three sides, its desks, and its department sign on the back partition.
+ * @param {Ctx} ctx @param {Rect} r @param {Rect[]} desks @param {string} sign
  */
-export function cubicle(ctx, r, d, sign) {
+export function cubicle(ctx, r, desks, sign) {
   const x = r.x + 2;
   const y = r.y + 2;
   const w = r.w - 4;
@@ -270,7 +273,7 @@ export function cubicle(ctx, r, d, sign) {
   ctx.fillStyle = PALETTE.signBg;
   ctx.fillRect(x + Math.floor((w - sw) / 2), y + 3, sw, 7);
   text(ctx, name, x + w / 2, y + 4, PALETTE.signText, { center: true });
-  desk(ctx, d.x, d.y, d.w);
+  for (const d of desks) desk(ctx, d.x, d.y, d.w);
 }
 
 /** A cubicle picked as the panel's filter: a bright outline. @param {Ctx} ctx @param {Rect} r */
@@ -658,6 +661,52 @@ export function folder(ctx, x, y, w, label, o = {}) {
   if (o.parked) {
     ctx.fillStyle = PALETTE.red;
     ctx.fillRect(x + w - 4, y - 1, 2, 5);
+  }
+}
+
+/**
+ * A scheduled job's worker's gear, on the worker `r` (workerRect) at `desk`: the janitor's cap and
+ * the mop leaning by them, the analyst's glasses and the chart easel on the desk, the clerk's green
+ * visor. `frame` moves the mop and the chart while the job runs; null when the worker is idle.
+ * @param {Ctx} ctx @param {import('./scene.js').JobWorker} kind @param {Rect} r @param {Rect} desk @param {number | null} frame
+ */
+export function jobGear(ctx, kind, r, desk, frame) {
+  const beat = frame == null ? 0 : frame % 2;
+  if (kind === 'janitor') {
+    ctx.fillStyle = PALETTE.overalls;
+    ctx.fillRect(r.x + 1, r.y - 1, 8, 2);
+    ctx.fillRect(r.x + 7, r.y + 1, 3, 1);
+    ctx.fillRect(r.x + 2, r.y + 11, 6, 6);
+    // the mop, its head swishing while they work
+    ctx.fillStyle = PALETTE.wood;
+    ctx.fillRect(r.x - 2, r.y - 2, 1, desk.y + 10 - r.y);
+    ctx.fillStyle = PALETTE.mopHead;
+    ctx.fillRect(r.x - 4 + beat, desk.y + 8, 5, 3);
+    ctx.fillRect(r.x - 4 + beat, desk.y + 11, 1, 1);
+    ctx.fillRect(r.x - 2 + beat, desk.y + 11, 1, 1);
+    ctx.fillRect(r.x + beat, desk.y + 11, 1, 1);
+  } else if (kind === 'analyst') {
+    ctx.fillStyle = PALETTE.ink;
+    ctx.fillRect(r.x + 2, r.y + 4, 6, 1);
+    ctx.fillRect(r.x + 3, r.y + 3, 1, 2);
+    ctx.fillRect(r.x + 6, r.y + 3, 1, 2);
+    // the easel on the desk's right end, its bars moving while the job runs
+    const ex = desk.x + desk.w - 10;
+    const ey = desk.y - 15;
+    ctx.fillStyle = PALETTE.woodDark;
+    ctx.fillRect(ex + 1, ey + 8, 1, 7);
+    ctx.fillRect(ex + 7, ey + 8, 1, 7);
+    ctx.fillStyle = PALETTE.white;
+    ctx.fillRect(ex, ey, 9, 8);
+    const bars = beat ? [2, 4, 3, 6] : [3, 2, 5, 6];
+    bars.forEach((hgt, i) => {
+      ctx.fillStyle = i === 3 ? PALETTE.green : PALETTE.books[1];
+      ctx.fillRect(ex + 1 + i * 2, ey + 7 - hgt, 1, hgt);
+    });
+  } else {
+    ctx.fillStyle = PALETTE.visor;
+    ctx.fillRect(r.x + 1, r.y + 1, 8, 1);
+    ctx.fillRect(r.x + 5, r.y + 2, 5, 1);
   }
 }
 

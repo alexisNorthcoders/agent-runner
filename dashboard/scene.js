@@ -6,16 +6,28 @@
  * @typedef {{ number: number, title: string, blocked: boolean }} SceneTrayLetter
  *   A `ready-for-agent` issue waiting in a cubicle's in-tray; a `blocked` one has a padlock.
  *
+ * @typedef {'janitor' | 'analyst' | 'clerk'} JobWorker
+ *   A scheduled job's worker: a janitor with a mop (cleanup), an analyst with a chart easel
+ *   (insight, report), or a generic clerk.
+ *
+ * @typedef {{ name: string, worker: JobWorker, at: string, nextDueAt: number | null }} SceneJobDesk
+ *   A scheduled job's desk in its room, with its worker. `at`: its daily time (UTC); `nextDueAt`
+ *   on the snapshot's clock.
+ *
  * @typedef {{
  *   alias: string,
  *   name: string,
+ *   workspace: boolean,
  *   doNotDisturb: boolean,
  *   inTray: SceneTrayLetter[],
  *   sticky: Array<{ number: number, title: string }>,
+ *   jobs: SceneJobDesk[],
  * }} SceneCubicle
- *   One per allowlisted workspace. `name` is its department sign. `inTray`: its repo's runnable
+ *   One per allowlisted workspace (`workspace`), then one per scheduled-job room that isn't one
+ *   (named and keyed by its room label). `name` is its department sign. `inTray`: its repo's runnable
  *   issues, then its blocked ones, but the one being worked at its desk. `sticky`: its
- *   `ready-for-human` issues, a sticky note on the cubicle while there are any.
+ *   `ready-for-human` issues, a sticky note on the cubicle while there are any. `jobs`: the
+ *   scheduled jobs whose room it is, in config order, each at its own desk after the workspace's.
  *
  * @typedef {{ alias: string, number: number, title: string, prUrl: string }} SceneParked
  *   An open agent PR the cron has parked: a folder on the boss's desk.
@@ -23,14 +35,16 @@
  * @typedef {{ id: string, label: string }} SceneLetter
  *   A queued request, as a letter on the mail cart.
  *
- * @typedef {{ room: 'cubicle', alias: string } | { room: 'annex' | 'library' }} Place
- *   Where a worker sits: a workspace's cubicle, the Annex or the Library.
+ * @typedef {{ room: 'cubicle', alias: string, job?: string } | { room: 'annex' | 'library' }} Place
+ *   Where a worker sits: a cubicle (at the desk of its scheduled job `job`, else the workspace's
+ *   own), the Annex or the Library.
  *
  * @typedef {{
  *   runId: string,
  *   label: string | null,
  *   activity: string | null,
  *   place: Place,
+ *   worker: JobWorker | null,
  *   delivery: { by: 'envelope' | 'phone', at: number },
  *   work: 'typing' | 'reviewed' | 'scribbling',
  *   pile: number,
@@ -38,7 +52,9 @@
  *   postRun: boolean,
  *   moved: { from: Place, since: number } | null,
  * }} SceneRun
- *   The active run's worker. `delivery`: how the mail carrier brought it (an interoffice envelope
+ *   The active run's worker. `worker`: a scheduled job's kind of worker, null for an agent run.
+ *   A job has no turns, so its pile grows with elapsed time alone, and its bubble is the latest
+ *   line of its output (from the live log). `delivery`: how the mail carrier brought it (an interoffice envelope
  *   for the cron, the phone ringing first for a manual run), and when, on the snapshot's clock.
  *   `work`: typing in the agent phase, sitting still for the boss's review in post-run, and
  *   scribbling in the autofix (an agent phase after post-run). `pile`: sheets of paper on the
@@ -108,6 +124,40 @@ const QUICK_MS = 5 * 60_000;
 /** The speech bubble's longest text, before the view fits it to the room. */
 const BUBBLE_CHARS = 48;
 
+/**
+ * A scheduled job's worker, from its name.
+ * @param {string} name @returns {JobWorker}
+ */
+export function jobWorker(name) {
+  const n = name.toLowerCase();
+  if (n.includes('cleanup')) return 'janitor';
+  if (n.includes('insight') || n.includes('report')) return 'analyst';
+  return 'clerk';
+}
+
+/**
+ * The cubicles: the workspaces' (see cubicleOrder), then a room per scheduled-job room label that
+ * isn't one of theirs, in config order. A label matching a workspace's alias or department sign is
+ * that workspace's cubicle. Each gets its jobs' desks.
+ * @param {Array<{ alias: string, name: string }>} workspaces
+ * @param {unknown} jobs the snapshot's job schedule
+ * @returns {Array<{ alias: string, name: string, workspace: boolean, jobs: SceneJobDesk[] }>}
+ */
+function withJobRooms(workspaces, jobs) {
+  const rooms = workspaces.map((c) => ({ ...c, workspace: true, jobs: /** @type {SceneJobDesk[]} */ ([]) }));
+  for (const j of Array.isArray(jobs) ? jobs : []) {
+    if (typeof j?.name !== 'string' || typeof j.room !== 'string') continue;
+    let room = rooms.find((c) => c.alias === j.room || c.name === j.room);
+    if (!room) rooms.push((room = { alias: j.room, name: j.room, workspace: false, jobs: [] }));
+    const due = typeof j.nextDueAt === 'string' ? Date.parse(j.nextDueAt) : NaN;
+    room.jobs.push({ name: j.name, worker: jobWorker(j.name), at: typeof j.at === 'string' ? j.at : '', nextDueAt: Number.isFinite(due) ? due : null });
+  }
+  return rooms;
+}
+
+/** The last line of `lines` with anything on it. @param {string[]} lines */
+const lastLine = (lines) => [...lines].reverse().find((l) => l.trim()) ?? null;
+
 /** A pause the snapshot lists, unless it has run out since. @param {{ until: string } | null | undefined} p @param {number} now */
 const holding = (p, now) => !!p && !(Date.parse(p.until) <= now);
 
@@ -128,7 +178,7 @@ export function cubicleOrder(aliases, config) {
   return [...[...named].map(([alias, name]) => ({ alias, name })), ...aliases.filter((a) => !named.has(a)).map((alias) => ({ alias, name: alias }))];
 }
 
-/** @param {Place | null} a @param {Place | null} b */
+/** Whether `a` and `b` are the same room (a cubicle's job desks are all in it). @param {Place | null} a @param {Place | null} b */
 export const samePlace = (a, b) => a === b || (!!a && !!b && (a.room === 'cubicle' ? b.room === 'cubicle' && a.alias === b.alias : a.room === b.room));
 
 /** `s` on one line, with the pixel font's characters, cut to `n`. @param {string | null} s @param {number} n */
@@ -140,16 +190,20 @@ function shorten(s, n) {
 
 /**
  * The room a run is worked in: its workspace's cubicle for an issue run, and for a freeform run
- * once its workspace is inferred, the Library for a Joplin run, else the Annex (a freeform run
- * that hasn't found a workspace, or any run whose workspace has no cubicle). Null for a scheduled
- * job, whose rooms aren't in the office yet.
- * @param {{ kind: string | null, workspaceAlias: string | null, inferredWorkspace?: string | null }} r
+ * once its workspace is inferred, its job's desk in its room for a scheduled job, the Library for
+ * a Joplin run, else the Annex (a freeform run that hasn't found a workspace, or any run whose
+ * workspace or job has no cubicle).
+ * @param {{ kind: string | null, workspaceAlias: string | null, inferredWorkspace?: string | null, jobName?: string | null }} r
  *   a run, in flight or finished
  * @param {SceneCubicle[]} cubicles
- * @returns {Place | null}
+ * @returns {Place}
  */
 function placeOf(r, cubicles) {
-  if (r.kind === 'job') return null;
+  if (r.kind === 'job') {
+    const job = r.jobName;
+    const c = job ? cubicles.find((x) => x.jobs.some((j) => j.name === job)) : null;
+    return c && job ? { room: 'cubicle', alias: c.alias, job } : { room: 'annex' };
+  }
   if (r.kind === 'joplin') return { room: 'library' };
   const alias = r.kind === 'issue' ? r.workspaceAlias : r.kind === 'freeform' ? r.inferredWorkspace : null;
   if (alias && cubicles.some((c) => c.alias === alias)) return { room: 'cubicle', alias };
@@ -208,7 +262,7 @@ function reduceOutcomes(history, run, cubicles) {
   const out = [];
   for (const h of history) {
     const place = placeOf(h, cubicles);
-    if (!place || out.some((o) => samePlace(o.place, place))) continue;
+    if (out.some((o) => samePlace(o.place, place))) continue;
     const state = restingState(h);
     const recorded = h.result ? `${h.outcome}, ${h.result}` : h.outcome;
     out.push({
@@ -230,17 +284,21 @@ function reduceOutcomes(history, run, cubicles) {
  * @param {import('../src/officeSnapshot.js').OfficeSnapshot} snap
  * @param {SceneRun | null} prev the worker before, if any
  * @param {SceneCubicle[]} cubicles @param {number} now
+ * @param {{ runId: string | null, lines: string[] } | undefined} log the live log the page holds
  * @returns {SceneRun | null}
  */
-function reduceRun(snap, prev, cubicles, now) {
+function reduceRun(snap, prev, cubicles, now, log) {
   const r = snap.activeRun;
-  const place = r && placeOf(r, cubicles);
-  if (!r || !place) return null;
+  if (!r) return null;
+  const place = placeOf(r, cubicles);
   const same = prev?.runId === r.runId ? prev : null;
   // every agent run has a post-run, but only an issue run's has a review (and an autofix)
   const review = r.kind === 'issue' && r.phase === 'post-run';
   const postRun = review || !!same?.postRun;
   const work = review ? 'reviewed' : postRun ? 'scribbling' : 'typing';
+  const isJob = r.kind === 'job';
+  // a job's activity is its output, which only the live log carries
+  const activity = isJob ? (log?.runId === r.runId ? lastLine(log.lines) : null) : r.lastActivity;
   // the snapshot's own progress only: the feed's heartbeat resends it well within a sheet's time,
   // and counting on from a stale snapshot would grow the pile on every redraw
   const sheets = Math.min(PILE_MAX, Math.floor(r.turns / TURNS_PER_SHEET) + Math.floor((r.elapsedMs ?? 0) / MS_PER_SHEET));
@@ -248,12 +306,13 @@ function reduceRun(snap, prev, cubicles, now) {
   return {
     runId: r.runId,
     label: r.label,
-    activity: work === 'reviewed' ? null : r.lastActivity,
+    activity: work === 'reviewed' ? null : activity,
     place,
+    worker: isJob ? jobWorker(r.jobName ?? '') : null,
     delivery: same?.delivery ?? { by: r.trigger === 'manual' ? 'phone' : 'envelope', at: Number.isFinite(started) ? started : now },
     work,
     pile: Math.max(same?.pile ?? 0, sheets),
-    bubble: work === 'reviewed' ? null : shorten(r.lastActivity, BUBBLE_CHARS),
+    bubble: work === 'reviewed' ? null : shorten(activity, BUBBLE_CHARS),
     postRun,
     moved: same && !samePlace(same.place, place) ? { from: same.place, since: now } : (same?.moved ?? null),
   };
@@ -275,15 +334,17 @@ function reduceBoss(run, prev, now) {
 /**
  * @param {import('../src/officeSnapshot.js').OfficeSnapshot | null} snap the last snapshot, if any
  * @param {Scene | null} prev the scene before this one
- * @param {{ up: boolean, now: number, config?: unknown }} o `now` on the snapshot's clock
+ * @param {{ up: boolean, now: number, config?: unknown, log?: { runId: string | null, lines: string[] } }} o
+ *   `now` on the snapshot's clock. `log`: the active run's live log as the page holds it (a
+ *   scheduled job's bubble is its latest line).
  * @returns {Scene}
  */
-export function reduceScene(snap, prev, { up, now, config }) {
+export function reduceScene(snap, prev, { up, now, config, log }) {
   if (!snap) return { ...(prev ?? EMPTY), dark: !up, reception: { ...(prev ?? EMPTY).reception, countdownMs: null } };
   // down: the floor as the last snapshot saw it, with the lights off and nothing ticking. Built
   // from the snapshot, so pauses still run out while the runner is away.
   if (!up) {
-    const lit = reduceScene(snap, prev, { up: true, now, config });
+    const lit = reduceScene(snap, prev, { up: true, now, config, log });
     return { ...lit, dark: true, reception: { ...lit.reception, countdownMs: null } };
   }
   const paused = new Set(snap.pauses.workspaces.filter((p) => holding(p, now)).map((p) => p.alias));
@@ -291,7 +352,7 @@ export function reduceScene(snap, prev, { up, now, config }) {
   const repos = new Map((snap.issues?.repos ?? []).map((r) => [r.alias, r]));
   const r = snap.activeRun;
   const working = r?.kind === 'issue' ? { alias: r.workspaceAlias, number: r.issueNumber } : null;
-  const cubicles = cubicleOrder(snap.workspaces, config).map((c) => {
+  const cubicles = withJobRooms(cubicleOrder(snap.workspaces, config), snap.jobs).map((c) => {
     const repo = repos.get(c.alias);
     /** @param {{ number: number, title: string }} i @param {boolean} blocked */
     const letter = (i, blocked) => ({ number: i.number, title: i.title, blocked });
@@ -304,7 +365,7 @@ export function reduceScene(snap, prev, { up, now, config }) {
       sticky: (repo?.readyForHuman ?? []).map((i) => ({ number: i.number, title: i.title })),
     };
   });
-  const run = reduceRun(snap, prev?.run ?? null, cubicles, now);
+  const run = reduceRun(snap, prev?.run ?? null, cubicles, now, log);
   return {
     dark: false,
     backInFive: holding(snap.pauses.general, now),

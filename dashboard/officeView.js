@@ -5,7 +5,8 @@
 // gives, so the reducer only says what happens and when, as are the ends of runs (the stamp coming
 // down, the papers to the out tray) from when the run ended.
 import { formatClock } from './format.js';
-import { WALL, cartSlots, cubicleDesk, deskAt, folderSlots, inTrayRect, inTraySlots, placeRect, roomAt, stickyNote, workerRect } from './layout.js';
+import { WALL, cartSlots, cubicleDesks, deskAt, deskOwners, folderSlots, inTrayRect, inTraySlots, placeRect, roomAt, stickyNote, workerRect } from './layout.js';
+import { samePlace } from './scene.js';
 import * as s from './sprites.js';
 
 /** @typedef {import('./sprites.js').Ctx} Ctx */
@@ -31,6 +32,8 @@ const TUMBLE_EVERY_MS = 9000;
 const TUMBLE_MS = 3000;
 /** Resting states that keep moving: Zzz, stars, the tumbleweed. */
 const ANIMATED_STATES = new Set(['asleep', 'dizzy', 'shrug']);
+/** Resting states that draw the worker themselves, or send them home. */
+const WORKER_STATES = new Set(['injured', 'asleep', 'dizzy', 'shrug', 'home']);
 
 /** @param {Ctx} ctx @param {Layout} layout */
 function drawBoss(ctx, layout) {
@@ -144,6 +147,7 @@ function drawRun(ctx, layout, scene, t) {
     const scribbling = run.work === 'scribbling';
     const beat = scribbling ? Math.floor(t / SCRIBBLE_MS) : frame;
     s.worker(ctx, w, typing || scribbling ? /** @type {1 | 2} */ ((beat % 2) + 1) : 0);
+    if (run.worker) s.jobGear(ctx, run.worker, w, desk, frame);
     if (scribbling) s.scribbles(ctx, w, beat);
     s.paperPile(ctx, desk.x + 2, desk.y + 3, run.pile);
     const bounds = roomAt(layout, run.place).rect;
@@ -156,6 +160,45 @@ function drawRun(ctx, layout, scene, t) {
   const f = going ? (t - leave) / WALK_MS : (t - arrive - HAND_MS) / WALK_MS;
   const [a, b] = going ? [from, to] : [to, from];
   s.walkingCarrier(ctx, lerp(a.x, b.x, f), lerp(a.y, b.y, f), frame, t < arrive + HAND_MS ? run.delivery.by : null);
+}
+
+/** The scheduled job whose desk `place` is, by name. @param {import('./scene.js').Place} p */
+const jobOf = (p) => (p.room === 'cubicle' ? p.job : undefined);
+
+/**
+ * The scheduled job whose desk `place` is, if any.
+ * @param {Scene} scene @param {import('./scene.js').Place} place
+ */
+function jobAt(scene, place) {
+  const job = jobOf(place);
+  if (place.room !== 'cubicle' || !job) return null;
+  const { alias } = place;
+  return scene.cubicles.find((c) => c.alias === alias)?.jobs.find((j) => j.name === job) ?? null;
+}
+
+/**
+ * Each scheduled job's worker at their desk while their job isn't running, unless their room's last
+ * outcome has them (injured, asleep, dizzy, shrugging, or gone home). A running job's worker stays
+ * put until the mail carrier arrives with it (drawRun takes over from then).
+ * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {number} t
+ */
+function drawJobWorkers(ctx, layout, scene, t) {
+  const run = scene.run;
+  const arrived = run && (run.postRun || t >= deliveryTimes(run).arrive);
+  for (const c of scene.cubicles) {
+    for (const j of c.jobs) {
+      /** @type {import('./scene.js').Place} */
+      const place = { room: 'cubicle', alias: c.alias, job: j.name };
+      const desk = deskAt(layout, scene.cubicles, place);
+      if (!desk) continue;
+      if (arrived && samePlace(run.place, place) && jobOf(run.place) === j.name) continue;
+      const o = scene.outcomes.find((x) => samePlace(x.place, place));
+      if (o && WORKER_STATES.has(o.state) && (o.state === 'home' || jobOf(o.place) === j.name)) continue;
+      const w = workerRect(desk);
+      s.worker(ctx, w, 0);
+      s.jobGear(ctx, j.worker, w, desk, null);
+    }
+  }
 }
 
 /**
@@ -171,6 +214,7 @@ function drawOutcomes(ctx, layout, scene, t) {
     if (!desk || !area) continue;
     const w = workerRect(desk);
     const since = t - o.endedAt;
+    const gear = jobAt(scene, o.place)?.worker;
     switch (o.state) {
       case 'stamped': {
         const sheet = { x: desk.x + 2, y: desk.y + 1 };
@@ -193,6 +237,7 @@ function drawOutcomes(ctx, layout, scene, t) {
       case 'injured':
         s.worker(ctx, w, 0);
         s.bandage(ctx, w);
+        if (gear) s.jobGear(ctx, gear, w, desk, null);
         break;
       case 'asleep':
         s.sleepingWorker(ctx, w, desk.y);
@@ -201,6 +246,7 @@ function drawOutcomes(ctx, layout, scene, t) {
       case 'dizzy': {
         const sway = { ...w, x: w.x + (Math.floor(t / 400) % 2) };
         s.worker(ctx, sway, 0);
+        if (gear) s.jobGear(ctx, gear, sway, desk, null);
         s.flushed(ctx, sway);
         s.dizzyStars(ctx, sway.x + 1, sway.y - 4, Math.floor(t / 200));
         break;
@@ -294,7 +340,7 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   scene.cubicles.forEach((c, i) => {
     const r = layout.cubicles[i];
     if (!r) return;
-    s.cubicle(ctx, r, cubicleDesk(r), c.name);
+    s.cubicle(ctx, r, cubicleDesks(r, deskOwners(c).length), c.name);
     drawPending(ctx, r, c);
     if (c.doNotDisturb) s.doNotDisturb(ctx, r);
     if (c.alias === filter) s.selected(ctx, r);
@@ -308,6 +354,7 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   s.mailCart(ctx, layout.cart);
   for (const slot of cartSlots(layout, scene.reception.letters)) s.letter(ctx, slot.rect, slot.pile);
   s.plant(ctx, rooms.reception.rect.x + rooms.reception.rect.w - 14, rooms.reception.rect.y + WALL + 4);
+  drawJobWorkers(ctx, layout, scene, t);
   drawOutcomes(ctx, layout, scene, t);
   drawRun(ctx, layout, scene, t);
   drawBossFigure(ctx, layout, scene, t);

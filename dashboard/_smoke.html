@@ -1,0 +1,19 @@
+<!doctype html><body style="margin:0;background:#000"><canvas id="c"></canvas><script type="module">
+import { reduceScene } from './scene.js';
+import { layoutOffice } from './layout.js';
+import { drawOffice } from './officeView.js';
+const NOW = Date.parse('2026-09-26T12:00:00Z');
+const iso = (ms) => new Date(NOW + ms).toISOString();
+const RA = 'Research & Archives';
+const r = { runId: 'j1', kind: 'job', trigger: 'schedule', label: 'scheduled job cleanup_agent', workspaceAlias: null, inferredWorkspace: null, issueNumber: null, room: RA, jobName: 'cleanup_agent', health: 'running', phase: 'job', model: null, turns: 0, outputTokens: 0, contextTokens: 0, lastActivity: null, startedAt: iso(-600000), elapsedMs: 600000, agentPid: 1 };
+const snap = { version: 1, at: iso(0), activeRun: r, active: [r], queue: [{ id: 'q', kind: 'job', label: 'scheduled job report_agent', queuedAt: iso(-1000) }], pauses: { restart: null, general: null, workspaces: [] }, cron: null, lock: null,
+  history: [{ runId: 'h', kind: 'job', trigger: 'schedule', label: 'scheduled job backup', workspaceAlias: null, inferredWorkspace: null, issueNumber: null, room: 'Ops', jobName: 'backup', startedAt: iso(-9e6), endedAt: iso(-8e6), durationMs: 1e6, outcome: 'failed', result: null, prUrl: null, model: null, turns: 0, costUsd: null, tokens: 0 }],
+  spend: { today: { runs: 0, costUsd: 0, tokens: 0 }, week: { runs: 0, costUsd: 0, tokens: 0 } },
+  workspaces: ['agent-runner', 'bot', 'dots'], issues: null,
+  jobs: [{ name: 'cleanup_agent', room: RA, at: '02:00', nextDueAt: iso(3e6) }, { name: 'report_agent', room: RA, at: '02:30', nextDueAt: iso(4e6) }, { name: 'backup', room: 'Ops', at: '03:00', nextDueAt: iso(5e6) }, { name: 'sync', room: 'Ops', at: '04:00', nextDueAt: iso(5e6) }] };
+const scene = reduceScene(snap, null, { up: true, now: NOW, config: {}, log: { runId: 'j1', lines: ['Deleted 12 stale rows'] } });
+const l = layoutOffice(scene.cubicles.length, 'wide', 640);
+const c = document.getElementById('c'); const b = document.createElement('canvas'); b.width = l.width; b.height = l.height;
+drawOffice(b.getContext('2d'), l, scene, { t: NOW });
+c.width = l.width * 3; c.height = l.height * 3; const x = c.getContext('2d'); x.imageSmoothingEnabled = false; x.drawImage(b, 0, 0, c.width, c.height);
+</script>
