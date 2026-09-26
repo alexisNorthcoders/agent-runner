@@ -15,7 +15,9 @@
  *   clock: Rect,
  *   desk: Rect,
  *   cart: Rect,
+ *   desks: { boss: Rect, annex: Rect, library: Rect },
  * }} Layout
+ *   `desk`: the reception desk. `desks`: the other rooms' desks (the Library's reading table).
  */
 
 /** The height of a room's back wall, above its floor. */
@@ -60,6 +62,66 @@ function receptionParts(r) {
   };
 }
 
+/** @param {Record<RoomId, Room>} rooms */
+function roomDesks(rooms) {
+  const b = rooms.boss.rect;
+  const a = rooms.annex.rect;
+  const l = rooms.library.rect;
+  return {
+    boss: { x: b.x + Math.floor(b.w / 2) - 28, y: b.y + WALL + 30, w: 56, h: 16 },
+    annex: { x: a.x + 20, y: a.y + WALL + 30, w: 40, h: 13 },
+    library: { x: l.x + Math.floor(l.w / 2) - 10, y: l.y + WALL + 34, w: 40, h: 12 },
+  };
+}
+
+/** A cubicle's desk. @param {Rect} r the cubicle */
+export function cubicleDesk(r) {
+  return { x: r.x + 8, y: r.y + 2 + Math.min(r.h - 20, 28), w: r.w - 16, h: 13 };
+}
+
+/**
+ * The desk a worker sits behind, or null when `place` names a cubicle the layout doesn't have.
+ * @param {Layout} layout @param {Array<{ alias: string }>} cubicles the scene's, in the layout's order
+ * @param {import('./scene.js').Place} place
+ * @returns {Rect | null}
+ */
+export function deskAt(layout, cubicles, place) {
+  if (place.room !== 'cubicle') return layout.desks[place.room];
+  const r = layout.cubicles[cubicles.findIndex((c) => c.alias === place.alias)];
+  return r ? cubicleDesk(r) : null;
+}
+
+/**
+ * The room a worker's place is in (a cubicle's is the bullpen).
+ * @param {Layout} layout @param {import('./scene.js').Place} place
+ * @returns {Room}
+ */
+export const roomAt = (layout, place) => layout.rooms[place.room === 'cubicle' ? 'bullpen' : place.room];
+
+/** Where the worker sits at `desk`: left of the monitor, head and body above the desktop. @param {Rect} desk */
+export const workerRect = (desk) => ({ x: desk.x + Math.floor(desk.w / 2) - 17, y: desk.y - 17, w: 10, h: 19 });
+
+/**
+ * The workspace whose cubicle (or the worker in it) is at (x, y), or null for anywhere else.
+ * @param {Layout} layout @param {Array<{ alias: string }>} cubicles @param {number} x @param {number} y
+ */
+function cubicleAt(layout, cubicles, x, y) {
+  const i = layout.cubicles.findIndex((r) => inside(r, x, y));
+  return cubicles[i]?.alias ?? null;
+}
+
+/**
+ * The panel's workspace filter after a click at (x, y): a cubicle's workspace, or none when the
+ * click is on the filtered cubicle again or anywhere else.
+ * @param {Layout} layout @param {Array<{ alias: string }>} cubicles @param {number} x @param {number} y
+ * @param {string | null} current
+ * @returns {string | null}
+ */
+export function clickFilter(layout, cubicles, x, y, current) {
+  const alias = cubicleAt(layout, cubicles, x, y);
+  return alias === current ? null : alias;
+}
+
 /**
  * @param {number} count cubicles
  * @param {'wide' | 'narrow'} mode
@@ -79,7 +141,7 @@ export function layoutOffice(count, mode, width) {
     };
     const b = rooms.bullpen.rect;
     const cubicles = grid(count, { x: b.x + 6, y: b.y + WALL + 6, w: b.w - 12, h: b.h - WALL - 12 }, 4, 100);
-    return { width: W, height: H, rooms, cubicles, ...receptionParts(rooms.reception.rect) };
+    return { width: W, height: H, rooms, cubicles, ...receptionParts(rooms.reception.rect), desks: roomDesks(rooms) };
   }
   const W = Math.max(NARROW_WIDTH.min, Math.min(NARROW_WIDTH.max, Math.floor(width)));
   const cols = W >= 300 ? 3 : 2;
@@ -101,7 +163,7 @@ export function layoutOffice(count, mode, width) {
   };
   const b = rooms.bullpen.rect;
   const cubicles = grid(count, { x: b.x + 6, y: b.y + WALL + 6, w: b.w - 12, h: rows * cubeH }, cols, cubeH);
-  return { width: W, height: y, rooms, cubicles, ...receptionParts(rooms.reception.rect) };
+  return { width: W, height: y, rooms, cubicles, ...receptionParts(rooms.reception.rect), desks: roomDesks(rooms) };
 }
 
 /**

@@ -68,7 +68,16 @@ The **Scene** while the runner is down (the **Office feed** can't connect): the 
 The sign on the front door during the owner's general **Pause**. A paused **Workspace**'s **Cubicle** gets a "Do not disturb" sign instead.
 
 **Boss's office**:
-The corner office. Empty for now; later the boss reviews PRs from here.
+The corner office, where the boss sits. During an issue run's post-run the boss walks to the **Worker**'s desk and reads over their shoulder (the review), and stays through the autofix.
+
+**Worker**:
+The figure at a desk working the active **Run**: typing in the `agent` phase, still while the boss reads during post-run, scribbling during the autofix. Beside them are their **Paper pile** and a speech bubble with the run's last activity.
+
+**Paper pile**:
+The sheets on the **Worker**'s desk: one per few turns and per few minutes, to a cap, and never shrinking during a run.
+
+**Cubicle filter**:
+The workspace the panel's History (and later Issues) tab is narrowed to, picked by clicking its **Cubicle**; clicking it again, or elsewhere on the floor, clears it.
 
 **Reception**:
 The office's front desk, by the front door: the **Mail carrier**, the cron countdown (a clock on the wall, hidden when the cron isn't running), and the **Queue** as letters on the **Mail cart**.

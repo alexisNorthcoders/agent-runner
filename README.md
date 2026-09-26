@@ -288,6 +288,22 @@ front door) and the Annex on the right. It shows the office-level state:
 
 Pauses clear on the page as soon as they run out, without waiting for the next snapshot.
 
+A live run plays out on the floor:
+
+- **Delivery:** the mail carrier takes the run from Reception to its room: an interoffice envelope
+  for a cron run, or the Reception phone rings first for a manual (WhatsApp) one. A page opened
+  mid-run doesn't replay it.
+- **Rooms:** an issue run is worked in its workspace's cubicle, a freeform run in the Annex, a Joplin
+  run in the Library. (Scheduled jobs get their rooms in #26.)
+- **Agent phase:** the worker types, the paper pile on the desk grows with turns and elapsed time
+  (to a cap), and a speech bubble shows the last activity, shortened (hover the worker for all of it).
+- **Post-run** (issue runs): the boss walks over and reads over the worker's shoulder during the
+  review (from the start of post-run: the snapshot can't tell the review from the commit), the
+  worker scribbles frantically during the autofix, and the boss walks back when the run ends.
+
+Clicking a cubicle (or its worker) filters the History tab to that workspace, and outlines the
+cubicle. Clicking it again, or anywhere else on the floor, clears the filter.
+
 The scene is drawn at a small internal resolution (360px tall, 560–720px wide) and scaled up by a
 whole number with smoothing off, so the pixels stay crisp. On a wide screen it takes about 65% of
 the width with the panel on the right; under 900px the panel goes below it, and under 560px the
@@ -304,9 +320,11 @@ their alias, and listed aliases that aren't allowlisted are ignored. Keep names 
 characters fit a sign at every size.
 
 The code is split so the rules are testable and the art is replaceable: `scene.js` is the pure
-scene reducer (snapshot + previous scene → scene, tested), `layout.js` places the rooms and
-cubicles (tested), `sprites.js` draws every sprite procedurally (swap it for sprite sheets later),
-and `officeView.js` draws a scene on a layout with the sprites.
+scene reducer (snapshot + previous scene → scene, tested: room placement, phases, pile growth, and
+when each animation starts), `layout.js` places the rooms, cubicles and desks and hit-tests clicks
+(tested), `sprites.js` draws every sprite procedurally (swap it for sprite sheets later),
+and `officeView.js` draws a scene on a layout with the sprites, tweening the animations from the
+times the scene gives.
 
 ### nginx
 
