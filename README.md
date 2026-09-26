@@ -7,7 +7,7 @@ WhatsappBot `docs/adr/0001-agent-runner-out-of-process.md`.
 
 Built so far: freeform runs, `joplin:` runs, the GitHub issue pipeline (`claude issue:…`),
 `claude:stop`, `claude:restart`, status/history (`claude:status`, `claude:history`,
-`npm run agent:*`), the cron issue tracer, scheduled jobs, and the office dashboard's feed and plain panel.
+`npm run agent:*`), the cron issue tracer, scheduled jobs, and the office dashboard's feed, plain panel and scene, with each repo's pending issues.
 
 ## Setup
 
@@ -191,7 +191,7 @@ curl -s localhost:3790/command -H 'content-type: application/json' \
 ## Office dashboard
 
 A LAN page that shows the runner live: a pixel-art office scene, and beside it the **Now**,
-**History** and **Office** tabs as plain text and tables (the plan is #17). The page is static files in
+**Issues**, **History** and **Office** tabs as plain text and tables (the plan is #17). The page is static files in
 `dashboard/` with no build step, served by nginx, and it gets everything from the office feed. The
 terms (Office, Cubicle, Reception, …) are in [`CONTEXT.md`](CONTEXT.md).
 
@@ -211,6 +211,21 @@ read-only: it takes no input and there is no control route beside it.
 - Every 30s the snapshot is resent anyway. That keeps the connection open through proxies, and
   catches what nothing announces (a run turning orphaned or stale, a pause expiring).
 - Each event is `event: snapshot` with the JSON on one `data:` line. Up to 20 clients.
+
+### Issue scan
+
+The office shows the work waiting in each repo (`src/issueScan.js`). The runner lists the open
+issues of every allowlisted workspace's GitHub repo with `gh` on startup, every
+`ISSUE_SCAN_INTERVAL_MS` (default 5 minutes) and right after each run ends, and caches the result
+for the feed (`issues` above), so the page never talks to GitHub. Per repo: its `ready-for-agent`
+issues split into **runnable**, **blocked** and **parked**, its `ready-for-human` issues, and how
+many are `needs-triage` and `needs-info`.
+
+Blocked and parked are the cron issue tracer's rules, from its own helpers: blocked is an open
+native dependency (a failed lookup counts as blocked), and parked is an open agent PR whose current
+state the cron has already attempted. The scan only reads the cron's PR attempts, and never changes
+cron state. A repo whose scan fails keeps its last good data, marked `stale` (the failure is logged
+on the runner, not sent to the page).
 
 ### Live log
 
@@ -277,7 +292,20 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
   ],
   "spend": { "today": { "runs": 1, "costUsd": 2.33, "tokens": 2900000 },   // since local midnight
              "week":  { "runs": 24, "costUsd": 28.7, "tokens": 32300000 } },
-  "workspaces": ["agent-runner", "bot", "chess-trainer"]   // allowlisted aliases, sorted
+  "workspaces": ["agent-runner", "bot", "chess-trainer"],  // allowlisted aliases, sorted
+  "issues": {                          // the issue scan (below); null before its first scan ends
+    "scannedAt": "…",                  // when the latest scan ended
+    "repos": [                         // one per allowlisted workspace, in alias order
+      { "alias": "bot", "repo": "owner/bot",   // repo: null if it has never scanned
+        "scannedAt": "…",              // when this repo's data was read; null if never
+        "stale": false,                // its latest scan failed: this is the last good data
+        "runnable": [ { "number": 7, "title": "…", "url": "https://github.com/…/issues/7" } ],
+        "blocked": [ /* ready-for-agent with an open native dependency (or a failed lookup) */ ],
+        "parked": [ { "number": 5, "title": "…", "url": "…", "prUrl": "https://github.com/…/pull/9" } ],
+        "readyForHuman": [ /* same shape as runnable */ ],
+        "needsTriage": 2, "needsInfo": 0 }
+    ]
+  }
 }
 ```
 
@@ -304,6 +332,12 @@ front door) and the Annex on the right. It shows the office-level state:
 - **Reception:** the mail carrier at the desk, a countdown on the wall to the cron's next tick
   (hidden when the cron isn't running), and one letter on the mail cart per queued request (hover
   a letter for its label; a full cart piles the rest into its last slot).
+- **Pending issues** (from the [issue scan](#issue-scan)): each runnable issue is a letter in its
+  cubicle's in-tray, and a blocked one a letter with a padlock (the issue being worked at the desk
+  is left out). A PR the cron has parked is a folder with a red clip on the boss's desk, labelled
+  with its issue number, after the rooms' PR-open folders. A cubicle whose repo has `ready-for-human`
+  issues has a sticky note on its monitor with how many. Hover any of them for the issues; a full
+  tray or desk piles the rest into its last slot. Triage counts are only in the Issues tab.
 
 Pauses clear on the page as soon as they run out, without waiting for the next snapshot.
 
@@ -340,7 +374,10 @@ Hovering a room (a cubicle, the Annex or the Library) shows its last run's outco
 and its PR. The mapping (`restingState` in `scene.js`) falls back to showing nothing for an outcome
 it doesn't know.
 
-Clicking a cubicle (or its worker) filters the History tab to that workspace, and outlines the
+The **Issues** tab lists each repo's pending issues, with links to the issues and the parked PRs,
+the triage counts, and when it was scanned (in red when that data is stale).
+
+Clicking a cubicle (or its worker) filters the Issues and History tabs to that workspace, and outlines the
 cubicle. Clicking it again, or anywhere else on the floor, clears the filter.
 
 The scene is drawn at a small internal resolution (360px tall, 560–720px wide) and scaled up by a

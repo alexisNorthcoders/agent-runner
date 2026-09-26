@@ -5,7 +5,7 @@
 // gives, so the reducer only says what happens and when, as are the ends of runs (the stamp coming
 // down, the papers to the out tray) from when the run ended.
 import { formatClock } from './format.js';
-import { WALL, cartSlots, cubicleDesk, deskAt, placeName, placeRect, roomAt, workerRect } from './layout.js';
+import { WALL, cartSlots, cubicleDesk, deskAt, folderSlots, inTrayRect, inTraySlots, placeRect, roomAt, stickyNote, workerRect } from './layout.js';
 import * as s from './sprites.js';
 
 /** @typedef {import('./sprites.js').Ctx} Ctx */
@@ -31,8 +31,6 @@ const TUMBLE_EVERY_MS = 9000;
 const TUMBLE_MS = 3000;
 /** Resting states that keep moving: Zzz, stars, the tumbleweed. */
 const ANIMATED_STATES = new Set(['asleep', 'dizzy', 'shrug']);
-/** The most folders the boss's desk holds. */
-const FOLDERS_MAX = 4;
 
 /** @param {Ctx} ctx @param {Layout} layout */
 function drawBoss(ctx, layout) {
@@ -224,15 +222,28 @@ function drawOutcomes(ctx, layout, scene, t) {
 }
 
 /**
- * The folders the rooms with a PR left open put on the boss's desk, each labelled with its room.
+ * The folders on the boss's desk: the rooms with a PR left open, each labelled with its room, then
+ * the PRs the cron has parked, each labelled with its issue.
  * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene
  */
 function drawFolders(ctx, layout, scene) {
-  const d = layout.desks.boss;
-  const open = scene.outcomes.filter((o) => o.state === 'folder').slice(0, FOLDERS_MAX);
-  open.forEach((o, i) => {
-    s.folder(ctx, d.x + (i % 2) * 29, d.y - 1 - Math.floor(i / 2) * 9, 27, placeName(layout, scene.cubicles, o.place));
-  });
+  for (const f of folderSlots(layout, scene.cubicles, scene.outcomes, scene.parked)) s.folder(ctx, f.rect.x, f.rect.y, f.rect.w, f.tab, { parked: f.parked });
+}
+
+/**
+ * A cubicle's pending issues: letters in its in-tray (a padlock on a blocked one; a slot holding
+ * the overflow is a pile), and a sticky note while issues wait for a human.
+ * @param {Ctx} ctx @param {Rect} r the cubicle @param {import('./scene.js').SceneCubicle} c
+ */
+function drawPending(ctx, r, c) {
+  if (c.inTray.length) {
+    s.inTray(ctx, inTrayRect(r));
+    for (const slot of inTraySlots(r, c.inTray)) {
+      s.letter(ctx, slot.rect, slot.letters.length);
+      if (slot.letters.every((l) => l.blocked)) s.padlock(ctx, slot.rect);
+    }
+  }
+  if (c.sticky.length) s.stickyNote(ctx, stickyNote(r), c.sticky.length);
 }
 
 /**
@@ -284,6 +295,7 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
     const r = layout.cubicles[i];
     if (!r) return;
     s.cubicle(ctx, r, cubicleDesk(r), c.name);
+    drawPending(ctx, r, c);
     if (c.doNotDisturb) s.doNotDisturb(ctx, r);
     if (c.alias === filter) s.selected(ctx, r);
   });

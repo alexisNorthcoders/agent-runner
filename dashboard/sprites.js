@@ -47,6 +47,9 @@ export const PALETTE = {
   bald: '#d9a97c',
   bubble: '#ffffff',
   selected: '#ffd84a',
+  sticky: '#ffe66b',
+  stickyEdge: '#d9b83a',
+  padlock: '#8a8f99',
   night: 'rgba(6, 8, 22, 0.84)',
 };
 
@@ -396,6 +399,39 @@ export function letter(ctx, r, pile) {
   }
 }
 
+// --- pending issues ---
+
+/** A cubicle's wire in-tray, on the floor. @param {Ctx} ctx @param {Rect} r */
+export function inTray(ctx, r) {
+  ctx.fillStyle = PALETTE.partition;
+  ctx.fillRect(r.x, r.y + r.h - 2, r.w, 2);
+  ctx.fillRect(r.x, r.y + 2, 1, r.h - 2);
+  ctx.fillRect(r.x + r.w - 1, r.y + 2, 1, r.h - 2);
+}
+
+/** A padlock over a letter (a blocked issue). @param {Ctx} ctx @param {Rect} r the letter */
+export function padlock(ctx, r) {
+  const x = r.x + r.w - 4;
+  const y = r.y + r.h - 4;
+  ctx.fillStyle = PALETTE.ink;
+  ctx.fillRect(x, y - 2, 1, 2);
+  ctx.fillRect(x + 3, y - 2, 1, 2);
+  ctx.fillRect(x + 1, y - 3, 2, 1);
+  ctx.fillStyle = PALETTE.padlock;
+  ctx.fillRect(x, y, 4, 3);
+  ctx.fillStyle = PALETTE.ink;
+  ctx.fillRect(x + 1, y + 1, 1, 1);
+}
+
+/** A sticky note with how many issues wait for a human (9+ shows +). @param {Ctx} ctx @param {Rect} r @param {number} n */
+export function stickyNote(ctx, r, n) {
+  ctx.fillStyle = PALETTE.stickyEdge;
+  ctx.fillRect(r.x + 1, r.y + 1, r.w, r.h);
+  ctx.fillStyle = PALETTE.sticky;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  text(ctx, n > 9 ? '+' : String(n), r.x + 2, r.y + 1, PALETTE.ink);
+}
+
 /** The lights off: a night tint over the whole office. @param {Ctx} ctx @param {number} w @param {number} h */
 export function darkness(ctx, w, h) {
   ctx.fillStyle = PALETTE.night;
@@ -608,14 +644,21 @@ export function outTray(ctx, x, y, n) {
   ctx.fillRect(x + 8, y - 1, 1, 2);
 }
 
-/** A manila folder, `label` on its tab. @param {Ctx} ctx @param {number} x @param {number} y @param {number} w @param {string} label */
-export function folder(ctx, x, y, w, label) {
+/**
+ * A manila folder, `label` on its tab. A `parked` one (a PR the cron has set aside) has a red clip.
+ * @param {Ctx} ctx @param {number} x @param {number} y @param {number} w @param {string} label @param {{ parked?: boolean }} [o]
+ */
+export function folder(ctx, x, y, w, label, o = {}) {
   ctx.fillStyle = PALETTE.envelopeEdge;
   ctx.fillRect(x, y, w, 8);
   ctx.fillRect(x + 1, y - 1, 6, 1);
   ctx.fillStyle = PALETTE.envelope;
   ctx.fillRect(x + 1, y + 1, w - 2, 6);
-  text(ctx, fitText(label, w - 4), x + 2, y + 2, PALETTE.ink);
+  text(ctx, fitText(label, w - (o.parked ? 7 : 4)), x + 2, y + 2, PALETTE.ink);
+  if (o.parked) {
+    ctx.fillStyle = PALETTE.red;
+    ctx.fillRect(x + w - 4, y - 1, 2, 5);
+  }
 }
 
 /** A worker's bandage round the head, and an ice pack on top. @param {Ctx} ctx @param {Rect} r workerRect */

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { CART_CAPACITY, cartSlots, clickFilter, cubicleDesk, deskAt, fitScene, inside, layoutOffice, placeName, placeRect, workerRect } from '../dashboard/layout.js';
+import { CART_CAPACITY, FOLDERS_MAX, cartSlots, folderSlots, inTraySlots, stickyNote, clickFilter, cubicleDesk, deskAt, fitScene, inside, layoutOffice, placeName, placeRect, workerRect } from '../dashboard/layout.js';
 
 /** @param {{ x: number, y: number, w: number, h: number }} a @param {{ x: number, y: number, w: number, h: number }} b */
 const within = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
@@ -112,5 +112,41 @@ describe('fitting the scene to the screen', () => {
       assert.equal(f.mode, 'narrow');
       assert.ok((f.width * f.scale) / dpr <= w, `${w}@${dpr}: ${JSON.stringify(f)}`);
     }
+  });
+
+  it("fits each cubicle's in-tray letters and sticky note inside it, piling the in-tray's overflow", () => {
+    const tray = (n) => Array.from({ length: n }, (_, i) => ({ number: i + 1, title: `T${i + 1}`, blocked: i > 1 }));
+    for (const [mode, width] of /** @type {const} */ ([['wide', 560], ['wide', 720], ['narrow', 240], ['narrow', 360]])) {
+      for (const count of [1, 4, 9]) {
+        const l = layoutOffice(count, mode, width);
+        for (const c of l.cubicles) {
+          const slots = inTraySlots(c, tray(30));
+          assert.ok(slots.length >= 4, `${mode} ${width}: ${slots.length} slots`);
+          for (const s of slots) assert.ok(within(s.rect, c), `${mode} ${width} letter ${JSON.stringify(s.rect)} in ${JSON.stringify(c)}`);
+          assert.equal(slots.reduce((n, s) => n + s.letters.length, 0), 30);
+          assert.ok(within(stickyNote(c), c));
+          assert.ok(!overlap(stickyNote(c), workerRect(cubicleDesk(c))), 'the sticky note is clear of the worker');
+        }
+      }
+    }
+    const c = layoutOffice(1, 'wide', 640).cubicles[0];
+    assert.deepEqual(inTraySlots(c, tray(2)).map((s) => s.letters.map((l) => l.number)), [[1], [2]]);
+    assert.deepEqual(inTraySlots(c, []), []);
+  });
+
+  it("puts PR-open folders, then parked ones, on the boss's desk, piling the overflow in the last one", () => {
+    const l = layoutOffice(2, 'wide', 640);
+    const cubicles = [{ alias: 'bot', name: 'Sales' }, { alias: 'dots', name: 'dots' }];
+    /** @type {any} */
+    const open = { place: { room: 'cubicle', alias: 'bot' }, state: 'folder', label: 'issue bot#2', runId: 'r', prUrl: 'https://x/pull/2' };
+    const parked = (n) => ({ alias: 'dots', number: n, title: `T${n}`, prUrl: `https://x/pull/${n}` });
+    const two = folderSlots(l, cubicles, [open, { ...open, state: 'stamped' }], [parked(7)]);
+    assert.deepEqual(two.map((f) => [f.tab, f.parked]), [['Sales', false], ['#7', true]]);
+    assert.match(two[0].tip, /Sales: PR open/);
+    assert.match(two[1].tip, /^Parked: dots #7 T7\nPR: https:\/\/x\/pull\/7$/);
+    const many = folderSlots(l, cubicles, [open], [parked(1), parked(2), parked(3), parked(4)]);
+    assert.equal(many.length, FOLDERS_MAX);
+    assert.deepEqual([many.at(-1)?.tab, many.at(-1)?.pile, many.at(-1)?.parked], ['+2', 2, true]);
+    for (const f of many) assert.ok(within(f.rect, l.rooms.boss.rect));
   });
 });

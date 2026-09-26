@@ -112,11 +112,13 @@ import { spend, totalTokens } from './statusFormat.js';
  *   history: OfficeHistoryEntry[],
  *   spend: { today: SpendTotals, week: SpendTotals },
  *   workspaces: string[],
+ *   issues: import('./issueScan.js').OfficeIssues | null,
  * }} OfficeSnapshot
  *   `at`: when the snapshot was taken (ISO). `activeRun`: the run this runner is executing, if any.
  *   `active`: every in-flight run `agent:status` lists, including orphaned and stale ones, oldest
  *   first. `queue`: oldest first. `history`: the last 7 days, newest first. `spend`: today (since
- *   local midnight) and the last 7 days. `workspaces`: the allowlisted aliases, sorted.
+ *   local midnight) and the last 7 days. `workspaces`: the allowlisted aliases, sorted. `issues`:
+ *   the issue scan's latest result (src/issueScan.js), null before its first scan ends.
  *
  * @typedef {{ runId: string, phase?: 'agent' | 'post-run' | 'job', inferredWorkspace?: string } & Partial<import('./agentBackend/index.js').AgentProgress>} LiveRun
  *   What this process knows about the run it's executing (from `runner.status()`), fresher than
@@ -195,10 +197,10 @@ function historyEntry(h) {
 const manualPause = (p) => ({ reason: p.reason, pausedAt: p.pausedAt, until: p.until });
 
 /**
- * @param {{ status: import('./statusCollect.js').StatusSnapshot, live: LiveRun | null, workspaces: string[] }} p
+ * @param {{ status: import('./statusCollect.js').StatusSnapshot, live: LiveRun | null, workspaces: string[], issues?: import('./issueScan.js').OfficeIssues | null }} p
  * @returns {OfficeSnapshot}
  */
-export function buildOfficeSnapshot({ status: d, live, workspaces }) {
+export function buildOfficeSnapshot({ status: d, live, workspaces, issues = null }) {
   const active = d.active.map((r) => officeRun(r, live, d.now));
   const manual = d.manualPauses ?? [];
   const general = manual.find((p) => p.scope === ALL);
@@ -244,6 +246,7 @@ export function buildOfficeSnapshot({ status: d, live, workspaces }) {
     history: d.history.map(historyEntry),
     spend: { today: totals(today), week: totals(week) },
     workspaces,
+    issues,
   };
 }
 
@@ -254,14 +257,15 @@ export function buildOfficeSnapshot({ status: d, live, workspaces }) {
  *   statusSnapshot: () => Promise<import('./statusCollect.js').StatusSnapshot>,
  *   liveRun: () => Promise<{ activeRun: LiveRun | null }>,
  *   workspaceAliases: () => Promise<string[]>,
+ *   issues?: () => import('./issueScan.js').OfficeIssues | null,
  * }} deps
  * @returns {Promise<OfficeSnapshot>}
  */
-export async function collectOfficeSnapshot({ statusSnapshot, liveRun, workspaceAliases }) {
+export async function collectOfficeSnapshot({ statusSnapshot, liveRun, workspaceAliases, issues = () => null }) {
   const [status, live, workspaces] = await Promise.all([
     statusSnapshot(),
     liveRun().then((s) => s.activeRun, () => null),
     workspaceAliases().catch(() => []),
   ]);
-  return buildOfficeSnapshot({ status, live, workspaces });
+  return buildOfficeSnapshot({ status, live, workspaces, issues: issues() });
 }

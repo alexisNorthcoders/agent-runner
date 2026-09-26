@@ -152,3 +152,14 @@ dd {
   background: #ffd84a33;
   border-left: 3px solid #ffd84a;
 }
+.stale {
+  color: #c8323c;
+}
+#panel ul {
+  margin: 0.2rem 0 0.6rem;
+  padding-left: 1.2rem;
+}
+#panel h4 {
+  margin: 0.4rem 0 0;
+  font-size: 0.9rem;
+}
