@@ -8,18 +8,22 @@ bot and a cron, and reports through a Redis outbox. The office dashboard's plan 
 ### Runner
 
 **Run**:
-One agent session under the single-flight lock, from start to its one report: freeform, Joplin, or an issue run.
-_Avoid_: job, task, session (for the whole run)
+One session under the single-flight lock, from start to its one report: freeform, Joplin, an issue run, or a scheduled job's command.
+_Avoid_: task, session (for the whole run)
 
 **Issue run**:
 A run that implements one GitHub issue in an allowlisted workspace, then commits, opens a PR, reviews and merges it.
+
+**Scheduled job**:
+A configured command the runner runs once a day at a fixed UTC time (`trigger: schedule`), in place of a crontab line. It joins the **Queue** when due and runs as-is, with no preamble or post-run. Its **Room** is set in its config.
+_Avoid_: cron job (the cron is the issue tracer), job (for any other run)
 
 **Workspace**:
 An allowlisted repo on the Pi, named by its alias (e.g. `chess-trainer`). Issue runs only happen in workspaces.
 _Avoid_: project, repo (when you mean the alias)
 
 **Phase**:
-Where the executing run is: `agent` (an agent pass, the first one or the autofix) or `post-run` (commit, PR, review, merge).
+Where the executing run is: `agent` (an agent pass, the first one or the autofix), `post-run` (commit, PR, review, merge), or `job` (a **Scheduled job**'s command).
 
 **Queue**:
 Run requests waiting for the agent, oldest first.
@@ -59,7 +63,7 @@ The figure who delivers each run to its room: an interoffice envelope for a cron
 
 - The **Office feed** pushes **Office snapshots**; the **Office** only ever reads them.
 - Each allowlisted **Workspace** has one **Cubicle**; an **Issue run** is worked in its **Cubicle**.
-- A freeform **Run** is worked in the **Annex**, a Joplin **Run** in the **Library**.
+- A freeform **Run** is worked in the **Annex**, a Joplin **Run** in the **Library**, a **Scheduled job** in the room its config names.
 - The **Queue** waits at **Reception** until the **Mail carrier** delivers the next **Run**.
 
 ## Flagged ambiguities

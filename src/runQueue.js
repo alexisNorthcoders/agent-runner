@@ -6,7 +6,8 @@
  *   id: string,
  *   cmd: { kind: 'freeform', prompt: string }
  *     | { kind: 'joplin', noteQuery: string }
- *     | { kind: 'issue', issueNumber: number, alias: string | null, extraInstructions: string },
+ *     | { kind: 'issue', issueNumber: number, alias: string | null, extraInstructions: string }
+ *     | { kind: 'job', job: import('./scheduledJobs.js').ScheduledJob },
  *   replyTo: string,
  *   label: string,
  *   queuedAt: string,

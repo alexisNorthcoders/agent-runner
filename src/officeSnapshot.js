@@ -16,12 +16,13 @@ import { spend, totalTokens } from './statusFormat.js';
  * @typedef {{
  *   runId: string,
  *   kind: string | null,
- *   trigger: 'manual' | 'cron',
+ *   trigger: import('./runLock.js').RunTrigger,
  *   label: string | null,
  *   workspaceAlias: string | null,
  *   issueNumber: number | null,
+ *   room: string | null,
  *   health: RunHealth,
- *   phase: 'agent' | 'post-run' | null,
+ *   phase: 'agent' | 'post-run' | 'job' | null,
  *   model: string | null,
  *   turns: number,
  *   outputTokens: number,
@@ -31,17 +32,18 @@ import { spend, totalTokens } from './statusFormat.js';
  *   elapsedMs: number | null,
  *   agentPid: number | null,
  * }} OfficeRun
- *   An in-flight run. `trigger` is `cron` for the cron issue tracer, else `manual` (WhatsApp or
- *   HTTP). `phase` is known only for the run this process is executing (null for an orphaned or
+ *   An in-flight run. `trigger` is `cron` for the cron issue tracer, `schedule` for a scheduled
+ *   job (`kind: job`, with its `room`), else `manual` (WhatsApp or HTTP). A job's phase is `job`. `phase` is known only for the run this process is executing (null for an orphaned or
  *   stale one). `elapsedMs` is as of the snapshot's `at`.
  *
  * @typedef {{
  *   runId: string,
  *   kind: string | null,
- *   trigger: 'manual' | 'cron',
+ *   trigger: import('./runLock.js').RunTrigger,
  *   label: string | null,
  *   workspaceAlias: string | null,
  *   issueNumber: number | null,
+ *   room: string | null,
  *   startedAt: string | null,
  *   endedAt: string,
  *   durationMs: number | null,
@@ -83,10 +85,11 @@ import { spend, totalTokens } from './statusFormat.js';
  * @typedef {{
  *   runId: string,
  *   kind: string | null,
- *   trigger: 'manual' | 'cron',
+ *   trigger: import('./runLock.js').RunTrigger,
  *   label: string | null,
  *   workspaceAlias: string | null,
  *   issueNumber: number | null,
+ *   room: string | null,
  *   startedAt: string | null,
  * }} OfficeLock
  *
@@ -108,7 +111,7 @@ import { spend, totalTokens } from './statusFormat.js';
  *   first. `queue`: oldest first. `history`: the last 7 days, newest first. `spend`: today (since
  *   local midnight) and the last 7 days. `workspaces`: the allowlisted aliases, sorted.
  *
- * @typedef {{ runId: string, phase?: 'agent' | 'post-run' } & Partial<import('./agentBackend/index.js').AgentProgress>} LiveRun
+ * @typedef {{ runId: string, phase?: 'agent' | 'post-run' | 'job' } & Partial<import('./agentBackend/index.js').AgentProgress>} LiveRun
  *   What this process knows about the run it's executing (from `runner.status()`), fresher than
  *   the throttled active-run file.
  */
@@ -116,8 +119,11 @@ import { spend, totalTokens } from './statusFormat.js';
 /** @param {string | null | undefined} iso @param {number} now */
 const elapsedSince = (iso, now) => (iso && Number.isFinite(Date.parse(iso)) ? now - Date.parse(iso) : null);
 
-/** @param {unknown} trigger @returns {'manual' | 'cron'} */
-const triggerOf = (trigger) => (trigger === 'cron' ? 'cron' : 'manual');
+/** @param {unknown} trigger @returns {import('./runLock.js').RunTrigger} */
+const triggerOf = (trigger) => (trigger === 'cron' || trigger === 'schedule' ? trigger : 'manual');
+
+/** @param {unknown} room @returns {string | null} */
+const roomOf = (room) => (typeof room === 'string' ? room : null);
 
 /**
  * @param {import('./activeRuns.js').ActiveRun} r
@@ -135,6 +141,7 @@ function officeRun(r, live, now) {
     label: r.label ?? null,
     workspaceAlias: r.workspaceAlias ?? null,
     issueNumber: r.issueNumber ?? null,
+    room: roomOf(r.room),
     health: r.health,
     phase: mine?.phase ?? null,
     model: p.model ?? null,
@@ -158,6 +165,7 @@ function historyEntry(h) {
     label: h.label ?? null,
     workspaceAlias: typeof h.workspaceAlias === 'string' ? h.workspaceAlias : null,
     issueNumber: typeof h.issueNumber === 'number' ? h.issueNumber : null,
+    room: roomOf(h.room),
     startedAt: h.startedAt ?? null,
     endedAt: h.endedAt,
     durationMs: Number.isFinite(durationMs) ? durationMs : null,
@@ -215,6 +223,7 @@ export function buildOfficeSnapshot({ status: d, live, workspaces }) {
           label: d.lock.label ?? null,
           workspaceAlias: d.lock.workspaceAlias ?? null,
           issueNumber: d.lock.issueNumber ?? null,
+          room: roomOf(d.lock.room),
           startedAt: d.lock.startedAt ?? null,
         }
       : null,

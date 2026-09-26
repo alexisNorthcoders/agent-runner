@@ -131,6 +131,16 @@ describe('renderHistoryText (WhatsApp)', () => {
     assert.equal(second, '2h05m ago · joplin — failed, 5m00s, -, 3.0k tok');
   });
 
+  it('shows an active scheduled job as a job, without agent progress', () => {
+    const text = renderStatusText(snapshot({ active: [{ runId: 'j', kind: 'job', label: 'scheduled job cleanup_agent', startedAt: ago(2 * MIN), health: 'running', ownerPid: 1 }] }));
+    assert.match(text, /^Job: scheduled job cleanup_agent \(running, 2m00s\)$/m);
+  });
+
+  it('shows a scheduled job without cost or tokens', () => {
+    const text = renderHistoryText([row({ kind: 'job', label: 'scheduled job cleanup_agent', trigger: 'schedule', outcome: 'failed', costUsd: undefined, tokens: undefined, model: undefined, turns: undefined })], NOW);
+    assert.equal(text.split('\n')[1], '10m00s ago · scheduled job cleanup_agent — failed, 5m00s');
+  });
+
   it('computes the duration when the entry has none', () => {
     const text = renderHistoryText([row({ durationMs: undefined })], NOW);
     assert.match(text, /success, 5m00s/);
