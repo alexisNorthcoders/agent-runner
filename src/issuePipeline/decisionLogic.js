@@ -41,13 +41,15 @@ export function ghMessageLooksLikePrAlreadyExists(msg) {
 }
 
 /**
- * @param {{ reviewOutcome: string, reviewVerdict: string, postReviewAutofix: { ok?: boolean, mergeBlocked?: boolean, detail?: string } | null }} args
+ * REQUEST_CHANGES passes once the autofix pass either pushed a fix or declined the feedback with
+ * `AUTOFIX_NO_CHANGES` (the agent overrules the reviewer).
+ * @param {{ reviewOutcome: string, reviewVerdict: string, postReviewAutofix: { ok?: boolean, noChanges?: boolean, mergeBlocked?: boolean, detail?: string } | null }} args
  */
 export function autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix }) {
   if (reviewOutcome !== 'success') return false;
   if (reviewVerdict === VERDICT_APPROVE) return true;
   if (reviewVerdict === VERDICT_REQUEST_CHANGES) {
-    return Boolean(postReviewAutofix?.ok);
+    return Boolean(postReviewAutofix?.ok || postReviewAutofix?.noChanges);
   }
   return false;
 }

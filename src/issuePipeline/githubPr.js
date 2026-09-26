@@ -505,12 +505,18 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
 
     /**
      * @param {string} repo @param {number} issueNumber
-     * @returns {Promise<{ ok: boolean, title?: string, body?: string, state?: string, error?: string }>}
+     * @returns {Promise<{ ok: boolean, title?: string, body?: string, state?: string, url?: string, error?: string }>}
      */
     async issueDetails(repo, issueNumber) {
       try {
-        const j = await viewIssue(repo, issueNumber, 'title,body,state');
-        return { ok: true, title: String(j.title || '').trim(), body: String(j.body || '').trim(), state: String(j.state || '').trim().toUpperCase() };
+        const j = await viewIssue(repo, issueNumber, 'title,body,state,url');
+        return {
+          ok: true,
+          title: String(j.title || '').trim(),
+          body: String(j.body || '').trim(),
+          state: String(j.state || '').trim().toUpperCase(),
+          url: String(j.url || '').trim(),
+        };
       } catch (e) {
         return { ok: false, error: execErrorText(e) };
       }

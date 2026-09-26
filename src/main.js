@@ -6,6 +6,7 @@ import { connectRedis, createRedisStore } from './redisStore.js';
 import { createRunLock } from './runLock.js';
 import { createPauseFlag } from './pauseFlag.js';
 import { createRunQueue } from './runQueue.js';
+import { createManualPause } from './manualPause.js';
 import { createOutbox } from './outbox.js';
 import { createAgentBackend } from './agentBackend/index.js';
 import { createRunHistory } from './runHistory.js';
@@ -44,6 +45,7 @@ const lock = createRunLock({ store, ttlSeconds: config.lockTtlSeconds });
 const outbox = createOutbox({ store });
 const pause = createPauseFlag({ store });
 const queue = createRunQueue({ store });
+const manualPause = createManualPause({ store });
 const history = createRunHistory({ dir: config.logsDir });
 const activeRuns = createActiveRuns({ dir: config.logsDir });
 const cronState = createCronState({ store });
@@ -53,12 +55,13 @@ const issues = createIssuePipeline({ settings: config.pipeline });
 const runner = createRunner({
   lock,
   pause,
+  manualPause,
   queue,
   outbox,
   backend: createAgentBackend({ timeoutMs: config.agentTimeoutMs }),
   history,
   activeRuns,
-  statusSnapshot: () => collectStatus({ activeRuns, history, readCron: cronState.read, readPause: pause.get, readLock: lock.current, readQueue: queue.list }),
+  statusSnapshot: () => collectStatus({ activeRuns, history, readCron: cronState.read, readPause: pause.get, readLock: lock.current, readQueue: queue.list, readManualPauses: manualPause.list }),
   joplin: createJoplinClient(config.joplin),
   launchSafeRestart,
   workspaces,
@@ -108,6 +111,8 @@ const cron = createCronTracer({
   startIssueRun: runner.startIssueRun,
   lock,
   pause,
+  manualPause,
+  sweepStale: () => activeRuns.removeStale(),
   state: cronState,
   workspaces,
   github: issues.github,

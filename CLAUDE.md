@@ -22,8 +22,8 @@ service's Redis outbox (`agent-runner:outbox` stream). The design record is What
 Built so far: freeform runs, `claude joplin:<note>`, the GitHub issue pipeline
 (`claude issue:<alias>:<n>`: fetch → branch in place → agent → commit → PR → review → autofix →
 merge, in `src/issuePipeline/`), `claude:stop`, `claude:restart` / `npm run safe-restart`,
-`claude:status` / `claude:history` and the `npm run agent:*` CLIs, the Redis single-flight lock, run queue and
-pause flag, startup recovery (with a WIP commit for issue runs), and the cron issue tracer
+`claude:status` / `claude:history` and the `npm run agent:*` CLIs, the Redis single-flight lock, run queue,
+pause flag and manual pauses (`claude:pause` / `npm run agent:pause`, general or per workspace), startup recovery (with a WIP commit for issue runs), and the cron issue tracer
 (`src/cronTracer.js`, over `runner.startIssueRun`, with its state in Redis). Layout and Redis keys
 are in `README.md`.
 

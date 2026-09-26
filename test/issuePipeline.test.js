@@ -292,7 +292,9 @@ describe('issue pipeline: finish', () => {
       if (a === 'issue' && b === 'view') {
         const fields = args[args.indexOf('--json') + 1];
         if (fields === 'state') return JSON.stringify({ state: merged ? 'CLOSED' : 'OPEN' });
-        if (fields === 'title,body,state') return JSON.stringify({ title: 'Fix it', body: 'Make it work', state: merged ? 'CLOSED' : 'OPEN' });
+        if (fields === 'title,body,state,url') {
+          return JSON.stringify({ title: 'Fix it', body: 'Make it work', state: merged ? 'CLOSED' : 'OPEN', url: 'https://github.com/o/r/issues/7' });
+        }
         return ISSUE_JSON;
       }
       if (a === 'pr' && b === 'list') return '[]';
@@ -368,8 +370,8 @@ describe('issue pipeline: finish', () => {
     assert.equal(fin.post.prAutoMergeResult?.mergedDirectly, true);
     assert.equal(fin.post.issueCloseWait?.closed, true);
     assert.equal(mails.length, 1);
-    assert.match(mails[0].subject, /Issue #7 closed — changes summary/);
-    assert.equal(mails[0].body.text, 'We shipped the fix.');
+    assert.match(mails[0].subject, /^\[.+\] Issue #7 closed: Fix it$/);
+    assert.match(mails[0].body.text, /^Issue #7: Fix it\nIssue: https:\/\/github\.com\/o\/r\/issues\/7\nPull request: \S+\n\n---\n\nWe shipped the fix\.$/);
     assert.equal(llmUrls.length, 2);
     // back on an up-to-date main that has both the agent's and the autofix commit
     assert.equal(await git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']), 'main');

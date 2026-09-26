@@ -15,6 +15,7 @@ import { pidAlive } from './pidAlive.js';
  *   cronAlive: boolean,
  *   history: import('./runHistory.js').HistoryEntry[],
  *   queue?: import('./runQueue.js').QueuedRun[],
+ *   manualPauses?: import('./manualPause.js').ManualPause[],
  * }} StatusSnapshot
  *   `history` covers the last 7 days, newest first.
  */
@@ -46,6 +47,7 @@ function timeBoxed(read, fallback, ms) {
  *   readPause: () => Promise<import('./pauseFlag.js').PauseRecord | null>,
  *   readLock?: () => Promise<import('./runLock.js').RunRecord | null>,
  *   readQueue?: () => Promise<import('./runQueue.js').QueuedRun[]>,
+ *   readManualPauses?: () => Promise<import('./manualPause.js').ManualPause[]>,
  *   isAlive?: (pid: number) => boolean,
  *   now?: () => number,
  *   pauseTimeoutMs?: number,
@@ -59,18 +61,20 @@ export async function collectStatus({
   readPause,
   readLock = async () => null,
   readQueue = async () => [],
+  readManualPauses = async () => [],
   isAlive = pidAlive,
   now = Date.now,
   pauseTimeoutMs = PAUSE_LOOKUP_TIMEOUT_MS,
 }) {
   const t = now();
-  const [active, cron, recent, paused, lock, queue] = await Promise.all([
+  const [active, cron, recent, paused, lock, queue, manualPauses] = await Promise.all([
     activeRuns.list(),
     timeBoxed(readCron, null, pauseTimeoutMs),
     history.read({ sinceMs: t - WEEK_MS }),
     timeBoxed(readPause, /** @type {const} */ ('unknown'), pauseTimeoutMs),
     timeBoxed(readLock, null, pauseTimeoutMs),
     timeBoxed(readQueue, [], pauseTimeoutMs),
+    timeBoxed(readManualPauses, [], pauseTimeoutMs),
   ]);
   if (lock && !active.some((r) => r.runId === lock.runId)) {
     const health = isAlive(lock.ownerPid) ? 'running' : isAlive(lock.agentPid) ? 'orphaned' : 'stale';
@@ -84,5 +88,6 @@ export async function collectStatus({
     cronAlive: cron ? isAlive(cron.pid) : false,
     history: recent,
     queue,
+    manualPauses,
   };
 }

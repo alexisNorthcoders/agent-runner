@@ -3,7 +3,7 @@ import { autoMergeAllowedByReviewGate, ghMessageLooksLikePrAlreadyExists, normal
 import { runPostReviewAutofixMergeFlow } from './reviewFollowUp.js';
 import { githubMergeMethodSummaryLabel } from './githubPr.js';
 import { truncate } from './gitWorkspace.js';
-import { plainTextEmailHtml } from './mailer.js';
+import { buildPostCloseChangesEmail } from './mailer.js';
 
 /**
  * Everything after the agent exits on an issue run: commit, push, open (or reuse) the PR, LLM
@@ -73,7 +73,7 @@ export function buildAutofixPrompt({ prompt, reviewMaxChars, issueNumber, prUrl,
     '- Stay on the **current git branch**; do not create a new branch or a second PR.',
     '- Make focused edits; do not revert unrelated work.',
     '- Do not run destructive git commands (no hard reset, no force-push).',
-    '- If, after reading the code, you conclude none of the feedback is valid or actionable, make no edits and end your reply with a line `AUTOFIX_NO_CHANGES: <your reasoning>`. Do not use it if you changed anything.',
+    '- If, after reading the code, you conclude none of the feedback is valid or actionable, make no edits and end your reply with a line `AUTOFIX_NO_CHANGES: <your reasoning>`. Do not use it if you changed anything. Declining overrules the reviewer and the PR is **auto-merged as is**, so only decline when you have checked each point against the code.',
     prUrl ? `- The open PR is: ${prUrl}` : '',
     issueNumber ? `- Linked issue: #${issueNumber}` : '',
     '',
@@ -84,12 +84,17 @@ export function buildAutofixPrompt({ prompt, reviewMaxChars, issueNumber, prUrl,
     .join('\n');
 }
 
-/** @param {number} issueNumber @param {{ branchName: string, prBase: string }} workBranch @param {string} userPrompt */
-function buildPrBody(issueNumber, workBranch, userPrompt) {
+/**
+ * @param {number} issueNumber @param {{ branchName: string, prBase: string }} workBranch @param {string} userPrompt
+ * @param {'cron' | 'manual'} [trigger] how the issue run was started; only changes the wording
+ */
+export function buildPrBody(issueNumber, workBranch, userPrompt, trigger = 'manual') {
   return [
     `Fixes #${issueNumber}`,
     '',
-    'Opened automatically after a `claude issue:…` run by agent-runner.',
+    trigger === 'cron'
+      ? 'Opened automatically by the cron issue tracer (`ready-for-agent` label) in agent-runner.'
+      : 'Opened automatically after a `claude issue:…` run by agent-runner.',
     '',
     `**Branch:** \`${workBranch.branchName}\``,
     `**Base:** \`${workBranch.prBase}\``,
@@ -142,7 +147,7 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
       if (noChangesReason) {
         return {
           ok: false,
-          mergeBlocked: true,
+          mergeBlocked: false,
           noChanges: true,
           noChangesReason,
           detail: `Autofix agent reviewed the feedback and made **no changes**:\n\n${truncate(noChangesReason, 3000)}`,
@@ -208,7 +213,8 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
     const summary = await llm.issueClosedSummary(issueBlock);
     if (!summary.ok) return { ok: false, step: 'deepinfra', error: summary.error };
     const prefix = settings.email.subjectPrefix || basename(repo.replace(/\/+$/, '')) || 'agent-runner';
-    const mail = await sendMail(`[${prefix}] Issue #${issueNumber} closed — changes summary`, { text: summary.text, html: plainTextEmailHtml(summary.text) });
+    const email = buildPostCloseChangesEmail({ subjectPrefix: prefix, issueNumber, title: details.title, issueUrl: details.url, prUrl, summary: summary.text });
+    const mail = await sendMail(email.subject, { text: email.text, html: email.html });
     return mail.ok ? { ok: true, to: mail.to, step: 'sent' } : { ok: false, step: 'smtp', error: mail.error };
   }
 
@@ -220,10 +226,12 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
    *   issueNumber: number,
    *   preAgentHeadSha?: string | null,
    *   runAgent: RunAgent,
+   *   trigger?: 'cron' | 'manual',
    * }} p
+   *   `trigger` (how the issue run was started) only changes the PR description wording.
    * @returns {Promise<PostRunResult>}
    */
-  async function runPostRun({ repo, userPrompt, agentOk, issueNumber, preAgentHeadSha = null, runAgent }) {
+  async function runPostRun({ repo, userPrompt, agentOk, issueNumber, preAgentHeadSha = null, runAgent, trigger = 'manual' }) {
     log('start', { repo, agentOk, issueNumber, preAgentHeadSha: preAgentHeadSha ? `${preAgentHeadSha.slice(0, 7)}…` : null });
     if (!settings.postRun) return { ran: false, note: '', skipReason: 'disabled' };
 
@@ -298,7 +306,7 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
           const created = await prs.createPr(repo, {
             base: workBranch.prBase,
             title: title.length > 200 ? `${title.slice(0, 197)}…` : title,
-            body: buildPrBody(issueNumber, workBranch, userPrompt),
+            body: buildPrBody(issueNumber, workBranch, userPrompt, trigger),
           });
           const recoveredUrl = !created.ok && ghMessageLooksLikePrAlreadyExists(created.error) ? await prs.firstOpenPrUrlForHead(repo, workBranch.branchName) : null;
           const picked = pickPrResultAfterGhFlow({ listedOk: false, createOk: created.ok, createUrl: created.url, createError: created.error, recoveredUrl });
@@ -405,7 +413,7 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
         }
       } else if (reviewOutcome === 'success' && !autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix })) {
         parts.push(
-          'Auto-merge was **not** queued: requires **VERDICT: APPROVE**, or **VERDICT: REQUEST_CHANGES** together with a **successful autofix** commit pushed to the PR branch.'
+          'Auto-merge was **not** queued: requires **VERDICT: APPROVE**, or **VERDICT: REQUEST_CHANGES** together with a **successful autofix** commit pushed to the PR branch or an autofix decline (`AUTOFIX_NO_CHANGES`).'
         );
       }
     }

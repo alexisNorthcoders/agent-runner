@@ -114,3 +114,22 @@ describe('parseCommand', () => {
     assert.equal(parseCommand(/** @type {any} */ (undefined)).kind, 'error');
   });
 });
+
+describe('parseCommand: pause / resume', () => {
+  it('reads an optional scope, duration and reason, defaulting to everything for 2h', () => {
+    assert.deepEqual(parseCommand('claude:pause'), { kind: 'pause', scope: 'all', seconds: 7200, reason: '' });
+    assert.deepEqual(parseCommand('claude:pause 30m lunch break'), { kind: 'pause', scope: 'all', seconds: 1800, reason: 'lunch break' });
+    assert.deepEqual(parseCommand('claude:pause Chess-Trainer 1d'), { kind: 'pause', scope: 'chess-trainer', seconds: 86400, reason: '' });
+    assert.deepEqual(parseCommand('claude:pause bot fixing it'), { kind: 'pause', scope: 'bot', seconds: 7200, reason: 'fixing it' });
+  });
+
+  it('refuses more than 7 days', () => {
+    assert.equal(parseCommand('claude:pause 8d').kind, 'error');
+  });
+
+  it('resumes one scope, or every pause with none', () => {
+    assert.deepEqual(parseCommand('claude:resume'), { kind: 'resume', scope: null });
+    assert.deepEqual(parseCommand('claude:resume bot'), { kind: 'resume', scope: 'bot' });
+    assert.equal(parseCommand('claude:resume bot now').kind, 'error');
+  });
+});

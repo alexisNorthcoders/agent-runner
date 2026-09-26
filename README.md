@@ -31,6 +31,8 @@ WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-resta
 | `claude:stop` | Kill the active run. Its "stopped" report lands in the outbox, and the next queued request starts. |
 | `claude:queue` | List the requests waiting for the agent. |
 | `claude:queue clear` | Drop every waiting request. |
+| `claude:pause [<alias>] [2h] [reason]` | Pause by hand while you work in a repo yourself (duration `30m`, `2h`, `1d`, up to 7d; default 2h). With no alias, no new run starts anywhere: requests queue and the cron skips its ticks. With an alias, only issue runs there are refused (the cron moves on to the next workspace), and freeform runs are told to leave it alone. A run already going is not stopped. |
+| `claude:resume [<alias>]` | End that pause early, or every pause with no alias. |
 | `claude:restart` | Run safe-restart in the background, then report to the outbox. |
 | `claude:status` | Active run (with orphaned/stale warnings), pause, last cron tick, today's spend, last 3 runs. |
 | `claude:history [n]` | The last `n` finished runs (default 10, max 30) with outcome, duration, cost and tokens. |
@@ -50,12 +52,14 @@ npm run agent:status            # snapshot: cron, active runs, pause, spend, rec
 npm run agent:watch             # the same, refreshed every 2s (agent:watch -- 5 for 5s)
 npm run agent:history -- -n 20  # finished runs with model, tokens and cost (--json)
 npm run agent:logs -- -f        # print or follow a run's log: [runId|prefix|latest] [-f]
+npm run agent:pause -- chess-trainer 1h fixing lessons   # same as claude:pause, works while the runner is down
+npm run agent:resume            # end every pause (agent:resume -- <alias> for one)
 ```
 
 These read `logs/agent-runs/` directly (plus the pause flag, lock and cron state from Redis), so they work while the
 runner is down. An active run's `state` is `running`, `orphaned` (the runner died but the agent
 process is still going, so nobody will report its result) or `stale` (both are gone). The runner
-deletes stale active files on startup and keeps orphaned ones.
+deletes stale active files on startup and on every cron tick, and keeps orphaned ones.
 
 ## Issue runs
 
@@ -130,6 +134,7 @@ curl -s localhost:3790/command -H 'content-type: application/json' \
 | `agent-runner:lock` | string (JSON) | Single-flight lock holding the active run's record. It is TTL'd, and on startup a leftover lock is reported to `owner` as an interrupted run. |
 | `agent-runner:queue` | list (JSON) | Run requests waiting for the agent, oldest first: `{id, cmd, replyTo, label, queuedAt}`. |
 | `agent-runner:paused` | string (JSON) | Pause flag set by safe-restart. It is TTL'd, and only its setter (by token) clears it. The cron skips its ticks while it's set. |
+| `agent-runner:manual-pause` | hash | Pauses set by hand: `all` or a workspace alias → `{scope, reason, pausedAt, until}`. Expired fields are ignored and deleted on read. |
 | `agent-runner:cron:state` | string (JSON) | The cron's last tick (`pid`, `intervalMs`, times, outcome), for the status views. |
 | `agent-runner:cron:last-started` | hash | `owner/repo` → the last issue the cron made progress on there. |
 | `agent-runner:cron:pr-attempts` | hash | `owner/repo#n` → the PR state (`headSha:baseSha`) the cron last worked. Not written when an approved PR's merge failed only on a network error, so the next tick works it again. |
@@ -154,7 +159,7 @@ are told the same rule in their prompt preamble.
 - `src/preamble.js`: the rules prepended to every agent prompt. Freeform and Joplin runs add the git rules, and issue runs don't, since their post-run commits and merges.
 - `src/agentBackend/`: the `AgentBackend` seam. `claude.js` holds everything Claude-specific (CLI
   flags, stream-json parsing, cost/tokens, `/implement`).
-- `src/runLock.js`, `src/runQueue.js`, `src/pauseFlag.js`, `src/outbox.js`, `src/cronState.js`: Redis state over
+- `src/runLock.js`, `src/runQueue.js`, `src/pauseFlag.js`, `src/manualPause.js`, `src/outbox.js`, `src/cronState.js`: Redis state over
   `src/redisStore.js`.
 - `src/cronTracer.js`: the cron issue tracer (picking, parking, progress), over `runner.startIssueRun`.
 - `src/safeRestart.js` + `bin/safe-restart.js`: restart decision logic and the CLI.

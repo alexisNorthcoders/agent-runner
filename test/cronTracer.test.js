@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCronTracer, partitionIssuesWithOpenPr, pickNextRunnableIssue } from '../src/cronTracer.js';
 import { cronAliasesFromEnv } from '../src/config.js';
+import { createManualPause } from '../src/manualPause.js';
 import { createCronState } from '../src/cronState.js';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
@@ -90,6 +91,8 @@ const outcomeOf = (r) => (r == null || typeof r === 'object' ? r : { result: r, 
 function harness(o = {}) {
   const store = o.store ?? createMemoryStore();
   const state = createCronState({ store });
+  const manualPause = createManualPause({ store });
+  let sweeps = 0;
   const repos = o.repos ?? { bot: REPO, platformer: REPO_P };
   let issues = o.issues ?? { [REPO]: [], [REPO_P]: [] };
   let openPrs = o.openPrs ?? new Map();
@@ -115,6 +118,8 @@ function harness(o = {}) {
       }),
     lock: { current: async () => lockHolder },
     pause: { get: async () => paused },
+    manualPause,
+    sweepStale: async () => void sweeps++,
     state,
     workspaces: {
       async resolveIssueWorkspace(alias) {
@@ -145,6 +150,8 @@ function harness(o = {}) {
     tracer,
     state,
     store,
+    manualPause,
+    sweeps: () => sweeps,
     runs,
     listed,
     sent,
@@ -185,6 +192,29 @@ describe('cron tick: when to skip', () => {
       assert.deepEqual(h.sent, []);
     });
   }
+
+  it('skips quietly while the owner has paused everything by hand', async () => {
+    const h = harness({ issues: { [REPO]: [ready(1)] } });
+    await h.manualPause.set({ scope: 'all', seconds: 3600 });
+    assert.deepEqual(await h.tracer.tick(), { kind: 'paused' });
+    assert.deepEqual(h.listed, []);
+  });
+
+  it('skips a workspace paused by hand and runs the next one', async () => {
+    const h = harness({ issues: { [REPO]: [ready(1)], [REPO_P]: [ready(2)] } });
+    await h.manualPause.set({ scope: 'bot', seconds: 3600 });
+    await h.tracer.tick();
+    assert.deepEqual(h.ran(), ['platformer#2']);
+    assert.deepEqual(h.listed, [REPO_P]);
+  });
+
+  it('sweeps stale active-run files on every tick, even a skipped one', async () => {
+    const h = harness();
+    h.holdLock();
+    await h.tracer.tick();
+    await h.tracer.tick();
+    assert.equal(h.sweeps(), 2);
+  });
 
   it('is idle when no repo has a ready-for-agent issue', async () => {
     const h = harness({ issues: { [REPO]: [{ number: 1, title: 'x', labels: ['needs-triage'] }], [REPO_P]: [{ number: 2, title: 'y', labels: [] }] } });

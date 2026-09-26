@@ -1,3 +1,5 @@
+import { ALL, DEFAULT_MANUAL_PAUSE_SECONDS, MAX_MANUAL_PAUSE_SECONDS, parseDuration } from './manualPause.js';
+
 /**
  * Parses the raw WhatsApp text the bot forwards (`claude…`) into a runner command. Pure.
  * User-facing commands keep the `claude` prefix even though the runner itself is agent-neutral.
@@ -10,7 +12,12 @@
  *   | { kind: 'status' }
  *   | { kind: 'history', count: number }
  *   | { kind: 'queue', clear: boolean }
+ *   | PauseCommand
  *   | { kind: 'error', message: string }} Command
+ *
+ * @typedef {{ kind: 'pause', scope: string, seconds: number, reason: string }
+ *   | { kind: 'resume', scope: string | null }} PauseCommand
+ *   `scope` is `all` or a workspace alias; a resume with no scope clears every pause.
  */
 
 export const USAGE = `Usage:
@@ -21,6 +28,8 @@ claude issue:<n> [extra instructions]  the same, in the default issue workspace
 claude:stop  kill the active run (queued requests still run)
 claude:queue  list the requests waiting for the agent
 claude:queue clear  drop every waiting request
+claude:pause [<alias>] [2h] [reason]  stop new agent runs (everything, or only issue runs in <alias>) for a while (default 2h)
+claude:resume [<alias>]  end a pause early (no alias: every pause)
 claude:restart  safely restart agent-runner (refused while a run is active)
 claude:status  active run, pause, last cron tick and recent runs
 claude:history [n]  the last n finished runs with cost and tokens`;
@@ -30,6 +39,28 @@ const SUBCOMMANDS = /** @type {const} */ (['stop', 'restart', 'status']);
 export const DEFAULT_HISTORY_COUNT = 10;
 export const MAX_HISTORY_COUNT = 30;
 const HISTORY_USAGE = `Usage: claude:history [n]  (n = number of runs, 1-${MAX_HISTORY_COUNT})`;
+export const PAUSE_USAGE = 'Usage: claude:pause [<alias>] [duration] [reason]  (duration like 30m, 2h, 1d; up to 7d; default 2h)\n       claude:resume [<alias>]';
+
+/**
+ * The words after `pause` / `resume`, shared with the `agent:pause` CLI.
+ * `pause [<alias>|all] [<duration>] [reason…]`: a leading duration means the general pause.
+ * @param {'pause' | 'resume'} verb
+ * @param {string[]} words
+ * @returns {PauseCommand | { kind: 'error', message: string }}
+ */
+export function parsePauseArgs(verb, words) {
+  const w = words.filter(Boolean);
+  if (verb === 'resume') {
+    if (w.length > 1) return { kind: 'error', message: PAUSE_USAGE };
+    return { kind: 'resume', scope: w[0] ? w[0].toLowerCase() : null };
+  }
+  let scope = ALL;
+  if (w.length && parseDuration(w[0]) == null) scope = /** @type {string} */ (w.shift()).toLowerCase();
+  let seconds = DEFAULT_MANUAL_PAUSE_SECONDS;
+  if (w.length && parseDuration(w[0]) != null) seconds = /** @type {number} */ (parseDuration(/** @type {string} */ (w.shift())));
+  if (seconds > MAX_MANUAL_PAUSE_SECONDS) return { kind: 'error', message: PAUSE_USAGE };
+  return { kind: 'pause', scope, seconds, reason: w.join(' ') };
+}
 
 /**
  * @param {string} text
@@ -55,6 +86,7 @@ export function parseCommand(text) {
       if (!/^\d+$/.test(arg) || parseInt(arg, 10) < 1) return { kind: 'error', message: HISTORY_USAGE };
       return { kind: 'history', count: Math.min(parseInt(arg, 10), MAX_HISTORY_COUNT) };
     }
+    if (name === 'pause' || name === 'resume') return parsePauseArgs(name, (sub[2] ?? '').trim().split(/\s+/));
     if (name === 'queue') {
       const arg = (sub[2] ?? '').trim().toLowerCase();
       if (!arg) return { kind: 'queue', clear: false };
