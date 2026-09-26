@@ -52,8 +52,13 @@ export function cubicleOrder(aliases, config) {
  * @returns {Scene}
  */
 export function reduceScene(snap, prev, { up, now, config }) {
-  // down: the floor as it was last seen, with the lights off and nothing ticking
-  if (!up || !snap) return { ...(prev ?? EMPTY), dark: !up, reception: { ...(prev ?? EMPTY).reception, countdownMs: null } };
+  if (!snap) return { ...(prev ?? EMPTY), dark: !up, reception: { ...(prev ?? EMPTY).reception, countdownMs: null } };
+  // down: the floor as the last snapshot saw it, with the lights off and nothing ticking. Built
+  // from the snapshot, not `prev`, so pauses still run out while the runner is away.
+  if (!up) {
+    const lit = reduceScene(snap, null, { up: true, now, config });
+    return { ...lit, dark: true, reception: { ...lit.reception, countdownMs: null } };
+  }
   const paused = new Set(snap.pauses.workspaces.filter((p) => holding(p, now)).map((p) => p.alias));
   const next = snap.cron?.alive && snap.cron.nextTickAt ? Date.parse(snap.cron.nextTickAt) : NaN;
   return {

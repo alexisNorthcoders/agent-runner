@@ -78,6 +78,17 @@ describe('office scene: office states', () => {
     assert.equal(reduceScene(snap(), dark, up).dark, false);
   });
 
+  it('lets pauses run out while the runner is down', () => {
+    const paused = snap({ pauses: { restart: null, general: pause(60_000), workspaces: [{ alias: 'dots', ...pause(60_000) }] } });
+    const before = reduceScene(paused, reduceScene(paused, null, up), { ...up, up: false });
+    assert.equal(before.backInFive, true);
+    const after = reduceScene(paused, before, { ...up, up: false, now: NOW + 61_000 });
+    assert.equal(after.dark, true);
+    assert.equal(after.backInFive, false);
+    assert.ok(after.cubicles.every((c) => !c.doNotDisturb));
+    assert.equal(after.reception.countdownMs, null);
+  });
+
   it('is dark with an empty floor when the runner was never seen', () => {
     const scene = reduceScene(null, null, { ...up, up: false });
     assert.equal(scene.dark, true);

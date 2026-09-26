@@ -209,7 +209,11 @@ function drawScene() {
   const canvas = sceneCanvas;
   const dpr = window.devicePixelRatio || 1;
   const fit = fitScene(floor.clientWidth, window.innerHeight - document.querySelector('header').offsetHeight - 48, dpr);
-  layout = layoutOffice(scene.cubicles.length, fit.mode, fit.width);
+  const next = layoutOffice(scene.cubicles.length, fit.mode, fit.width);
+  // the pointer was placed over the old floor plan, so it may be over something else now: drop
+  // the tip until the pointer moves again
+  if (!sameLayout(layout, next) || canvas.width !== next.width * fit.scale || canvas.height !== next.height * fit.scale) pointer = null;
+  layout = next;
   buffer.width = layout.width;
   buffer.height = layout.height;
   drawOffice(buffer.getContext('2d'), layout, scene);
@@ -222,6 +226,9 @@ function drawScene() {
   ctx.drawImage(buffer, 0, 0, canvas.width, canvas.height);
   showTip();
 }
+
+/** Same floor plan: same size and the same rooms in the same places. @param {any} a @param {any} b */
+const sameLayout = (a, b) => !!a && JSON.stringify(a) === JSON.stringify(b);
 
 /** What's under the pointer: a letter's label, the cron countdown, or a cubicle's workspace. */
 function hovered() {
