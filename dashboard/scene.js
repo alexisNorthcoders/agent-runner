@@ -3,8 +3,22 @@
 // DOM here, so it can be tested in Node.
 
 /**
- * @typedef {{ alias: string, name: string, doNotDisturb: boolean }} SceneCubicle
- *   One per allowlisted workspace. `name` is its department sign.
+ * @typedef {{ number: number, title: string, blocked: boolean }} SceneTrayLetter
+ *   A `ready-for-agent` issue waiting in a cubicle's in-tray; a `blocked` one has a padlock.
+ *
+ * @typedef {{
+ *   alias: string,
+ *   name: string,
+ *   doNotDisturb: boolean,
+ *   inTray: SceneTrayLetter[],
+ *   sticky: Array<{ number: number, title: string }>,
+ * }} SceneCubicle
+ *   One per allowlisted workspace. `name` is its department sign. `inTray`: its repo's runnable
+ *   issues, then its blocked ones, but the one being worked at its desk. `sticky`: its
+ *   `ready-for-human` issues, a sticky note on the cubicle while there are any.
+ *
+ * @typedef {{ alias: string, number: number, title: string, prUrl: string }} SceneParked
+ *   An open agent PR the cron has parked: a folder on the boss's desk.
  *
  * @typedef {{ id: string, label: string }} SceneLetter
  *   A queued request, as a letter on the mail cart.
@@ -69,18 +83,20 @@
  *   run: SceneRun | null,
  *   boss: SceneBoss,
  *   outcomes: SceneOutcome[],
+ *   parked: SceneParked[],
  * }} Scene
  *   `dark`: the runner is down. `backInFive`: the owner's general pause, as a sign on the front
  *   door. `countdownMs`: time to the next cron tick, null when there's no cron to count down to.
  *   `run`: the active run's worker, if any. `outcomes`: each room's last run, but the active run's
- *   room.
+ *   room. `parked`: the parked PRs of the workspaces with a cubicle. Pending issues come from the
+ *   feed's issue scan, stale or not, and are empty before its first scan.
  *
  * @typedef {{ cubicles?: Array<{ alias: string, name?: string }> }} OfficeConfig
  *   `dashboard/office.json`: cubicle names and order, by workspace alias.
  */
 
 /** @type {Scene} */
-const EMPTY = { dark: false, backInFive: false, cubicles: [], reception: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [] };
+const EMPTY = { dark: false, backInFive: false, cubicles: [], reception: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [], parked: [] };
 
 /** The most sheets a desk's pile holds. */
 export const PILE_MAX = 16;
@@ -272,7 +288,22 @@ export function reduceScene(snap, prev, { up, now, config }) {
   }
   const paused = new Set(snap.pauses.workspaces.filter((p) => holding(p, now)).map((p) => p.alias));
   const next = snap.cron?.alive && snap.cron.nextTickAt ? Date.parse(snap.cron.nextTickAt) : NaN;
-  const cubicles = cubicleOrder(snap.workspaces, config).map((c) => ({ ...c, doNotDisturb: paused.has(c.alias) }));
+  const repos = new Map((snap.issues?.repos ?? []).map((r) => [r.alias, r]));
+  const r = snap.activeRun;
+  const working = r?.kind === 'issue' ? { alias: r.workspaceAlias, number: r.issueNumber } : null;
+  const cubicles = cubicleOrder(snap.workspaces, config).map((c) => {
+    const repo = repos.get(c.alias);
+    /** @param {{ number: number, title: string }} i @param {boolean} blocked */
+    const letter = (i, blocked) => ({ number: i.number, title: i.title, blocked });
+    return {
+      ...c,
+      doNotDisturb: paused.has(c.alias),
+      inTray: [...(repo?.runnable ?? []).map((i) => letter(i, false)), ...(repo?.blocked ?? []).map((i) => letter(i, true))].filter(
+        (l) => !(working?.alias === c.alias && working.number === l.number)
+      ),
+      sticky: (repo?.readyForHuman ?? []).map((i) => ({ number: i.number, title: i.title })),
+    };
+  });
   const run = reduceRun(snap, prev?.run ?? null, cubicles, now);
   return {
     dark: false,
@@ -285,5 +316,6 @@ export function reduceScene(snap, prev, { up, now, config }) {
     run,
     boss: reduceBoss(run, prev, now),
     outcomes: reduceOutcomes(snap.history, run, cubicles),
+    parked: cubicles.flatMap((c) => (repos.get(c.alias)?.parked ?? []).map((p) => ({ alias: c.alias, number: p.number, title: p.title, prUrl: p.prUrl }))),
   };
 }

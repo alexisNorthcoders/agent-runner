@@ -189,6 +189,20 @@ export function layoutOffice(count, mode, width) {
 }
 
 /**
+ * `items` in slots, one each up to `capacity`. When there are more, the last slot holds the rest.
+ * @template T
+ * @param {T[]} items @param {number} capacity @param {(i: number) => Rect} rect
+ * @returns {Array<{ rect: Rect, items: T[] }>}
+ */
+function fillSlots(items, capacity, rect) {
+  const over = items.length > capacity;
+  const shown = over ? capacity - 1 : items.length;
+  const slots = items.slice(0, shown).map((it, i) => ({ rect: rect(i), items: [it] }));
+  if (over) slots.push({ rect: rect(shown), items: items.slice(shown) });
+  return slots;
+}
+
+/**
  * The mail cart's slots, one per letter up to its capacity. When there are more letters than
  * slots, the last slot is a pile standing for the rest.
  * @param {Layout} layout
@@ -196,17 +210,84 @@ export function layoutOffice(count, mode, width) {
  * @returns {Array<{ rect: Rect, label: string, pile: number }>} `pile`: how many letters the slot holds
  */
 export function cartSlots(layout, letters) {
-  const over = letters.length > CART_CAPACITY;
-  const shown = over ? CART_CAPACITY - 1 : letters.length;
   const c = layout.cart;
   /** @param {number} i */
   const rect = (i) => ({ x: c.x + 3 + (i % CART_COLS) * 9, y: c.y + 3 + Math.floor(i / CART_COLS) * 8, w: 8, h: 6 });
-  const slots = letters.slice(0, shown).map((l, i) => ({ rect: rect(i), label: l.label, pile: 1 }));
-  if (over) {
-    const rest = letters.slice(shown);
-    slots.push({ rect: rect(shown), label: `+${rest.length} more: ${rest.map((l) => l.label).join(' · ')}`, pile: rest.length });
-  }
-  return slots;
+  return fillSlots(letters, CART_CAPACITY, rect).map(({ rect: r, items }) => ({
+    rect: r,
+    label: items.length > 1 ? `+${items.length} more: ${items.map((l) => l.label).join(' · ')}` : items[0].label,
+    pile: items.length,
+  }));
+}
+
+/** Letters in a cubicle's in-tray: rows, and at most this many columns. */
+const TRAY_ROWS = 2;
+const TRAY_COLS = 6;
+
+/**
+ * A cubicle's in-tray, on the floor in front of its desk, on the left.
+ * @param {Rect} r the cubicle
+ * @returns {Rect & { cols: number }}
+ */
+export function inTrayRect(r) {
+  const d = cubicleDesk(r);
+  const cols = Math.max(1, Math.min(TRAY_COLS, Math.floor((r.w - 14) / 9)));
+  return { x: r.x + 6, y: d.y + d.h + 4, w: cols * 9 + 3, h: TRAY_ROWS * 8 + 2, cols };
+}
+
+/**
+ * The in-tray's slots, one per letter up to its capacity; the last holds the overflow.
+ * @template {{ number: number }} L
+ * @param {Rect} r the cubicle @param {L[]} letters in the order they're shown
+ * @returns {Array<{ rect: Rect, letters: L[] }>}
+ */
+export function inTraySlots(r, letters) {
+  const t = inTrayRect(r);
+  /** @param {number} i */
+  const rect = (i) => ({ x: t.x + 2 + (i % t.cols) * 9, y: t.y + 2 + Math.floor(i / t.cols) * 8, w: 8, h: 6 });
+  return fillSlots(letters, t.cols * TRAY_ROWS, rect).map(({ rect: s, items }) => ({ rect: s, letters: items }));
+}
+
+/** The sticky note stuck on a cubicle's monitor, right of the worker. @param {Rect} r the cubicle */
+export function stickyNote(r) {
+  const d = cubicleDesk(r);
+  return { x: d.x + Math.floor(d.w / 2) + 4, y: d.y - 10, w: 7, h: 7 };
+}
+
+/** The most folders the boss's desk holds. */
+export const FOLDERS_MAX = 4;
+
+/**
+ * The folders on the boss's desk: one per room whose last run left a PR open (labelled with the
+ * room), then one per parked PR (labelled with its issue). The last slot holds any overflow.
+ * `tip`: what the hover says.
+ * @param {Layout} layout @param {Array<{ alias: string, name: string }>} cubicles
+ * @param {Array<Pick<import('./scene.js').SceneOutcome, 'place' | 'state' | 'label' | 'runId' | 'prUrl'>>} outcomes
+ * @param {import('./scene.js').SceneParked[]} parked
+ * @returns {Array<{ rect: Rect, tab: string, tip: string, parked: boolean, pile: number }>}
+ */
+export function folderSlots(layout, cubicles, outcomes, parked) {
+  const d = layout.desks.boss;
+  const items = [
+    ...outcomes
+      .filter((o) => o.state === 'folder')
+      .map((o) => {
+        const name = placeName(layout, cubicles, o.place);
+        return { tab: name, tip: `${name}: PR open, ${o.label ?? o.runId}${o.prUrl ? `\nPR: ${o.prUrl}` : ''}`, parked: false };
+      }),
+    ...parked.map((p) => ({
+      tab: `#${p.number}`,
+      tip: `Parked: ${placeName(layout, cubicles, { room: 'cubicle', alias: p.alias })} #${p.number} ${p.title}\nPR: ${p.prUrl}`,
+      parked: true,
+    })),
+  ];
+  /** @param {number} i */
+  const rect = (i) => ({ x: d.x + (i % 2) * 29, y: d.y - 1 - Math.floor(i / 2) * 9, w: 27, h: 8 });
+  return fillSlots(items, FOLDERS_MAX, rect).map(({ rect: r, items: f }) =>
+    f.length > 1
+      ? { rect: r, tab: `+${f.length}`, tip: `${f.length} more:\n${f.map((x) => x.tip).join('\n')}`, parked: f.every((x) => x.parked), pile: f.length }
+      : { rect: r, ...f[0], pile: 1 }
+  );
 }
 
 /** @param {Rect} r @param {number} x @param {number} y */

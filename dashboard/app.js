@@ -1,8 +1,8 @@
 // The office dashboard: listens to the office feed (`feed`, next to this page), draws the office
-// floor on a canvas, and renders the panel's Now, History and Office tabs as text and tables. No
+// floor on a canvas, and renders the panel's Now, Issues, History and Office tabs as text and tables. No
 // build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeSnapshot.js.
 import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, what } from './format.js';
-import { cartSlots, clickFilter, deskAt, fitScene, inside, layoutOffice, placeName, placeRect, workerRect } from './layout.js';
+import { cartSlots, clickFilter, deskAt, fitScene, folderSlots, inTraySlots, inside, layoutOffice, placeName, placeRect, stickyNote, workerRect } from './layout.js';
 import { applyLogEvent } from './logPane.js';
 import { animating, drawOffice } from './officeView.js';
 import { reduceScene, samePlace } from './scene.js';
@@ -11,7 +11,7 @@ const FEED_URL = 'feed';
 const RECONNECT_MS = 3000;
 // the feed resends the snapshot every 30s, so this much silence means the connection is dead
 const SILENCE_MS = 75_000;
-const TABS = ['now', 'history', 'office'];
+const TABS = ['now', 'issues', 'history', 'office'];
 /** How often the floor is redrawn while something on it moves. */
 const REDRAW_MS = 100;
 
@@ -145,6 +145,39 @@ function renderHistory() {
   ];
 }
 
+/** @param {{ number: number, title: string, url: string }} i @param {string} [extra] */
+const issueLink = (i, extra) => h('li', null, h('a', { href: i.url, target: '_blank', rel: 'noopener' }, `#${i.number}`), ` ${i.title}`, extra ?? null);
+
+/** @param {string} title @param {Node[]} items */
+const issueList = (title, items) => (items.length ? [h('h4', null, `${title} (${items.length})`), h('ul', null, ...items)] : []);
+
+function renderIssues() {
+  const t = now();
+  const scan = snap.issues;
+  if (!scan) return [h('p', { class: 'dim' }, 'Not scanned yet: the runner scans GitHub on startup, on a timer and after each run.')];
+  const repos = filter ? scan.repos.filter((r) => r.alias === filter) : scan.repos;
+  return [
+    h('p', null, `Scanned ${ago(scan.scannedAt, t)}.`),
+    filterNote(),
+    ...(repos.length ? [] : [h('p', { class: 'dim' }, filter ? `No scan of ${filter}.` : 'No allowlisted workspaces.')]),
+    ...repos.flatMap((r) => {
+      const when = r.scannedAt ? `scanned ${ago(r.scannedAt, t)}` : 'never scanned';
+      const pr = (/** @type {{ prUrl: string }} */ p) => h('span', null, ' · ', h('a', { href: p.prUrl, target: '_blank', rel: 'noopener' }, 'PR'));
+      const lists = [
+        ...issueList('Ready for agent: runnable', r.runnable.map((i) => issueLink(i))),
+        ...issueList('Ready for agent: blocked', r.blocked.map((i) => issueLink(i))),
+        ...issueList('Ready for agent: parked', r.parked.map((i) => issueLink(i, pr(i)))),
+        ...issueList('Ready for human', r.readyForHuman.map((i) => issueLink(i))),
+      ];
+      return [
+        h('h3', null, r.alias, r.repo ? h('span', { class: 'dim' }, ` ${r.repo}`) : null),
+        h('p', { class: r.stale ? 'stale' : 'dim' }, r.stale ? `stale: the last scan failed (data ${when})` : when, ` · needs-triage ${r.needsTriage} · needs-info ${r.needsInfo}`),
+        ...(lists.length ? lists : [h('p', { class: 'dim' }, 'Nothing waiting.')]),
+      ];
+    }),
+  ];
+}
+
 function renderOffice() {
   const t = now();
   const c = snap.cron;
@@ -203,7 +236,7 @@ function toggleFollow() {
   if (following) renderLog();
 }
 
-const RENDER = { now: renderNow, history: renderHistory, office: renderOffice };
+const RENDER = { now: renderNow, issues: renderIssues, history: renderHistory, office: renderOffice };
 
 function currentTab() {
   const tab = location.hash.slice(1);
@@ -219,7 +252,8 @@ function render() {
   document.body.classList.toggle('down', !up);
   const panel = document.getElementById('panel');
   if (!snap) panel.replaceChildren(h('p', { class: 'dim' }, up ? 'Waiting for the first snapshot…' : 'Runner down: no snapshot yet.'));
-  else panel.replaceChildren(...RENDER[tab]());
+  // a tab's optional parts (e.g. the filter note) are null when absent
+  else panel.replaceChildren(...RENDER[tab]().filter((x) => x != null));
   showLog();
   drawScene();
 }
@@ -289,7 +323,25 @@ function lastRun(o) {
   return `\nLast run: ${how}, ended ${ago(new Date(o.endedAt).toISOString(), now())}\n${o.label ?? o.runId}${pr}`;
 }
 
-/** What's under the pointer: a letter's label, the cron countdown, or a room (a cubicle's workspace) and its last run. */
+/** @param {{ number: number, title: string, blocked?: boolean }} i */
+const issueTip = (i) => `#${i.number} ${i.title}${i.blocked ? ' (blocked)' : ''}`;
+
+/**
+ * A pending issue under the pointer: an in-tray letter, a sticky note, or a folder on the boss's desk.
+ * @param {number} x @param {number} y
+ */
+function pendingAt(x, y) {
+  for (const [i, c] of scene.cubicles.entries()) {
+    const r = layout.cubicles[i];
+    if (!r) continue;
+    const slot = inTraySlots(r, c.inTray).find((sl) => inside(sl.rect, x, y));
+    if (slot) return slot.letters.length > 1 ? `${slot.letters.length} more:\n${slot.letters.map(issueTip).join('\n')}` : `Ready for agent: ${issueTip(slot.letters[0])}`;
+    if (c.sticky.length && inside(stickyNote(r), x, y)) return `Ready for human:\n${c.sticky.map(issueTip).join('\n')}`;
+  }
+  return folderSlots(layout, scene.cubicles, scene.outcomes, scene.parked).find((f) => inside(f.rect, x, y))?.tip ?? null;
+}
+
+/** What's under the pointer: a letter's label, a pending issue, the cron countdown, or a room (a cubicle's workspace) and its last run. */
 function hovered() {
   if (!pointer || !scene || !layout || scene.dark) return null;
   const { x, y } = scenePoint(pointer);
@@ -298,6 +350,8 @@ function hovered() {
   if (run && desk && inside(workerRect(desk), x, y)) return `${run.label ?? run.runId}${run.activity ? `: ${run.activity}` : ''}`;
   const slot = cartSlots(layout, scene.reception.letters).find((sl) => inside(sl.rect, x, y));
   if (slot) return slot.label;
+  const pending = pendingAt(x, y);
+  if (pending) return pending;
   if (scene.reception.countdownMs != null && inside(layout.clock, x, y)) return `Next cron tick in ${formatDuration(scene.reception.countdownMs)}`;
   const i = layout.cubicles.findIndex((r) => inside(r, x, y));
   const c = scene.cubicles[i];

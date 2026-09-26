@@ -227,4 +227,11 @@ describe('collectOfficeSnapshot', () => {
     assert.equal(s.activeRun?.turns, 9);
     assert.deepEqual(s.workspaces, []);
   });
+
+  it("carries the issue scan's latest result, and null before its first scan", async () => {
+    const issues = { scannedAt: '2026-09-24T11:58:00.000Z', repos: [] };
+    const base = { statusSnapshot: async () => status(), liveRun: async () => ({ activeRun: null }), workspaceAliases: async () => ['bot'] };
+    assert.deepEqual((await collectOfficeSnapshot({ ...base, issues: () => issues })).issues, issues);
+    assert.equal((await collectOfficeSnapshot(base)).issues, null);
+  });
 });

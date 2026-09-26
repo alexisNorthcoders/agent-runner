@@ -26,6 +26,7 @@ import { createOfficeFeed } from './officeFeed.js';
 import { createLogTail } from './logTail.js';
 import { createJobLauncher } from './jobProcess.js';
 import { createJobScheduler, loadJobsFile } from './scheduledJobs.js';
+import { createIssueScan } from './issueScan.js';
 
 const config = loadConfig();
 const QUEUE_POLL_MS = 15_000;
@@ -97,8 +98,21 @@ const runner = createRunner({
 const removed = await activeRuns.removeStale({ ownersGone: true }).catch(() => []);
 if (removed.length) console.warn(`agent-runner: removed stale active-run files: ${removed.join(', ')}`);
 
+// the work waiting in each workspace's repo, for the office: scanned now, on a timer and after each run
+const issueScan = createIssueScan({
+  workspaces,
+  github: issues.github,
+  prAttempts: cronState.prAttempts,
+  intervalMs: config.issueScan.intervalMs,
+  onChange: changes.notify,
+});
+changes.subscribe((reason) => {
+  if (reason === 'run-ended') void issueScan.scan();
+});
+issueScan.start();
+
 const officeFeed = createOfficeFeed({
-  snapshot: () => collectOfficeSnapshot({ statusSnapshot, liveRun: runner.status, workspaceAliases: workspaces.aliases }),
+  snapshot: () => collectOfficeSnapshot({ statusSnapshot, liveRun: runner.status, workspaceAliases: workspaces.aliases, issues: issueScan.current }),
   subscribe: changes.subscribe,
   logTail: createLogTail({ current: runner.activeLog }),
 });
@@ -166,6 +180,7 @@ if (config.cron.enabled) {
 for (const sig of /** @type {const} */ (['SIGINT', 'SIGTERM'])) {
   process.once(sig, () => {
     cron.stop();
+    issueScan.stop();
     scheduler.stop();
     clearInterval(queueTimer);
     officeFeed.close();

@@ -39,14 +39,41 @@ const PROGRESS = new Set(['merged', 'pr_open', 'pushed']);
  */
 const prStateKey = (pr, baseShaByBranch) => prAttemptStateKey(pr, baseShaByBranch.get(pr.baseRefName) || '');
 
+/**
+ * Whether `row` carries `label`, ignoring case and whitespace.
+ * @param {OpenIssue} row @param {string} label
+ */
+export const hasLabel = (row, label) => Array.isArray(row.labels) && row.labels.some((l) => String(l).trim().toLowerCase() === label);
+
 /** @param {OpenIssue[]} rows */
-const readyForAgent = (rows) =>
-  rows.filter((r) => Array.isArray(r.labels) && r.labels.some((l) => String(l).trim().toLowerCase() === READY_FOR_AGENT_LABEL));
+export const readyForAgent = (rows) => rows.filter((r) => hasLabel(r, READY_FOR_AGENT_LABEL));
+
+/**
+ * Whether GitHub's native dependencies say an issue is blocked by an open issue. A failed lookup
+ * counts as blocked, rather than risk working on top of an unresolved dependency.
+ * @param {(repo: string, issueNumber: number) => Promise<number>} blockedByCount
+ * @param {string} repo @param {number} issueNumber
+ */
+export const isBlocked = async (blockedByCount, repo, issueNumber) => (await blockedByCount(repo, issueNumber).catch(() => 1)) > 0;
+
+/**
+ * Open agent PRs of `repo`, with the tip of each base branch they target.
+ * @param {Pick<ReturnType<typeof import('./issuePipeline/githubIssue.js').createGithubIssues>, 'listOpenAgentPrsByIssue' | 'branchHeadSha'>} github
+ * @param {string} repo
+ */
+export async function loadOpenAgentPrs(github, repo) {
+  const openPrs = await github.listOpenAgentPrsByIssue(repo);
+  /** @type {Map<string, string>} */
+  const baseShaByBranch = new Map();
+  for (const pr of openPrs.values()) {
+    if (!baseShaByBranch.has(pr.baseRefName)) baseShaByBranch.set(pr.baseRefName, await github.branchHeadSha(repo, pr.baseRefName));
+  }
+  return { openPrs, baseShaByBranch };
+}
 
 /**
  * The lowest `ready-for-agent` issue of `repo` that isn't its last-started issue and isn't blocked
- * by an open dependency. A failed blocker lookup counts as blocked, rather than risk working on top
- * of an unresolved dependency.
+ * by an open dependency (`isBlocked`).
  * @param {OpenIssue[]} rows
  * @param {string} repo
  * @param {Map<string, number>} lastByRepo
@@ -59,8 +86,7 @@ export async function pickNextRunnableIssue(rows, repo, lastByRepo, blockedByCou
     .filter((r) => r.number !== last)
     .sort((a, b) => a.number - b.number);
   for (const c of candidates) {
-    const blockers = await blockedByCount(repo, c.number).catch(() => 1);
-    if (!blockers) return c;
+    if (!(await isBlocked(blockedByCount, repo, c.number))) return c;
   }
   return null;
 }
@@ -123,17 +149,6 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, swee
   const tell = (text) =>
     outbox.send({ replyTo: OWNER, text }).catch((err) => logger.warn(`cron: outbox write failed: ${errorMessageFromUnknown(err)}`));
 
-  /** Open agent PRs of `repo`, with the tip of each base branch they target. @param {string} repo */
-  async function loadOpenPrs(repo) {
-    const openPrs = await github.listOpenAgentPrsByIssue(repo);
-    /** @type {Map<string, string>} */
-    const baseShaByBranch = new Map();
-    for (const pr of openPrs.values()) {
-      if (!baseShaByBranch.has(pr.baseRefName)) baseShaByBranch.set(pr.baseRefName, await github.branchHeadSha(repo, pr.baseRefName));
-    }
-    return { openPrs, baseShaByBranch };
-  }
-
   /**
    * `rows` minus the issues whose open PR is parked, telling the owner once per parked state. A
    * failed lookup keeps every issue: better one empty run than a stalled cron.
@@ -146,7 +161,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, swee
     let attempted;
     let notified;
     try {
-      loaded = await loadOpenPrs(repo);
+      loaded = await loadOpenAgentPrs(github, repo);
       [attempted, notified] = await Promise.all([state.prAttempts(), state.parkNotices()]);
     } catch (err) {
       logger.warn(`cron: open PR lookup failed for ${repo}: ${errorMessageFromUnknown(err)}`);
@@ -178,7 +193,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, swee
    */
   async function recordPrState(repo, issueNumber) {
     try {
-      const { openPrs, baseShaByBranch } = await loadOpenPrs(repo);
+      const { openPrs, baseShaByBranch } = await loadOpenAgentPrs(github, repo);
       const pr = openPrs.get(issueNumber);
       if (pr) await state.setPrAttempt(repo, issueNumber, prStateKey(pr, baseShaByBranch));
     } catch (err) {

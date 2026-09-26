@@ -38,7 +38,7 @@ A hold on new runs: the safe-restart pause flag, the owner's general pause, or t
 ### Office dashboard
 
 **Office**:
-The dashboard: a LAN page that shows the runner as an office, with the **Scene** on the left and a panel of tabs (Now, History, Office) on the right.
+The dashboard: a LAN page that shows the runner as an office, with the **Scene** on the left and a panel of tabs (Now, Issues, History, Office) on the right.
 _Avoid_: UI, frontend, monitor
 
 **Office feed**:
@@ -85,7 +85,23 @@ How a room's last **Run** went, shown in that room until its next run starts: st
 _Avoid_: result (that's an issue run's pipeline result, one input to it), status
 
 **Cubicle filter**:
-The workspace the panel's History (and later Issues) tab is narrowed to, picked by clicking its **Cubicle**; clicking it again, or elsewhere on the floor, clears it.
+The workspace the panel's Issues and History tabs are narrowed to, picked by clicking its **Cubicle**; clicking it again, or elsewhere on the floor, clears it.
+
+**Issue scan**:
+The runner's periodic read of every **Workspace** repo's open issues with `gh` (on startup, every ~5 minutes, after each **Run**), cached for the **Office feed**. A repo whose scan failed keeps its last good data, marked stale.
+_Avoid_: issue poll, sync
+
+**Pending issues**:
+A repo's `ready-for-agent` issues, split into runnable, blocked (an open native dependency) and parked (an open agent PR the cron has already attempted in its current state), plus its `ready-for-human` issues and triage counts. Blocked and parked follow the cron issue tracer's rules.
+
+**In-tray**:
+The tray in front of a **Cubicle**'s desk with a letter per runnable issue, and a letter with a padlock per blocked one.
+
+**Sticky note**:
+The note on a **Cubicle**'s monitor while its repo has `ready-for-human` issues.
+
+**Parked folder**:
+A folder with a red clip on the boss's desk for each PR the cron has parked, beside the folders of rooms whose last run left a PR open.
 
 **Reception**:
 The office's front desk, by the front door: the **Mail carrier**, the cron countdown (a clock on the wall, hidden when the cron isn't running), and the **Queue** as letters on the **Mail cart**.

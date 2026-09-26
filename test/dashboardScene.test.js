@@ -488,3 +488,59 @@ describe('office scene: outcomes', () => {
     assert.deepEqual(o.place, { room: 'annex' });
   });
 });
+
+describe('office scene: pending issues', () => {
+  const item = (number) => ({ number, title: `Task ${number}`, url: `https://github.com/o/bot/issues/${number}` });
+  /** @param {string} alias @param {any} over */
+  const repo = (alias, over = {}) => ({
+    alias,
+    repo: `o/${alias}`,
+    scannedAt: iso(-60_000),
+    stale: false,
+    runnable: [],
+    blocked: [],
+    parked: [],
+    readyForHuman: [],
+    needsTriage: 0,
+    needsInfo: 0,
+    ...over,
+  });
+  const issues = (...repos) => ({ scannedAt: iso(-60_000), repos });
+
+  it('puts runnable issues in the cubicle in-tray, then blocked ones with a padlock', () => {
+    const scene = reduceScene(snap({ issues: issues(repo('bot', { runnable: [item(3), item(8)], blocked: [item(5)] })) }), null, up);
+    assert.deepEqual(scene.cubicles[0].inTray, [
+      { number: 3, title: 'Task 3', blocked: false },
+      { number: 8, title: 'Task 8', blocked: false },
+      { number: 5, title: 'Task 5', blocked: true },
+    ]);
+    assert.deepEqual(scene.cubicles[1].inTray, []);
+  });
+
+  it('puts ready-for-human issues on a sticky note, and leaves triage counts out of the scene', () => {
+    const scene = reduceScene(snap({ issues: issues(repo('dots', { readyForHuman: [item(4)], needsTriage: 3, needsInfo: 1 })) }), null, up);
+    const dots = scene.cubicles.find((c) => c.alias === 'dots');
+    assert.deepEqual(dots?.sticky, [{ number: 4, title: 'Task 4' }]);
+    assert.deepEqual(dots?.inTray, []);
+  });
+
+  it("puts each parked PR on the boss's desk", () => {
+    const parked = { ...item(5), prUrl: 'https://github.com/o/bot/pull/9' };
+    const scene = reduceScene(snap({ issues: issues(repo('bot', { parked: [parked] })) }), null, up);
+    assert.deepEqual(scene.parked, [{ alias: 'bot', number: 5, title: 'Task 5', prUrl: 'https://github.com/o/bot/pull/9' }]);
+  });
+
+  it("takes the issue being worked out of its cubicle's in-tray", () => {
+    const activeRun = { runId: 'r1', kind: 'issue', trigger: 'cron', label: 'x', workspaceAlias: 'bot', inferredWorkspace: null, issueNumber: 3, room: null, health: 'running', phase: 'agent', turns: 0, elapsedMs: 0, lastActivity: null, startedAt: iso(-1000) };
+    const scene = reduceScene(snap({ activeRun, active: [activeRun], issues: issues(repo('bot', { runnable: [item(3), item(8)] })) }), null, up);
+    assert.deepEqual(scene.cubicles[0].inTray.map((l) => l.number), [8]);
+  });
+
+  it('shows nothing before the first scan, and keeps stale data on show', () => {
+    const none = reduceScene(snap(), null, up);
+    assert.deepEqual(none.cubicles.map((c) => [c.inTray, c.sticky]), [[[], []], [[], []], [[], []]]);
+    assert.deepEqual(none.parked, []);
+    const stale = reduceScene(snap({ issues: issues(repo('bot', { stale: true, runnable: [item(1)] })) }), null, up);
+    assert.equal(stale.cubicles[0].inTray.length, 1);
+  });
+});

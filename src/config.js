@@ -51,6 +51,8 @@ export function loadConfig(env = process.env) {
       intervalMs: int(env.CRON_ISSUE_TRACER_INTERVAL_MS, 10 * 60 * 1000),
       aliases: cronAliasesFromEnv(env),
     },
+    // the office's issue scan (src/issueScan.js)
+    issueScan: { intervalMs: int(env.ISSUE_SCAN_INTERVAL_MS, 5 * 60 * 1000) },
     // scheduled jobs (src/scheduledJobs.js): a JSON array, re-read every tick; missing = none
     jobs: { file: env.SCHEDULED_JOBS_FILE?.trim() || join(REPO_ROOT, 'scheduled-jobs.json') },
     joplin: {
