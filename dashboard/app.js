@@ -154,7 +154,7 @@ const issueList = (title, items) => (items.length ? [h('h4', null, `${title} (${
 function renderIssues() {
   const t = now();
   const scan = snap.issues;
-  if (!scan) return [h('p', { class: 'dim' }, 'Not scanned yet: the runner scans GitHub on startup, every ~5 minutes and after each run.')];
+  if (!scan) return [h('p', { class: 'dim' }, 'Not scanned yet: the runner scans GitHub on startup, on a timer and after each run.')];
   const repos = filter ? scan.repos.filter((r) => r.alias === filter) : scan.repos;
   return [
     h('p', null, `Scanned ${ago(scan.scannedAt, t)}.`),

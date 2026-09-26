@@ -40,8 +40,12 @@ import { errorMessageFromUnknown } from './issuePipeline/index.js';
 
 export const ISSUE_SCAN_INTERVAL_MS = 5 * 60_000;
 
-/** @param {number} a @param {number} b */
-const byNumber = (a, b) => a - b;
+/** @param {{ number: number }} a @param {{ number: number }} b */
+const byNumber = (a, b) => a.number - b.number;
+
+const READY_FOR_HUMAN_LABEL = 'ready-for-human';
+const NEEDS_TRIAGE_LABEL = 'needs-triage';
+const NEEDS_INFO_LABEL = 'needs-info';
 
 /**
  * @param {{
@@ -81,15 +85,15 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
     const { rows: kept, parked } = partitionIssuesWithOpenPr(rows, repo, openPrs, baseShaByBranch, await prAttempts());
     /** @param {import('./issuePipeline/githubIssue.js').OpenIssue} r @returns {OfficeIssue} */
     const item = (r) => ({ number: r.number, title: r.title, url: `https://github.com/${repo}/issues/${r.number}` });
-    const byNum = new Map(rows.map((r) => [r.number, r]));
+    const titles = new Map(rows.map((r) => [r.number, r.title]));
     /** @type {OfficeIssue[]} */
     const runnable = [];
     /** @type {OfficeIssue[]} */
     const blocked = [];
-    for (const r of readyForAgent(kept).sort((a, b) => byNumber(a.number, b.number))) {
+    for (const r of readyForAgent(kept).sort(byNumber)) {
       ((await isBlocked(github.blockedByCount, repo, r.number)) ? blocked : runnable).push(item(r));
     }
-    const labelled = (/** @type {string} */ label) => rows.filter((r) => hasLabel(r, label)).sort((a, b) => byNumber(a.number, b.number));
+    const labelled = (/** @type {string} */ label) => rows.filter((r) => hasLabel(r, label)).sort(byNumber);
     return {
       alias,
       repo,
@@ -98,14 +102,11 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
       runnable,
       blocked,
       parked: parked
-        .sort((a, b) => byNumber(a.number, b.number))
-        .map((p) => {
-          const r = byNum.get(p.number);
-          return { ...item(r ?? { number: p.number, title: '', labels: [] }), prUrl: p.url };
-        }),
-      readyForHuman: labelled('ready-for-human').map(item),
-      needsTriage: labelled('needs-triage').length,
-      needsInfo: labelled('needs-info').length,
+        .sort(byNumber)
+        .map((p) => ({ ...item({ number: p.number, title: titles.get(p.number) ?? '', labels: [] }), prUrl: p.url })),
+      readyForHuman: labelled(READY_FOR_HUMAN_LABEL).map(item),
+      needsTriage: labelled(NEEDS_TRIAGE_LABEL).length,
+      needsInfo: labelled(NEEDS_INFO_LABEL).length,
     };
   }
 

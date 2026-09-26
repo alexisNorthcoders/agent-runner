@@ -149,9 +149,6 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, swee
   const tell = (text) =>
     outbox.send({ replyTo: OWNER, text }).catch((err) => logger.warn(`cron: outbox write failed: ${errorMessageFromUnknown(err)}`));
 
-  /** @param {string} repo */
-  const loadOpenPrs = (repo) => loadOpenAgentPrs(github, repo);
-
   /**
    * `rows` minus the issues whose open PR is parked, telling the owner once per parked state. A
    * failed lookup keeps every issue: better one empty run than a stalled cron.
@@ -164,7 +161,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, swee
     let attempted;
     let notified;
     try {
-      loaded = await loadOpenPrs(repo);
+      loaded = await loadOpenAgentPrs(github, repo);
       [attempted, notified] = await Promise.all([state.prAttempts(), state.parkNotices()]);
     } catch (err) {
       logger.warn(`cron: open PR lookup failed for ${repo}: ${errorMessageFromUnknown(err)}`);
@@ -196,7 +193,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, swee
    */
   async function recordPrState(repo, issueNumber) {
     try {
-      const { openPrs, baseShaByBranch } = await loadOpenPrs(repo);
+      const { openPrs, baseShaByBranch } = await loadOpenAgentPrs(github, repo);
       const pr = openPrs.get(issueNumber);
       if (pr) await state.setPrAttempt(repo, issueNumber, prStateKey(pr, baseShaByBranch));
     } catch (err) {
