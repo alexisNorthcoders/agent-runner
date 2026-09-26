@@ -457,11 +457,18 @@ export function createRunner({
       return { reply, started: false };
     }
     /** @param {import('./jobProcess.js').JobResult} result */
-    const report = (result) => ({
-      text: formatJobResult(record, result, now() - Date.parse(/** @type {string} */ (record.startedAt))),
-      history: { trigger: 'schedule', jobName: job.name, room: job.room, signal: result.signal, ...(result.error ? { error: result.error } : {}) },
-    });
-    await supervise(record, run, 'job', async (result) => report(result), report);
+    const jobHistory = (result) => ({ trigger: 'schedule', jobName: job.name, room: job.room, signal: result.signal, ...(result.error ? { error: result.error } : {}) });
+    await supervise(
+      record,
+      run,
+      'job',
+      async (result) => ({ text: formatJobResult(record, result, now() - Date.parse(/** @type {string} */ (record.startedAt))), history: jobHistory(result) }),
+      // can't throw, so the schedule history row and a failure notice are always written
+      (result) => ({
+        text: result.outcome === 'success' ? null : `Scheduled job ${job.name} ended: ${result.outcome}.`,
+        history: { trigger: 'schedule', jobName: job.name, room: job.room },
+      }),
+    );
     return { reply: `Started run ${record.runId}: scheduled job ${job.name} in ${job.cwd}.\nLog: ${record.logPath}`, started: true };
   }
 

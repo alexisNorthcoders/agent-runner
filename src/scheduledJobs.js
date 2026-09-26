@@ -191,7 +191,9 @@ export function createJobScheduler({ store, loadJobs, submitJob, outbox, now = D
         continue;
       }
       // try again next tick
-      await store.hashSet(JOBS_LAST_FIRED_KEY, job.name, /** @type {string} */ (fired.get(job.name)));
+      const prev = fired.get(job.name);
+      if (prev) await store.hashSet(JOBS_LAST_FIRED_KEY, job.name, prev);
+      else await store.hashDelete(JOBS_LAST_FIRED_KEY, job.name);
       logger.warn(`scheduled jobs: ${job.name} could not be queued: ${r.reply}`);
     }
   }
