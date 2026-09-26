@@ -10,8 +10,11 @@ import nodemailer from 'nodemailer';
 /** @param {string} s */
 const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** Plain text wrapped in a minimal HTML page, so mail clients keep the line breaks. @param {string} plain */
-export function plainTextEmailHtml(plain) {
+/**
+ * Plain text wrapped in a minimal HTML page, so mail clients keep the line breaks.
+ * @param {string} plain @param {string} [headerHtml] trusted HTML put before the text
+ */
+export function plainTextEmailHtml(plain, headerHtml = '') {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -24,9 +27,38 @@ pre.summary { white-space: pre-wrap; font-size: 0.95rem; margin: 0; }
 </style>
 </head>
 <body>
-<pre class="summary">${escapeHtml(plain)}</pre>
+${headerHtml}<pre class="summary">${escapeHtml(plain)}</pre>
 </body>
 </html>`;
+}
+
+const POST_CLOSE_SUBJECT_TITLE_MAX_CHARS = 80;
+
+/**
+ * The post-close changes-summary email. The subject and a header name the issue (number, title,
+ * issue and PR links), so the email identifies itself even when the LLM summary doesn't. The
+ * summary follows the header unchanged.
+ * @param {{ subjectPrefix: string, issueNumber: number, title?: string | null, issueUrl?: string | null, prUrl?: string | null, summary: string }} p
+ * @returns {{ subject: string, text: string, html: string }}
+ */
+export function buildPostCloseChangesEmail({ subjectPrefix, issueNumber, title, issueUrl, prUrl, summary }) {
+  const cleanTitle = String(title ?? '').replace(/\s+/g, ' ').trim();
+  const subjectTitle =
+    cleanTitle.length > POST_CLOSE_SUBJECT_TITLE_MAX_CHARS ? `${cleanTitle.slice(0, POST_CLOSE_SUBJECT_TITLE_MAX_CHARS - 1).trimEnd()}…` : cleanTitle;
+  const subject = subjectTitle
+    ? `[${subjectPrefix}] Issue #${issueNumber} closed: ${subjectTitle}`
+    : `[${subjectPrefix}] Issue #${issueNumber} closed — changes summary`;
+
+  const heading = cleanTitle ? `Issue #${issueNumber}: ${cleanTitle}` : `Issue #${issueNumber}`;
+  /** @type {Array<[string, string]>} */
+  const links = [];
+  if (issueUrl) links.push(['Issue', String(issueUrl)]);
+  if (prUrl) links.push(['Pull request', String(prUrl)]);
+
+  const text = [heading, ...links.map(([label, url]) => `${label}: ${url}`), '', '---', '', summary].join('\n');
+  const linkItems = links.map(([label, url]) => `<li>${label}: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a></li>`).join('\n');
+  const headerHtml = `<h2>${escapeHtml(heading)}</h2>\n${linkItems ? `<ul>\n${linkItems}\n</ul>\n` : ''}<hr>\n`;
+  return { subject, text, html: plainTextEmailHtml(summary, headerHtml) };
 }
 
 /**

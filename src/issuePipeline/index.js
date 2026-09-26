@@ -237,18 +237,19 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
      *   preAgentHeadSha: string | null,
      *   logPath: string,
      *   runAgent: import('./postRun.js').RunAgent,
+     *   trigger?: 'cron' | 'manual',
      * }} p
      * @returns {Promise<{ result: IssueRunResult, message: string, silent: boolean, mergeNetworkError: boolean, post: import('./postRun.js').PostRunResult }>}
      *   `silent` marks a run with nothing to report (the agent changed nothing), which cron can skip.
      *   `mergeNetworkError` marks an approved PR whose merge failed only on a network error.
      */
-    async finish({ repo, prompt, issue, agent, preAgentHeadSha, logPath, runAgent }) {
+    async finish({ repo, prompt, issue, agent, preAgentHeadSha, logPath, runAgent, trigger = 'manual' }) {
       const agentOk = agent.outcome === 'success';
       /** @type {import('./postRun.js').PostRunResult} */
       let post;
       let postErrMessage = '';
       try {
-        post = await postRun.runPostRun({ repo, userPrompt: prompt, agentOk, issueNumber: issue.number, preAgentHeadSha, runAgent });
+        post = await postRun.runPostRun({ repo, userPrompt: prompt, agentOk, issueNumber: issue.number, preAgentHeadSha, runAgent, trigger });
       } catch (err) {
         postErrMessage = errorMessageFromUnknown(err);
         post = { ran: false, note: '', skipReason: 'post_run_threw' };

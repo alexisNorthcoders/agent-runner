@@ -13,7 +13,9 @@
     "agent:status": "node bin/agent-cli.js status",
     "agent:watch": "node bin/agent-cli.js watch",
     "agent:history": "node bin/agent-cli.js history",
-    "agent:logs": "node bin/agent-cli.js logs"
+    "agent:logs": "node bin/agent-cli.js logs",
+    "agent:pause": "node bin/agent-cli.js pause",
+    "agent:resume": "node bin/agent-cli.js resume"
   },
   "engines": {
     "node": ">=20"

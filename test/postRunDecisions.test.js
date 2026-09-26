@@ -50,6 +50,17 @@ describe('post-run decision logic', () => {
     );
   });
 
+  it('an autofix decline (AUTOFIX_NO_CHANGES) overrules REQUEST_CHANGES and allows auto-merge', () => {
+    assert.equal(
+      autoMergeAllowedByReviewGate({
+        reviewOutcome: 'success',
+        reviewVerdict: VERDICT_REQUEST_CHANGES,
+        postReviewAutofix: { ok: false, mergeBlocked: false, noChanges: true },
+      }),
+      true
+    );
+  });
+
   it('autofix failure / no-op path blocks auto-merge (mergeBlocked implies ok false)', () => {
     assert.equal(
       autoMergeAllowedByReviewGate({
@@ -193,7 +204,7 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
     assert.ok(tryGhPrReviewComment.mock.callCount() >= 1);
   });
 
-  it('autofix declining with noChanges posts reasoning, not a failure, and holds merge', async () => {
+  it('autofix declining with noChanges posts its reasoning and auto-merges the PR as is', async () => {
     const tryGhPrQueueAutoMerge = mock.fn(async () => ({ ok: true }));
     const tryGhPrReviewComment = mock.fn(async (_repo, _url, _body) => ({ ok: true }));
     await runPostReviewAutofixMergeFlow({
@@ -211,7 +222,7 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
       pushResultOk: true,
       runSinglePostReviewAutofix: async () => ({
         ok: false,
-        mergeBlocked: true,
+        mergeBlocked: false,
         noChanges: true,
         detail: 'made **no changes**: false positive',
       }),
@@ -220,10 +231,11 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
       waitForGithubIssueClosed: async () => ({}),
       logPost: () => {},
     });
-    assert.equal(tryGhPrQueueAutoMerge.mock.callCount(), 0);
+    assert.equal(tryGhPrQueueAutoMerge.mock.callCount(), 1);
     const body = tryGhPrReviewComment.mock.calls[0].arguments[2];
-    assert.match(body, /made no changes/);
-    assert.match(body, /Human decision needed/);
+    assert.match(body, /disagreed with the review/);
+    assert.match(body, /false positive/);
+    assert.match(body, /proceeds to auto-merge unchanged/);
     assert.doesNotMatch(body, /autofix failed/);
   });
 
@@ -276,5 +288,39 @@ describe('parseAutofixNoChanges', () => {
   it('returns null when absent', () => {
     assert.equal(parseAutofixNoChanges('Pushed a fix.'), null);
     assert.equal(parseAutofixNoChanges(undefined), null);
+  });
+});
+
+describe('post-close changes email', () => {
+  it('names the issue in the subject and a header, then the summary unchanged', async () => {
+    const { buildPostCloseChangesEmail } = await import('../src/issuePipeline/mailer.js');
+    const e = buildPostCloseChangesEmail({
+      subjectPrefix: 'bot',
+      issueNumber: 12,
+      title: '  Fix  the <thing>  ',
+      issueUrl: 'https://github.com/o/r/issues/12',
+      prUrl: 'https://github.com/o/r/pull/13',
+      summary: 'Did it.',
+    });
+    assert.equal(e.subject, '[bot] Issue #12 closed: Fix the <thing>');
+    assert.equal(e.text, 'Issue #12: Fix the <thing>\nIssue: https://github.com/o/r/issues/12\nPull request: https://github.com/o/r/pull/13\n\n---\n\nDid it.');
+    assert.match(e.html, /<h2>Issue #12: Fix the &lt;thing&gt;<\/h2>/);
+    assert.match(e.html, /<a href="https:\/\/github.com\/o\/r\/pull\/13">/);
+  });
+
+  it('falls back to the old subject without a title, and clips a long one', async () => {
+    const { buildPostCloseChangesEmail } = await import('../src/issuePipeline/mailer.js');
+    assert.equal(buildPostCloseChangesEmail({ subjectPrefix: 'bot', issueNumber: 1, summary: 's' }).subject, '[bot] Issue #1 closed — changes summary');
+    const long = buildPostCloseChangesEmail({ subjectPrefix: 'bot', issueNumber: 1, title: 'x'.repeat(100), summary: 's' }).subject;
+    assert.ok(long.endsWith('…') && long.length === '[bot] Issue #1 closed: '.length + 80, long);
+  });
+});
+
+describe('PR description', () => {
+  it('says whether the cron or a claude issue: command opened it', async () => {
+    const { buildPrBody } = await import('../src/issuePipeline/postRun.js');
+    const wb = { branchName: 'claude/issue-3-x', prBase: 'main' };
+    assert.match(buildPrBody(3, wb, 'p', 'cron'), /^Fixes #3\n\nOpened automatically by the cron issue tracer \(`ready-for-agent` label\)/);
+    assert.match(buildPrBody(3, wb, 'p'), /^Fixes #3\n\nOpened automatically after a `claude issue:…` run/);
   });
 });

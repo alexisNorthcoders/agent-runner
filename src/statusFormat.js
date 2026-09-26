@@ -5,7 +5,14 @@
  * `claudeAgentCliFormat.js`. `c` is a colorizer so tests can pass identity functions.
  */
 
+import { describeManualPause } from './manualPause.js';
 /** @typedef {import('./statusCollect.js').StatusSnapshot} StatusSnapshot */
+
+/** The owner's pauses, e.g. `by hand: everything for 1h20m (reason); chess-trainer for 45m`, or ''. @param {StatusSnapshot} d */
+function byHandText(d) {
+  if (!d.manualPauses?.length) return '';
+  return `by hand: ${d.manualPauses.map((p) => describeManualPause(p, d.now)).join('; ')}`;
+}
 /** @typedef {import('./runHistory.js').HistoryEntry} HistoryEntry */
 /** @typedef {import('./activeRuns.js').ActiveRun} ActiveRun */
 /** @typedef {Record<'dim' | 'green' | 'red' | 'yellow' | 'bold' | 'cyan', (s: string) => string>} Colors */
@@ -174,15 +181,17 @@ export function renderStatus(d, c = plain) {
     out.push(...boxTable(['run', 'kind', 'what', 'model', 'elapsed', 'turns', 'out', 'ctx', 'pid', 'state'], rows, c, healthColor));
     for (const r of d.active) {
       if (r.health === 'orphaned') out.push(c.red(`  ${r.runId}: runner died but agent pid ${r.agentPid} is still running; nothing will report its result`));
-      else if (r.health === 'stale') out.push(c.yellow(`  ${r.runId}: leftover from a crash (no live process); removed on the next runner start`));
+      else if (r.health === 'stale') out.push(c.yellow(`  ${r.runId}: leftover from a crash (no live process); removed on the next cron tick`));
       else if (r.lastActivity) out.push(c.dim(`  ↳ ${r.lastActivity}`));
     }
   }
   out.push('');
 
+  const byHand = byHandText(d);
   if (d.paused === 'unknown') out.push(`${c.bold('PAUSED')}  ${c.dim('unknown (Redis unreachable)')}`);
-  else if (!d.paused) out.push(`${c.bold('PAUSED')}  ${c.dim('no')}`);
-  else out.push(`${c.bold('PAUSED')}  ${c.yellow(`yes, ${d.paused.reason}`)}${d.paused.pausedAt ? ` (${formatAgo(since(d.now, d.paused.pausedAt))})` : ''}`);
+  else if (d.paused) out.push(`${c.bold('PAUSED')}  ${c.yellow(`yes, ${d.paused.reason}`)}${d.paused.pausedAt ? ` (${formatAgo(since(d.now, d.paused.pausedAt))})` : ''}`);
+  else if (!byHand) out.push(`${c.bold('PAUSED')}  ${c.dim('no')}`);
+  if (byHand) out.push(`${c.bold('PAUSED')}  ${c.yellow(byHand)}`);
   if (d.queue?.length) out.push(`${c.bold('QUEUE')}   ${d.queue.map((q, i) => `${i + 1}. ${clip(q.label, 60)}`).join('  ')}`);
   out.push('');
 
@@ -248,9 +257,11 @@ export function renderStatusText(d) {
     else if (r.lastActivity) out.push(`Phase: ${clip(r.lastActivity, 100)}`);
   }
 
+  const byHand = byHandText(d);
   if (d.paused === 'unknown') out.push('Paused: unknown (Redis unreachable)');
-  else if (!d.paused) out.push('Paused: no');
-  else out.push(`Paused: yes (${d.paused.reason}${d.paused.pausedAt ? `, ${formatAgo(since(d.now, d.paused.pausedAt))}` : ''})`);
+  else if (d.paused) out.push(`Paused: yes (${d.paused.reason}${d.paused.pausedAt ? `, ${formatAgo(since(d.now, d.paused.pausedAt))}` : ''})`);
+  else if (!byHand) out.push('Paused: no');
+  if (byHand) out.push(`Paused: ${byHand}`);
   if (d.queue?.length) out.push(`Queue: ${d.queue.length} waiting (next: ${clip(d.queue[0].label, 60)})`);
 
   if (!d.cron) out.push('Cron: not started (no ticks recorded)');

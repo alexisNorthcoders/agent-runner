@@ -18,6 +18,10 @@ import { errorMessageFromUnknown } from './issuePipeline/index.js';
  *   passed review but whose merge failed only on a network error: no attempt is recorded, and it is
  *   not progress, so the next tick works it again and post-run retries the merge.
  * - An issue that GitHub's native dependencies report as blocked is skipped.
+ * - The owner's general pause skips the tick; a workspace they paused by hand is skipped, and the
+ *   tick moves on to the next one.
+ * - Each tick first deletes stale active-run files (owner and agent both gone), so status doesn't
+ *   show a dead run forever.
  *
  * @typedef {import('./issuePipeline/githubIssue.js').OpenIssue} OpenIssue
  * @typedef {import('./issuePipeline/githubIssue.js').OpenAgentPr} OpenAgentPr
@@ -98,6 +102,8 @@ function truncate(s, max = 1500) {
  *   startIssueRun: ReturnType<typeof import('./runner.js').createRunner>['startIssueRun'],
  *   lock: Pick<ReturnType<typeof import('./runLock.js').createRunLock>, 'current'>,
  *   pause: Pick<ReturnType<typeof import('./pauseFlag.js').createPauseFlag>, 'get'>,
+ *   manualPause: Pick<ReturnType<typeof import('./manualPause.js').createManualPause>, 'general' | 'forWorkspace'>,
+ *   sweepStale?: () => Promise<unknown>,
  *   state: import('./cronState.js').CronStateStore,
  *   workspaces: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
  *   github: Pick<ReturnType<typeof import('./issuePipeline/githubIssue.js').createGithubIssues>,
@@ -108,7 +114,7 @@ function truncate(s, max = 1500) {
  *   logger?: Pick<Console, 'info' | 'warn'>,
  * }} deps
  */
-export function createCronTracer({ startIssueRun, lock, pause, state, workspaces, github, outbox, aliases, intervalMs, logger = console }) {
+export function createCronTracer({ startIssueRun, lock, pause, manualPause, sweepStale = async () => {}, state, workspaces, github, outbox, aliases, intervalMs, logger = console }) {
   let inFlight = false;
   /** @type {NodeJS.Timeout | null} */
   let timer = null;
@@ -236,7 +242,8 @@ export function createCronTracer({ startIssueRun, lock, pause, state, workspaces
   async function tick() {
     let phase = 'checking the lock';
     try {
-      if (await pause.get()) return { kind: 'paused' };
+      await sweepStale().catch((err) => logger.warn(`cron: stale active-run sweep failed: ${errorMessageFromUnknown(err)}`));
+      if ((await pause.get()) || (await manualPause.general())) return { kind: 'paused' };
       if (await lock.current()) return { kind: 'busy' };
       phase = 'reading cron state';
       const lastByRepo = await state.lastStarted();
@@ -244,6 +251,7 @@ export function createCronTracer({ startIssueRun, lock, pause, state, workspaces
         let repo;
         try {
           const ws = await workspaces.resolveIssueWorkspace(alias);
+          if (await manualPause.forWorkspace(ws.alias)) continue;
           repo = await github.resolveIssueRepo(ws.root, alias);
         } catch (err) {
           logger.warn(`cron: skipping workspace "${alias}": ${errorMessageFromUnknown(err)}`);

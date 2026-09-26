@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { parseCommand } from './commands.js';
+import { ALL, applyPauseCommand, describeManualPause } from './manualPause.js';
 import { OWNER } from './outbox.js';
 import { decideSafeRestart } from './safeRestart.js';
 import { describeRun, UNKNOWN_RUN_ID } from './runLock.js';
@@ -75,6 +76,7 @@ export function formatRunResult(rec, r) {
  * @param {{
  *   lock: ReturnType<typeof import('./runLock.js').createRunLock>,
  *   pause: ReturnType<typeof import('./pauseFlag.js').createPauseFlag>,
+ *   manualPause: ReturnType<typeof import('./manualPause.js').createManualPause>,
  *   queue: ReturnType<typeof import('./runQueue.js').createRunQueue>,
  *   outbox: ReturnType<typeof import('./outbox.js').createOutbox>,
  *   backend: import('./agentBackend/index.js').AgentBackend,
@@ -99,6 +101,7 @@ export function formatRunResult(rec, r) {
 export function createRunner({
   lock,
   pause,
+  manualPause,
   queue,
   outbox,
   backend,
@@ -135,14 +138,25 @@ export function createRunner({
   };
 
   /**
+   * Why no run may start now: the safe-restart pause or the owner's general pause. Null when neither is set.
+   * @returns {Promise<string | null>}
+   */
+  async function pausedReason() {
+    const restarting = await pause.get();
+    if (restarting) return restarting.reason;
+    const byHand = await manualPause.general();
+    return byHand ? `paused by hand: ${describeManualPause(byHand, now())}` : null;
+  }
+
+  /**
    * Take the single-flight lock for `record`. Returns why it wasn't taken (with the reply), or null
    * once it's held.
    * @param {import('./runLock.js').RunRecord} record
    * @returns {Promise<{ why: 'busy' | 'paused', reply: string } | null>}
    */
   async function acquire(record) {
-    const paused = await pause.get();
-    if (paused) return { why: 'paused', reply: `agent-runner is paused (${paused.reason}). Try again in a minute.` };
+    const paused = await pausedReason();
+    if (paused) return { why: 'paused', reply: `agent-runner is paused (${paused}).` };
     if (!(await lock.tryAcquire(record))) {
       const cur = await lock.current();
       const what = cur ? ` ${capitalize(describeRun(cur))} is in progress.` : '';
@@ -283,6 +297,26 @@ export function createRunner({
     };
 
   /**
+   * The freeform preamble plus the workspaces paused by hand, which a freeform run must not change.
+   * A failed lookup just leaves the note out.
+   */
+  async function freeformPreambleNow() {
+    try {
+      const paused = (await manualPause.list()).filter((p) => p.scope !== ALL);
+      if (!paused.length) return freeformPreamble;
+      const lines = [];
+      for (const p of paused) {
+        const root = workspaces ? await workspaces.resolveIssueWorkspace(p.scope).then((w) => w.root, () => null) : null;
+        lines.push(`  - ${p.scope}${root ? ` (${root})` : ''}${p.reason ? `: ${p.reason}` : ''}`);
+      }
+      return `${freeformPreamble}\n- The owner is working by hand in these workspaces, which are paused. Don't change files, branches or commits in them, even if asked; say so in your summary instead:\n${lines.join('\n')}`;
+    } catch (err) {
+      logger.warn(`could not read workspace pauses: ${err?.message || err}`);
+      return freeformPreamble;
+    }
+  }
+
+  /**
    * @param {{ kind: 'freeform', prompt: string } | { kind: 'joplin', noteQuery: string }} cmd
    * @param {string} replyTo
    * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
@@ -318,7 +352,7 @@ export function createRunner({
       } else {
         prompt = cmd.prompt;
       }
-      await launch(record, { prompt, preamble: freeformPreamble, cwd: workspaceRoot }, async (result) => ({ text: formatRunResult(record, result) }));
+      await launch(record, { prompt, preamble: await freeformPreambleNow(), cwd: workspaceRoot }, async (result) => ({ text: formatRunResult(record, result) }));
       return { reply: `Started run ${record.runId}${source} in ${workspaceRoot}.\nLog: ${record.logPath}`, started: true };
     } catch (err) {
       await lock.release(record.runId).catch(() => {});
@@ -346,6 +380,11 @@ export function createRunner({
       ws = await workspaces.resolveIssueWorkspace(alias);
     } catch (err) {
       return { reply: `Agent workspace: ${err?.message || err}`, done: null };
+    }
+    // not `refused`: a request for a paused workspace isn't queued, so it can't hold up the queue
+    const wsPause = await manualPause.forWorkspace(ws.alias);
+    if (wsPause) {
+      return { reply: `${ws.alias} is paused by hand (${describeManualPause(wsPause, now())}). Send claude:resume ${ws.alias} first.`, done: null };
     }
     const record = newRecord({
       kind: 'issue',
@@ -380,6 +419,7 @@ export function createRunner({
           preAgentHeadSha: prep.preAgentHeadSha,
           logPath: record.logPath,
           runAgent: followUpAgent(a),
+          trigger,
         });
         outcome = { result: fin.result, mergeNetworkError: fin.mergeNetworkError };
         const followUps = a.followUps ?? [];
@@ -468,8 +508,8 @@ export function createRunner({
     if (pos == null) return `The queue is full (${queue.maxLength} waiting). Try again later, or send claude:queue clear.`;
     let ahead = '';
     if (why === 'paused') {
-      const p = await pause.get();
-      ahead = ` agent-runner is paused${p ? ` (${p.reason})` : ''}.`;
+      const p = await pausedReason();
+      ahead = ` agent-runner is paused${p ? ` (${p})` : ''}.`;
     } else {
       const cur = await lock.current();
       if (cur) ahead = ` ${capitalize(describeRun(cur))} is in progress.`;
@@ -489,7 +529,7 @@ export function createRunner({
     draining = (async () => {
       try {
         for (;;) {
-          if ((await pause.get()) || (await lock.current())) return;
+          if ((await pausedReason()) || (await lock.current())) return;
           const item = await queue.shift();
           if (!item) return;
           const r = await startCommand(item.cmd, item.replyTo);
@@ -560,6 +600,13 @@ export function createRunner({
           return { reply: await restart(replyTo) };
         case 'queue':
           return { reply: await queueCommand(cmd.clear) };
+        case 'pause':
+          return { reply: (await applyPauseCommand({ manualPause, workspaces, cmd, now })).reply };
+        case 'resume': {
+          const { reply } = await applyPauseCommand({ manualPause, workspaces, cmd, now });
+          drainQueue();
+          return { reply };
+        }
         case 'status':
           return { reply: renderStatusText(await statusSnapshot()) };
         case 'history':
@@ -571,7 +618,7 @@ export function createRunner({
 
     /** @returns {Promise<{ busy: boolean, activeRun: (import('./runLock.js').RunRecord & Partial<import('./agentBackend/index.js').AgentProgress> & { phase?: ActiveRun['phase'] }) | null, paused: boolean, queued: number }>} */
     async status() {
-      const [held, paused, queued] = await Promise.all([lock.current(), pause.get(), queue.length()]);
+      const [held, paused, queued] = await Promise.all([lock.current(), pausedReason(), queue.length()]);
       const live = active && held?.runId === active.record.runId ? { ...active.progress, phase: active.phase } : null;
       return {
         busy: Boolean(held),

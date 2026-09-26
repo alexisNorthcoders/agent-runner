@@ -2,8 +2,8 @@
 /**
  * Terminal observability for agent-runner (think `pm2 status`). Reads the files under
  * `logs/agent-runs/` directly, plus the pause flag, lock and cron state from Redis, so it works
- * while the runner is down.
- * Also available as `npm run agent:status | agent:watch | agent:history | agent:logs`.
+ * while the runner is down. `pause` / `resume` set the owner's pauses in Redis the same way.
+ * Also available as `npm run agent:status | agent:watch | agent:history | agent:logs | agent:pause | agent:resume`.
  */
 import { spawn } from 'child_process';
 import { access, readFile } from 'fs/promises';
@@ -17,6 +17,9 @@ import { createRunHistory } from '../src/runHistory.js';
 import { createCronState } from '../src/cronState.js';
 import { collectStatus } from '../src/statusCollect.js';
 import { createRunQueue } from '../src/runQueue.js';
+import { applyPauseCommand, createManualPause } from '../src/manualPause.js';
+import { parsePauseArgs } from '../src/commands.js';
+import { createWorkspaceAllowlist } from '../src/workspaces.js';
 import { ansi, plain, renderHistoryLines, renderStatus } from '../src/statusFormat.js';
 
 const USAGE = `agent-cli: observability for agent-runner
@@ -26,8 +29,13 @@ Usage:
   node bin/agent-cli.js watch [seconds]            live view, refreshed every N seconds (default 2)
   node bin/agent-cli.js history [-n 20] [--json]   finished runs with model, tokens and cost
   node bin/agent-cli.js logs [runId|latest] [-f]   print (or follow) a run's log
+  node bin/agent-cli.js pause [<alias>] [2h] [reason...]
+                                                   stop new runs: everything, or only issue runs in
+                                                   <alias> (default 2h; 30m, 2h, 1d up to 7d)
+  node bin/agent-cli.js resume [<alias>]           end a pause (no alias: every pause)
 
-Also available as: npm run agent:status | agent:watch | agent:history | agent:logs`;
+Also available as: npm run agent:status | agent:watch | agent:history | agent:logs | agent:pause | agent:resume
+e.g. npm run agent:pause -- chess-trainer 1h fixing lessons`;
 
 const config = loadConfig();
 const c = process.stdout.isTTY && !process.env.NO_COLOR ? ansi() : plain;
@@ -71,6 +79,9 @@ function createRedisReader() {
     readLock: () => withStore((store) => createRunLock({ store, ttlSeconds: config.lockTtlSeconds }).current()),
     readCron: () => withStore((store) => createCronState({ store }).read()),
     readQueue: () => withStore((store) => createRunQueue({ store }).list()),
+    readManualPauses: () => withStore((store) => createManualPause({ store }).list()),
+    /** @param {Parameters<typeof applyPauseCommand>[0]['cmd']} cmd */
+    applyPause: (cmd) => withStore((store) => applyPauseCommand({ manualPause: createManualPause({ store }), workspaces: createWorkspaceAllowlist(), cmd })),
     async close() {
       const client = await connecting?.catch(() => null);
       await client?.quit().catch(() => {});
@@ -87,6 +98,7 @@ const collect = () =>
     readPause: redis.readPause,
     readLock: redis.readLock,
     readQueue: redis.readQueue,
+    readManualPauses: redis.readManualPauses,
   });
 
 /** @param {string[]} args */
@@ -144,6 +156,15 @@ try {
     case 'logs':
       await logs(rest);
       break;
+    case 'pause':
+    case 'resume': {
+      const parsed = parsePauseArgs(cmd, rest);
+      if (parsed.kind === 'error') throw new Error(parsed.message);
+      const { ok, reply } = await redis.applyPause(parsed);
+      if (!ok) throw new Error(reply);
+      console.log(reply);
+      break;
+    }
     case 'help':
     case '-h':
     case '--help':

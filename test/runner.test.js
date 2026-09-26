@@ -4,6 +4,7 @@ import { createRunner } from '../src/runner.js';
 import { createRunLock } from '../src/runLock.js';
 import { createPauseFlag } from '../src/pauseFlag.js';
 import { createRunQueue } from '../src/runQueue.js';
+import { createManualPause } from '../src/manualPause.js';
 import { createOutbox, OUTBOX_KEY } from '../src/outbox.js';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
@@ -80,9 +81,11 @@ function setup(overrides = {}) {
   };
   let clock = Date.parse('2026-09-24T12:00:00Z');
   let n = 0;
+  const manualPause = createManualPause({ store, now: () => clock });
   const runner = createRunner({
     lock,
     pause,
+    manualPause,
     queue,
     outbox,
     backend,
@@ -114,6 +117,7 @@ function setup(overrides = {}) {
     store,
     lock,
     pause,
+    manualPause,
     queue,
     runner,
     starts,
@@ -545,6 +549,7 @@ describe('runner: issue runs', () => {
     assert.equal(finishes[0].agent.outcome, 'success');
     assert.equal(finishes[0].repo, '/repos/a');
     assert.equal(finishes[0].preAgentHeadSha, 'sha0');
+    assert.equal(finishes[0].trigger, 'manual');
     assert.equal(outboxEntries().length, 0, 'nothing is sent until post-run is done');
     finishes[0].release();
     await runner.idle();
@@ -655,6 +660,7 @@ describe('runner: issue runs', () => {
     assert.match(reply, /Started run run-1/);
     starts[0].finish('success');
     await flush();
+    assert.equal(finishes[0].trigger, 'cron');
     finishes[0].release({ result: 'no_changes', message: 'ℹ️ #7 — Fix it: the agent made no changes.', silent: true });
     assert.deepEqual(await done, { result: 'no_changes', mergeNetworkError: false });
     assert.deepEqual(outboxEntries(), []);
@@ -724,5 +730,63 @@ describe('runner: an orphaned agent at startup', () => {
     assert.deepEqual(stopped, [55]);
     assert.equal(recoveries.length, 1);
     assert.match(outboxEntries()[0].text, /pid 55\) outlived the runner and has been stopped.*WIP `abc1234`/s);
+  });
+});
+
+describe('runner: pauses set by hand', () => {
+  it('claude:pause with no scope holds every new run for 2h; requests queue and start on claude:resume', async () => {
+    const { runner, starts, queue, outboxEntries } = setup();
+    const { reply } = await runner.handleCommand({ text: 'claude:pause', replyTo: 'jid-1' });
+    assert.match(reply, /^Paused everything for 2h\. No new agent runs start/);
+
+    const queued = await runner.handleCommand({ text: 'claude list the repos', replyTo: 'jid-1' });
+    assert.match(queued.reply, /^Queued \(position 1\).*agent-runner is paused \(paused by hand: everything for 2h\)/);
+    assert.equal(starts.length, 0);
+    assert.equal((await runner.status()).paused, true);
+
+    assert.equal((await runner.handleCommand({ text: 'claude:resume', replyTo: 'jid-1' })).reply, 'Resumed: cleared 1 pause.');
+    await runner.idle();
+    assert.equal(starts.length, 1);
+    assert.equal(await queue.length(), 0);
+    assert.match(outboxEntries()[0].text, /^Queued request "list the repos": Started run run-\d/);
+  });
+
+  it('ends a general pause after its duration', async () => {
+    const { runner, starts, advance } = setup();
+    await runner.handleCommand({ text: 'claude:pause 30m lunch', replyTo: 'jid-1' });
+    assert.match((await runner.handleCommand({ text: 'claude go', replyTo: 'jid-1' })).reply, /paused by hand: everything for 30m \(lunch\)/);
+    advance(31 * 60_000);
+    await runner.drainQueue();
+    assert.equal(starts.length, 1);
+  });
+
+  it('a workspace pause refuses issue runs there without queueing, and other workspaces carry on', async () => {
+    const { runner, starts, queue } = issueSetup();
+    assert.match((await runner.handleCommand({ text: 'claude:pause a 1h fixing by hand', replyTo: 'jid-1' })).reply, /^Paused a for 1h \(fixing by hand\)\. No issue runs start in a/);
+    const { reply } = await runner.handleCommand({ text: 'claude issue:a:7', replyTo: 'jid-1' });
+    assert.equal(reply, 'a is paused by hand (a for 1h (fixing by hand)). Send claude:resume a first.');
+    assert.equal(starts.length, 0);
+    assert.equal(await queue.length(), 0);
+
+    // a freeform run still starts, and is told to leave the paused workspace alone
+    await runner.handleCommand({ text: 'claude check the disk', replyTo: 'jid-1' });
+    assert.equal(starts.length, 1);
+    assert.match(starts[0].opts.preamble, /^FREEFORM PREAMBLE\n- The owner is working by hand in these workspaces[\s\S]*  - a \(\/repos\/a\): fixing by hand$/);
+  });
+
+  it('rejects an unknown workspace alias and too long a pause', async () => {
+    const { runner, manualPause } = issueSetup();
+    assert.match((await runner.handleCommand({ text: 'claude:pause nope 1h', replyTo: 'jid-1' })).reply, /Unknown workspace alias "nope"/);
+    assert.match((await runner.handleCommand({ text: 'claude:pause 8d', replyTo: 'jid-1' })).reply, /^Usage: claude:pause/);
+    assert.deepEqual(await manualPause.list(), []);
+  });
+
+  it('claude:resume <alias> clears only that pause', async () => {
+    const { runner, manualPause } = issueSetup();
+    await runner.handleCommand({ text: 'claude:pause 1h', replyTo: 'jid-1' });
+    await runner.handleCommand({ text: 'claude:pause a', replyTo: 'jid-1' });
+    assert.equal((await runner.handleCommand({ text: 'claude:resume a', replyTo: 'jid-1' })).reply, 'Resumed a.');
+    assert.deepEqual((await manualPause.list()).map((p) => p.scope), ['all']);
+    assert.equal((await runner.handleCommand({ text: 'claude:resume a', replyTo: 'jid-1' })).reply, 'a was not paused.');
   });
 });

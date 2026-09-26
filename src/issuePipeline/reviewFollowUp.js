@@ -46,22 +46,24 @@ export async function runPostReviewAutofixMergeFlow({
         bodyMarkdown: reviewBodyMarkdown,
         originalUserPrompt: userPrompt,
       });
-      if (postReviewAutofix.mergeBlocked && prResult.ok) {
-        const gateBody = postReviewAutofix.noChanges
-          ? [
-              '**agent-runner — automated autofix made no changes**',
-              '',
-              postReviewAutofix.detail,
-              '',
-              '**Human decision needed:** if you agree the review feedback is a false positive, merge manually; otherwise address it (manually or with another `claude issue:…` run). Auto-merge is held.',
-            ].join('\n')
-          : [
-              '**agent-runner — automated autofix failed**',
-              '',
-              postReviewAutofix.detail,
-              '',
-              '**Do not merge** this PR until the review feedback is addressed (manually or with another `claude issue:…` run).',
-            ].join('\n');
+      if (postReviewAutofix.noChanges && prResult.ok) {
+        const declineBody = [
+          '**agent-runner — automated autofix disagreed with the review**',
+          '',
+          postReviewAutofix.detail,
+          '',
+          'The agent overruled the review feedback, so the PR proceeds to auto-merge unchanged.',
+        ].join('\n');
+        const declineComment = await tryGhPrReviewComment(repo, prResult.url, declineBody);
+        logPost('post-review autofix decline PR comment', declineComment);
+      } else if (postReviewAutofix.mergeBlocked && prResult.ok) {
+        const gateBody = [
+          '**agent-runner — automated autofix failed**',
+          '',
+          postReviewAutofix.detail,
+          '',
+          '**Do not merge** this PR until the review feedback is addressed (manually or with another `claude issue:…` run).',
+        ].join('\n');
         const gateComment = await tryGhPrReviewComment(repo, prResult.url, gateBody);
         logPost('post-review autofix merge-gate PR comment', gateComment);
       }
