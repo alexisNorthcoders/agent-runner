@@ -2,6 +2,7 @@
 // renders the Now, History and Office tabs as text and tables. No build step, no dependencies.
 // The snapshot shape is `OfficeSnapshot` in src/officeSnapshot.js.
 import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, what } from './format.js';
+import { applyLogEvent } from './logPane.js';
 
 const FEED_URL = 'feed';
 const RECONNECT_MS = 3000;
@@ -18,6 +19,9 @@ let up = false;
 let source = null;
 let reconnectTimer = 0;
 let silenceTimer = 0;
+/** the active run's live log (masked by the runner), and whether the pane scrolls with it */
+let pane = { runId: null, lines: [] };
+let following = true;
 
 // --- DOM helpers ---
 
@@ -142,6 +146,21 @@ function renderOffice() {
   ];
 }
 
+// --- live log (Now tab) ---
+
+function renderLog() {
+  const lines = document.getElementById('log-lines');
+  lines.textContent = pane.lines.join('\n');
+  document.getElementById('log-run').textContent = pane.runId ?? '';
+  if (following) lines.scrollTop = lines.scrollHeight;
+}
+
+function toggleFollow() {
+  following = !following;
+  document.getElementById('log-follow').textContent = following ? 'Pause scrolling' : 'Resume scrolling';
+  if (following) renderLog();
+}
+
 const RENDER = { now: renderNow, history: renderHistory, office: renderOffice };
 
 function currentTab() {
@@ -159,6 +178,7 @@ function render() {
   const panel = document.getElementById('panel');
   if (!snap) panel.replaceChildren(h('p', { class: 'dim' }, up ? 'Waiting for the first snapshot…' : 'Runner down: no snapshot yet.'));
   else panel.replaceChildren(...RENDER[tab]());
+  document.getElementById('log').hidden = tab !== 'now' || !pane.runId;
 }
 
 // --- feed ---
@@ -189,6 +209,11 @@ function connect() {
     up = true;
     render();
   });
+  source.addEventListener('log', (e) => {
+    pane = applyLogEvent(pane, JSON.parse(e.data));
+    renderLog();
+    render();
+  });
   source.addEventListener('error', () => {
     setUp(false);
     // EventSource retries a dropped connection itself, but gives up on an HTTP error (e.g. nginx's
@@ -197,7 +222,12 @@ function connect() {
   });
 }
 
-window.addEventListener('hashchange', render);
+window.addEventListener('hashchange', () => {
+  render();
+  // the pane was hidden, so it couldn't follow
+  if (following) renderLog();
+});
+document.getElementById('log-follow').addEventListener('click', toggleFollow);
 // keeps elapsed times and countdowns moving between snapshots
 setInterval(() => snap && render(), 1000);
 render();

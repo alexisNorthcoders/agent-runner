@@ -198,6 +198,20 @@ read-only: it takes no input and there is no control route beside it.
   catches what nothing announces (a run turning orphaned or stale, a pause expiring).
 - Each event is `event: snapshot` with the JSON on one `data:` line. Up to 20 clients.
 
+### Live log
+
+The feed also streams the active run's log (`src/logTail.js`), including an autofix pass's own log,
+as `event: log` with `{ runId, reset, lines }`. While anyone is connected the runner polls the log
+every 500ms. A client that connects mid-run gets the last 200 lines right after its first snapshot
+(`reset: true`), then new lines as they are written (`reset: false`). A new run sends `reset: true`
+with its lines, so the pane clears. Lines over 2000 characters are cut. Only the active run's log is
+streamed; past runs stay history rows.
+
+Before a line leaves the runner, obvious secrets are masked (`src/maskSecrets.js`): GitHub tokens
+(`ghp_…`, `gho_…`, `github_pat_…`), `sk-…` API keys, bearer tokens, and the value of
+`…_KEY=` / `_TOKEN=` / `_SECRET=` / `_PASSWORD=` assignments. **This is best effort.** It catches
+the common shapes, not every secret, so treat the page as seeing the raw log and keep it on the LAN.
+
 ```sh
 curl -sN localhost:3790/office/feed
 ```
@@ -252,7 +266,9 @@ Add fields freely; bump `version` for anything that breaks a reader.
 ### The page and nginx
 
 `dashboard/index.html` + `app.js` (rendering) + `format.js` (number formatting, kept in step with
-`src/statusFormat.js` by a test). It opens the feed at the relative URL `feed`, re-renders every
+`src/statusFormat.js` by a test) + `logPane.js` (the live log's lines). The Now tab tails the
+active run's log in a monospace pane that auto-scrolls, with a button to pause and resume
+scrolling. It opens the feed at the relative URL `feed`, re-renders every
 second so elapsed times and the cron countdown move, and says **runner down** while the feed
 can't connect (or has been silent for 75s), reconnecting by itself every 3s.
 
@@ -322,6 +338,7 @@ are told the same rule in their prompt preamble.
   rendering. `bin/agent-cli.js` is the terminal CLI.
 - `src/stateChanges.js`: the runner's "state changed" notification, and the Redis store that raises it.
 - `src/officeSnapshot.js` + `src/officeFeed.js`: the office snapshot and the SSE feed that pushes it.
+- `src/logTail.js` + `src/maskSecrets.js`: the feed's live log of the active run, masked.
 - `dashboard/`: the office dashboard page (static, no build). `docs/nginx/office.conf` serves it.
 - `logs/agent-runs/`: one `<runId>.log` per run (plus `<runId>-autofix.log`), `active/<runId>.json`
   per in-flight run (live progress), `runs.jsonl` history (an issue run's `costUsd` includes its

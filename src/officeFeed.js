@@ -10,7 +10,13 @@
  * up what changed in another process (a pause from `npm run agent:pause`, safe-restart's pause
  * flag), which this process isn't told about.
  *
- * Events are `event: snapshot` with the snapshot as JSON on one `data:` line.
+ * With a `logTail` (src/logTail.js), the feed also carries the active run's live log: the tail is
+ * followed while anyone is connected, a client that connects mid-run gets its recent lines right
+ * after its first snapshot, and new lines go to every client as they are read. The lines are
+ * already masked by the tail, so nothing unmasked leaves the runner.
+ *
+ * Events are `event: snapshot` with the snapshot as JSON on one `data:` line, and `event: log`
+ * with `{ runId, reset, lines }` (`reset`: a new run, so replace the pane's lines, else append).
  */
 
 export const FEED_COALESCE_MS = 250;
@@ -26,6 +32,7 @@ export const FEED_MAX_CLIENTS = 20;
  *   minIntervalMs?: number,
  *   heartbeatMs?: number,
  *   maxClients?: number,
+ *   logTail?: Pick<ReturnType<typeof import('./logTail.js').createLogTail>, 'start' | 'stop' | 'tail' | 'onLines'>,
  *   logger?: Pick<Console, 'warn'>,
  * }} p
  */
@@ -36,10 +43,13 @@ export function createOfficeFeed({
   minIntervalMs = FEED_MIN_INTERVAL_MS,
   heartbeatMs = FEED_HEARTBEAT_MS,
   maxClients = FEED_MAX_CLIENTS,
+  logTail,
   logger = console,
 }) {
   /** Each client, with the number of the newest snapshot it has been sent. @type {Map<import('http').ServerResponse, number>} */
   const clients = new Map();
+  /** Clients that have had their log tail, so they get new lines. @type {Set<import('http').ServerResponse>} */
+  const logClients = new Set();
   /** @type {NodeJS.Timeout | null} */
   let timer = null;
   let building = false;
@@ -50,6 +60,8 @@ export function createOfficeFeed({
 
   /** @param {unknown} snap */
   const event = (snap) => `event: snapshot\ndata: ${JSON.stringify(snap)}\n\n`;
+  /** @param {import('./logTail.js').LogLines} e */
+  const logEvent = (e) => `event: log\ndata: ${JSON.stringify(e)}\n\n`;
 
   /** @returns {Promise<{ seq: number, text: string } | null>} */
   async function build() {
@@ -93,6 +105,11 @@ export function createOfficeFeed({
   }
 
   const unsubscribe = subscribe(() => schedule());
+  const unsubscribeLog =
+    logTail?.onLines((e) => {
+      const text = logEvent(e);
+      for (const res of logClients) res.write(text);
+    }) ?? (() => {});
   const heartbeat = setInterval(schedule, heartbeatMs);
   heartbeat.unref();
 
@@ -118,9 +135,20 @@ export function createOfficeFeed({
       // the browser's EventSource waits this long before reconnecting
       res.write('retry: 3000\n\n');
       clients.set(res, 0);
-      res.on('close', () => clients.delete(res));
+      res.on('close', () => {
+        clients.delete(res);
+        logClients.delete(res);
+        if (!clients.size) logTail?.stop();
+      });
+      // a no-op if already following; settles once the tail holds the active run's recent lines
+      await logTail?.start();
       // its own first snapshot, unless a push got a newer one to it first
       send(res, await build());
+      if (!logTail || !clients.has(res)) return;
+      // the tail so far, then (from the same tick, so nothing is missed or repeated) new lines
+      const { runId, lines } = logTail.tail();
+      if (runId) res.write(logEvent({ runId, reset: true, lines }));
+      logClients.add(res);
     },
 
     /** How many clients are connected. */
@@ -129,11 +157,14 @@ export function createOfficeFeed({
     /** End every stream and stop listening for changes. */
     close() {
       unsubscribe();
+      unsubscribeLog();
+      logTail?.stop();
       clearInterval(heartbeat);
       if (timer) clearTimeout(timer);
       timer = null;
       for (const res of clients.keys()) res.end();
       clients.clear();
+      logClients.clear();
     },
   };
 }

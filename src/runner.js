@@ -88,7 +88,9 @@ export function formatJobResult(rec, r, durationMs) {
  *   stopRequested: boolean,
  *   tracker: ReturnType<ReturnType<typeof import('./activeRuns.js').createActiveRuns>['track']>,
  *   followUps?: Array<{ label: string, outcome: string, logPath: string, costUsd: number | null, turns: number }>,
+ *   logPath?: string,
  * }} ActiveRun
+ *   `logPath` is the log a follow-up pass writes (the run's own log is `record.logPath`).
  */
 
 /**
@@ -348,6 +350,7 @@ export function createRunner({
       try {
         const run = await backend.start({ prompt, preamble, cwd: a.record.workspaceRoot, logPath, onProgress: trackProgress(a.record.runId) });
         a.run = run;
+        a.logPath = logPath;
         setPhase(a, 'agent');
         a.record = { ...a.record, agentPid: run.pid };
         // re-publish with the new agent pid (the tracker's record is fixed)
@@ -749,6 +752,16 @@ export function createRunner({
         paused: Boolean(paused),
         queued,
       };
+    },
+
+    /**
+     * The run this process is executing and the log it is writing now (an autofix pass's own log
+     * once that starts), for the office feed's live tail. Null when idle.
+     * @returns {import('./logTail.js').ActiveLog | null}
+     */
+    activeLog() {
+      if (!active?.record.logPath) return null;
+      return { runId: active.record.runId, logPath: active.logPath ?? active.record.logPath };
     },
 
     /**

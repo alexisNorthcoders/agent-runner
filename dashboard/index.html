@@ -17,6 +17,11 @@
       </nav>
     </header>
     <main id="panel"></main>
+    <!-- outside #panel, which is rebuilt every second, so the log keeps its scroll position -->
+    <section id="log" hidden>
+      <h3>Log <span id="log-run" class="dim"></span> <button id="log-follow" type="button">Pause scrolling</button></h3>
+      <pre id="log-lines"></pre>
+    </section>
     <script type="module" src="app.js"></script>
   </body>
 </html>

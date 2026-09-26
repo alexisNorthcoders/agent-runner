@@ -23,6 +23,7 @@ import { createIssuePipeline } from './issuePipeline/index.js';
 import { createStateChanges, notifyingStore } from './stateChanges.js';
 import { collectOfficeSnapshot } from './officeSnapshot.js';
 import { createOfficeFeed } from './officeFeed.js';
+import { createLogTail } from './logTail.js';
 import { createJobLauncher } from './jobProcess.js';
 import { createJobScheduler, loadJobsFile } from './scheduledJobs.js';
 
@@ -99,6 +100,7 @@ if (removed.length) console.warn(`agent-runner: removed stale active-run files: 
 const officeFeed = createOfficeFeed({
   snapshot: () => collectOfficeSnapshot({ statusSnapshot, liveRun: runner.status, workspaceAliases: workspaces.aliases }),
   subscribe: changes.subscribe,
+  logTail: createLogTail({ current: runner.activeLog }),
 });
 const server = createHttpServer({ runner, officeFeed });
 // Bind before recovery: if another runner holds the port we exit here, so any lock found below

@@ -981,3 +981,22 @@ describe('runner: scheduled jobs', () => {
     assert.match(outboxEntries()[0].text, /Its process \(pid 55\) is still running/);
   });
 });
+
+describe('runner: active log', () => {
+  it('names the log the active run writes now: its own, then its autofix pass', async () => {
+    const { runner, starts, finishes } = issueSetup();
+    assert.equal(runner.activeLog(), null);
+    await runner.handleCommand({ text: 'claude issue:a:7', replyTo: 'a' });
+    assert.deepEqual(runner.activeLog(), { runId: 'run-1', logPath: '/runner/logs/agent-runs/run-1.log' });
+    starts[0].finish('success');
+    await flush();
+    const autofix = finishes[0].runAgent({ prompt: 'fix review', label: 'autofix' });
+    await flush();
+    assert.deepEqual(runner.activeLog(), { runId: 'run-1', logPath: '/runner/logs/agent-runs/run-1-autofix.log' });
+    starts[1].finish('success');
+    await autofix;
+    finishes[0].release({ result: 'merged', message: 'done', silent: false });
+    await runner.idle();
+    assert.equal(runner.activeLog(), null);
+  });
+});
