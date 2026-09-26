@@ -279,7 +279,8 @@ const sameLayout = (a, b) => !!a && JSON.stringify(a) === JSON.stringify(b);
 function lastRun(o) {
   if (!o) return '';
   const pr = o.prUrl ? `\nPR: ${o.prUrl}` : '';
-  return `\nLast run: ${o.outcome}, ended ${ago(new Date(o.endedAt).toISOString(), now())}\n${o.label ?? o.runId}${pr}`;
+  const how = o.outcome === o.recorded ? o.outcome : `${o.outcome} (${o.recorded})`;
+  return `\nLast run: ${how}, ended ${ago(new Date(o.endedAt).toISOString(), now())}\n${o.label ?? o.runId}${pr}`;
 }
 
 /** What's under the pointer: a letter's label, the cron countdown, or a room (a cubicle's workspace) and its last run. */

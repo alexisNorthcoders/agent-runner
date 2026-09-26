@@ -398,6 +398,7 @@ describe('office scene: outcomes', () => {
     const [o] = reduceScene(snap({ history: [row({ result: 'pr_open' })] }), null, up).outcomes;
     assert.equal(o.label, 'issue bot#3');
     assert.equal(o.outcome, 'PR open');
+    assert.equal(o.recorded, 'success, pr_open');
     assert.equal(o.endedAt, NOW - 60_000);
     assert.equal(o.prUrl, 'https://github.com/o/bot/pull/9');
   });
@@ -406,6 +407,15 @@ describe('office scene: outcomes', () => {
     assert.equal(reduceScene(snap({ history: [row()] }), null, up).outcomes[0].outcome, 'merged');
     assert.equal(reduceScene(snap({ history: [row({ outcome: 'interrupted', result: null })] }), null, up).outcomes[0].outcome, 'interrupted by a restart');
     assert.equal(reduceScene(snap({ history: [row({ outcome: 'exploded', result: null })] }), null, up).outcomes[0].outcome, 'exploded');
+  });
+
+  it('keeps the recorded outcome and result apart from the words, so rows sharing a state differ', () => {
+    const [pushed] = reduceScene(snap({ history: [row({ result: 'pushed' })] }), null, up).outcomes;
+    const [open] = reduceScene(snap({ history: [row({ result: 'pr_open' })] }), null, up).outcomes;
+    assert.equal(pushed.state, open.state);
+    assert.equal(pushed.recorded, 'success, pushed');
+    assert.equal(open.recorded, 'success, pr_open');
+    assert.equal(reduceScene(snap({ history: [row({ outcome: 'stopped', result: null })] }), null, up).outcomes[0].recorded, 'stopped');
   });
 
   it('stamps a short run quickly, and a long one with papers to the out tray', () => {

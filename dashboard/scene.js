@@ -49,11 +49,13 @@
  *   runId: string,
  *   label: string | null,
  *   outcome: string,
+ *   recorded: string,
  *   endedAt: number,
  *   prUrl: string | null,
  * }} SceneOutcome
  *   A room's last run, shown there until the next run in it starts. `quick`: a short run, just a
- *   quick stamp. `outcome`: said in words, for the hover. `endedAt` on the snapshot's clock.
+ *   quick stamp. `outcome`: said in words, for the hover. `recorded`: the history row's own
+ *   outcome and result (`success, pushed`), so the hover can tell apart rows that share a state. `endedAt` on the snapshot's clock.
  *
  * @typedef {{
  *   dark: boolean,
@@ -185,13 +187,15 @@ function reduceOutcomes(history, run, cubicles) {
     const place = placeOf(h, cubicles);
     if (!place || out.some((o) => samePlace(o.place, place))) continue;
     const state = restingState(h);
+    const recorded = h.result ? `${h.outcome}, ${h.result}` : h.outcome;
     out.push({
       place,
       state,
       quick: h.durationMs != null && h.durationMs < QUICK_MS,
       runId: h.runId,
       label: h.label,
-      outcome: HOVER_WORDS[state] || (h.result ? `${h.outcome} (${h.result})` : h.outcome),
+      outcome: HOVER_WORDS[state] || recorded,
+      recorded,
       endedAt: Date.parse(h.endedAt),
       prUrl: h.prUrl ?? null,
     });
