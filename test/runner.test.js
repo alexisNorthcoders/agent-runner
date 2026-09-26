@@ -1000,3 +1000,23 @@ describe('runner: active log', () => {
     assert.equal(runner.activeLog(), null);
   });
 });
+
+describe('runner: active log of a scheduled job', () => {
+  it('starts a job log that other runs append to at its size when the job started', async () => {
+    const { runner, jobStarts } = jobSetup({ overrides: { logSize: async (path) => (path === cleanupJob.logFile ? 1234 : 0) } });
+    await runner.submitJob(cleanupJob);
+    assert.deepEqual(runner.activeLog(), { runId: 'run-1', logPath: cleanupJob.logFile, fromByte: 1234 });
+    jobStarts[0].exit(0);
+    await runner.idle();
+  });
+
+  it('reads a run log of its own from the start', async () => {
+    const { logFile, ...noLog } = cleanupJob;
+    const { runner, jobStarts } = jobSetup({ overrides: { logSize: async () => 99 } });
+    await runner.submitJob(noLog);
+    assert.deepEqual(runner.activeLog(), { runId: 'run-1', logPath: '/runner/logs/agent-runs/run-1.log' });
+    jobStarts[0].exit(0);
+    await runner.idle();
+  });
+});
+

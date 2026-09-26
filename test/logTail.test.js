@@ -19,7 +19,7 @@ async function until(ok, ms = 1000) {
 describe('log tail', () => {
   /** @type {string} */
   let dir;
-  /** @type {{ runId: string, logPath: string } | null} */
+  /** @type {import('../src/logTail.js').ActiveLog | null} */
   let current;
   /** @type {ReturnType<typeof createLogTail> | null} */
   let tail;
@@ -121,4 +121,14 @@ describe('log tail', () => {
     await tail?.start();
     assert.deepEqual(tail?.tail().lines, ['a', 'b']);
   });
+
+  it('starts a log other runs append to where this run began', async () => {
+    const log = join(dir, 'job.log');
+    const before = 'yesterday 1\nyesterday 2\n';
+    await writeFile(log, `${before}today\n`);
+    current = { runId: 'r1', logPath: log, fromByte: Buffer.byteLength(before) };
+    await start();
+    assert.deepEqual(tail?.tail().lines, ['today']);
+  });
 });
+

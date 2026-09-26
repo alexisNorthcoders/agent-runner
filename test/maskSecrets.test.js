@@ -17,6 +17,11 @@ describe('maskSecrets', () => {
     ['_SECRET assignment, JSON-escaped quotes', '{"cmd":"CLIENT_SECRET=\\"s3cr3t\\" run"}', '{"cmd":"CLIENT_SECRET=\\"***\\" run"}'],
     ['_PASSWORD assignment, single quotes', "DB_PASSWORD='hunter2' psql", "DB_PASSWORD='***' psql"],
     ['lowercase assignment', 'smtp_password=hunter2', 'smtp_password=***'],
+    ['bearer token without digits', 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz', 'Authorization: Bearer ***'],
+    ['GitHub token after an underscore', 'x_ghp_abcdefghijklmnopqrstuvwxyz0123456789', 'x_ghp_***'],
+    ['assignment with an escaped backslash', '{"cmd":"FOO_SECRET=abc\\\\def run"}', '{"cmd":"FOO_SECRET=*** run"}'],
+    ['assignment with spaces', 'API_KEY = abc123', 'API_KEY = ***'],
+    ['JSON key', '{"API_KEY": "abc123", "n": 1}', '{"API_KEY": "***", "n": 1}'],
     ['several secrets on one line', 'A_TOKEN=x B_KEY=y ghp_abcdefghijklmnopqrstuvwxyz0123', 'A_TOKEN=*** B_KEY=*** ghp_***'],
   ];
   for (const [name, line, masked] of cases) {
@@ -32,6 +37,8 @@ describe('maskSecrets', () => {
     ['an empty assignment', 'GH_TOKEN= npm test'],
     ['a key name without a value', 'set the ANTHROPIC_API_KEY variable'],
     ['the word bearer on its own', 'the bearer of bad news'],
+    ['a short word after bearer', 'Bearer token auth is used here'],
+    ['a count of tokens in JSON', '{"max_tokens": 1000, "input_tokens": 12}'],
   ];
   for (const [name, line] of untouched) {
     it(`leaves alone: ${name}`, () => assert.equal(maskSecrets(line), line));

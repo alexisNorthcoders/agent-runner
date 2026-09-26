@@ -205,11 +205,12 @@ as `event: log` with `{ runId, reset, lines }`. While anyone is connected the ru
 every 500ms. A client that connects mid-run gets the last 200 lines right after its first snapshot
 (`reset: true`), then new lines as they are written (`reset: false`). A new run sends `reset: true`
 with its lines, so the pane clears. Lines over 2000 characters are cut. Only the active run's log is
-streamed; past runs stay history rows.
+streamed; past runs stay history rows. A scheduled job's `logFile`, which every run appends to,
+is streamed from where the job started, so earlier runs' output doesn't show.
 
 Before a line leaves the runner, obvious secrets are masked (`src/maskSecrets.js`): GitHub tokens
 (`ghp_…`, `gho_…`, `github_pat_…`), `sk-…` API keys, bearer tokens, and the value of
-`…_KEY=` / `_TOKEN=` / `_SECRET=` / `_PASSWORD=` assignments. **This is best effort.** It catches
+`…_KEY=` / `_TOKEN=` / `_SECRET=` / `_PASSWORD=` assignments (and of such keys in JSON). **This is best effort.** It catches
 the common shapes, not every secret, so treat the page as seeing the raw log and keep it on the LAN.
 
 ```sh

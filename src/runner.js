@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { stat } from 'fs/promises';
 import { join } from 'path';
 import { parseCommand } from './commands.js';
 import { ALL, applyPauseCommand, describeManualPause } from './manualPause.js';
@@ -88,9 +89,12 @@ export function formatJobResult(rec, r, durationMs) {
  *   stopRequested: boolean,
  *   tracker: ReturnType<ReturnType<typeof import('./activeRuns.js').createActiveRuns>['track']>,
  *   followUps?: Array<{ label: string, outcome: string, logPath: string, costUsd: number | null, turns: number }>,
- *   logPath?: string,
+ *   passLogPath?: string,
+ *   logFrom?: number,
  * }} ActiveRun
- *   `logPath` is the log a follow-up pass writes (the run's own log is `record.logPath`).
+ *   `passLogPath` is the log the latest follow-up (autofix) pass writes; the run's own log is
+ *   `record.logPath`. `logFrom` is where this run's output starts in a log other runs append to
+ *   (a scheduled job's `logFile`).
  */
 
 /**
@@ -124,6 +128,7 @@ export function formatJobResult(rec, r, durationMs) {
  *   now?: () => number,
  *   isAlive?: (pid: number) => boolean,
  *   stopOrphanAgent?: (pid: number) => Promise<boolean>,
+ *   logSize?: (path: string) => Promise<number>,
  *   logger?: Pick<Console, 'error' | 'warn' | 'info'>,
  *   onChange?: import('./stateChanges.js').NotifyChange,
  * }} deps
@@ -154,6 +159,7 @@ export function createRunner({
   now = Date.now,
   isAlive = pidAlive,
   stopOrphanAgent = async (pid) => (backend.stopOrphan ? backend.stopOrphan(pid) : false),
+  logSize = async (path) => (await stat(path)).size,
   logger = console,
   onChange = () => {},
 }) {
@@ -241,12 +247,13 @@ export function createRunner({
    * @param {'agent' | 'job'} phase
    * @param {(result: R & { outcome: string, exitCode: number | null }, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
    * @param {(result: R & { outcome: string, exitCode: number | null }) => { text: string | null, history?: object }} fallback
+   * @param {Pick<ActiveRun, 'logFrom'>} [extra]
    */
-  async function supervise(record, run, phase, report, fallback) {
+  async function supervise(record, run, phase, report, fallback, extra = {}) {
     const { runId } = record;
     const running = { ...record, agentPid: run.pid };
     /** @type {ActiveRun} */
-    const a = { record: running, run, progress: null, phase, stopRequested: false, tracker: activeRuns.track(running) };
+    const a = { record: running, run, progress: null, phase, stopRequested: false, tracker: activeRuns.track(running), ...extra };
     active = a;
     onChange('run-started');
     await lock.update(a.record).catch(() => {});
@@ -350,7 +357,7 @@ export function createRunner({
       try {
         const run = await backend.start({ prompt, preamble, cwd: a.record.workspaceRoot, logPath, onProgress: trackProgress(a.record.runId) });
         a.run = run;
-        a.logPath = logPath;
+        a.passLogPath = logPath;
         setPhase(a, 'agent');
         a.record = { ...a.record, agentPid: run.pid };
         // re-publish with the new agent pid (the tracker's record is fixed)
@@ -444,6 +451,8 @@ export function createRunner({
     if (job.logFile) record.logPath = job.logFile;
     const refused = await acquire(record);
     if (refused) return { reply: refused.reply, started: false, refused: refused.why };
+    // the job's output is what gets appended from here (the live log shows only that)
+    const logFrom = job.logFile ? await logSize(job.logFile).catch(() => 0) : undefined;
     let run;
     try {
       run = await jobs.start({
@@ -471,6 +480,7 @@ export function createRunner({
         text: result.outcome === 'success' ? null : `Scheduled job ${job.name} ended: ${result.outcome}.`,
         history: { trigger: 'schedule', jobName: job.name, room: job.room },
       }),
+      logFrom == null ? {} : { logFrom },
     );
     return { reply: `Started run ${record.runId}: scheduled job ${job.name} in ${job.cwd}.\nLog: ${record.logPath}`, started: true };
   }
@@ -761,7 +771,8 @@ export function createRunner({
      */
     activeLog() {
       if (!active?.record.logPath) return null;
-      return { runId: active.record.runId, logPath: active.logPath ?? active.record.logPath };
+      const log = { runId: active.record.runId, logPath: active.passLogPath ?? active.record.logPath };
+      return active.logFrom == null ? log : { ...log, fromByte: active.logFrom };
     },
 
     /**

@@ -41,6 +41,10 @@ _Avoid_: UI, frontend, monitor
 The read-only SSE endpoint (`GET /office/feed`) that sends an **Office snapshot** on connect and after every state change.
 _Avoid_: websocket, API
 
+**Live log**:
+The active run's log (its autofix pass's too) as the **Office feed** streams it and the Now tab tails it: masked on the runner, the last ~200 lines on connect, cleared when a new run starts.
+_Avoid_: log tail, log pane (for the concept)
+
 **Office snapshot**:
 The one JSON document the office is drawn from (`OfficeSnapshot` in `src/officeSnapshot.js`), built from the same status snapshot as `agent:status`.
 

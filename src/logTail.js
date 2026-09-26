@@ -16,7 +16,8 @@ import { maskSecrets } from './maskSecrets.js';
  * It only polls between `start()` and `stop()` (the feed starts it while anyone is connected).
  *
  * @typedef {{ runId: string | null, reset: boolean, lines: string[] }} LogLines
- * @typedef {{ runId: string, logPath: string }} ActiveLog
+ * @typedef {{ runId: string, logPath: string, fromByte?: number }} ActiveLog
+ *   `fromByte`: where the run's output starts, in a log other runs append to (a scheduled job's).
  */
 
 export const LOG_POLL_MS = 500;
@@ -57,13 +58,22 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
   let offset = null;
   let partial = '';
   let decoder = new StringDecoder('utf8');
+  /** A new run was seen and listeners haven't been told yet. */
+  let resetPending = false;
+
+  /** Drop the half-read line, e.g. when the next bytes aren't the ones after it. */
+  function resetReader() {
+    partial = '';
+    decoder = new StringDecoder('utf8');
+  }
 
   function forget() {
     runId = null;
     lines = [];
     path = null;
     offset = null;
-    partial = '';
+    resetPending = false;
+    resetReader();
   }
 
   /** @param {string} line */
@@ -85,10 +95,12 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
 
   /**
    * The bytes of `file` appended since the last read (on the first read, up to TAIL_BYTES from its
-   * end, from the first whole line), as text. Null if it can't be read (e.g. not created yet).
+   * end but not before `fromByte`, from the first whole line). Null if it can't be read (e.g. not
+   * created yet).
    * @param {string} file
+   * @param {number} fromByte
    */
-  async function readNew(file) {
+  async function readNew(file, fromByte) {
     let fh;
     try {
       fh = await open(file, 'r');
@@ -100,8 +112,10 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
       let from = offset;
       let midLine = false;
       if (from == null || size < from) {
-        from = Math.max(0, size - TAIL_BYTES);
-        midLine = from > 0;
+        // a log shorter than where the run began was truncated: all of it is new
+        const start = fromByte <= size ? fromByte : 0;
+        from = Math.max(start, size - TAIL_BYTES);
+        midLine = from > start;
       }
       const length = Math.min(size - from, MAX_READ_BYTES);
       const buf = Buffer.alloc(length);
@@ -118,19 +132,17 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
       if (runId !== null) forget();
       return;
     }
-    let reset = false;
     if (cur.runId !== runId) {
       forget();
       runId = cur.runId;
-      reset = true;
+      resetPending = true;
     }
     if (cur.logPath !== path) {
       path = cur.logPath;
       offset = null;
-      partial = '';
-      decoder = new StringDecoder('utf8');
+      resetReader();
     }
-    const read = await readNew(path).catch((err) => {
+    const read = await readNew(path, cur.fromByte ?? 0).catch((err) => {
       logger.warn(`log tail: cannot read ${path}: ${err?.message || err}`);
       return null;
     });
@@ -139,10 +151,7 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
     /** @type {string[]} */
     let fresh = [];
     if (read) {
-      if (offset == null || read.from !== offset) {
-        partial = '';
-        decoder = new StringDecoder('utf8');
-      }
+      if (offset == null || read.from !== offset) resetReader();
       offset = read.to;
       const pieces = (partial + decoder.write(read.bytes)).split('\n');
       partial = /** @type {string} */ (pieces.pop());
@@ -151,8 +160,10 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
       lines.push(...fresh);
       if (lines.length > tailLines) lines.splice(0, lines.length - tailLines);
     }
-    if (reset) emit({ runId, reset: true, lines: [...lines] });
-    else if (fresh.length) emit({ runId, reset: false, lines: fresh });
+    if (resetPending) {
+      resetPending = false;
+      emit({ runId, reset: true, lines: [...lines] });
+    } else if (fresh.length) emit({ runId, reset: false, lines: fresh });
   }
 
   /** @param {number} s */

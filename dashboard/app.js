@@ -148,6 +148,11 @@ function renderOffice() {
 
 // --- live log (Now tab) ---
 
+/** Shown on the Now tab once a run's log has arrived (it stays after the run, until the next one). */
+function showLog() {
+  document.getElementById('log').hidden = currentTab() !== 'now' || !pane.runId;
+}
+
 function renderLog() {
   const lines = document.getElementById('log-lines');
   lines.textContent = pane.lines.join('\n');
@@ -178,7 +183,7 @@ function render() {
   const panel = document.getElementById('panel');
   if (!snap) panel.replaceChildren(h('p', { class: 'dim' }, up ? 'Waiting for the first snapshot…' : 'Runner down: no snapshot yet.'));
   else panel.replaceChildren(...RENDER[tab]());
-  document.getElementById('log').hidden = tab !== 'now' || !pane.runId;
+  showLog();
 }
 
 // --- feed ---
@@ -211,8 +216,9 @@ function connect() {
   });
   source.addEventListener('log', (e) => {
     pane = applyLogEvent(pane, JSON.parse(e.data));
+    // visible first, or the scroll to the bottom does nothing
+    showLog();
     renderLog();
-    render();
   });
   source.addEventListener('error', () => {
     setUp(false);
