@@ -9,8 +9,8 @@ import { maskSecrets } from './maskSecrets.js';
  * (src/maskSecrets.js) and capped before anyone sees it, and the last `tailLines` are kept so a
  * client that connects mid-run gets the recent tail, not the whole log.
  *
- * Listeners get `reset: true` with the whole tail when a new run starts (the pane clears), and
- * `reset: false` with just the new lines otherwise. When the run ends the tail is dropped quietly:
+ * Listeners get `reset: true` with the whole tail when a new run starts (the pane clears) or its log
+ * changes (it is resent), and `reset: false` with just the new lines otherwise. When the run ends the tail is dropped quietly:
  * clients keep what they have until the next run.
  *
  * It only polls between `start()` and `stop()` (the feed starts it while anyone is connected).
@@ -95,7 +95,8 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
 
   /**
    * The bytes of `file` appended since the last read (on the first read, up to TAIL_BYTES from its
-   * end but not before `fromByte`, from the first whole line). Null if it can't be read (e.g. not
+   * end but not before `fromByte`, from the first whole line: `midLine` says the first line read is
+   * the end of one that started earlier). Null if it can't be read (e.g. not
    * created yet).
    * @param {string} file
    * @param {number} fromByte
@@ -115,7 +116,12 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
         // a log shorter than where the run began was truncated: all of it is new
         const start = fromByte <= size ? fromByte : 0;
         from = Math.max(start, size - TAIL_BYTES);
-        midLine = from > start;
+        // starting anywhere but just after a newline would emit a truncated first line
+        if (from > 0) {
+          const prev = Buffer.alloc(1);
+          await fh.read(prev, 0, 1, from - 1);
+          midLine = prev[0] !== 0x0a;
+        }
       }
       const length = Math.min(size - from, MAX_READ_BYTES);
       const buf = Buffer.alloc(length);
@@ -138,8 +144,10 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
       resetPending = true;
     }
     if (cur.logPath !== path) {
+      // e.g. the autofix pass: clients get the run's tail again, now from the new log
       path = cur.logPath;
       offset = null;
+      resetPending = true;
       resetReader();
     }
     const read = await readNew(path, cur.fromByte ?? 0).catch((err) => {

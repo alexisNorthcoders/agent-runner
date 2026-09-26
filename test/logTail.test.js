@@ -78,6 +78,7 @@ describe('log tail', () => {
     current = { runId: 'r1', logPath: autofix };
     await until(() => events.some((e) => e.lines.includes('fixing')));
     assert.deepEqual(tail?.tail(), { runId: 'r1', lines: ['agent', 'fixing'] });
+    assert.deepEqual(events.at(-1), { runId: 'r1', reset: true, lines: ['agent', 'fixing'] });
 
     const next = join(dir, 'r2.log');
     await writeFile(next, 'next run\n');
@@ -127,6 +128,14 @@ describe('log tail', () => {
     const before = 'yesterday 1\nyesterday 2\n';
     await writeFile(log, `${before}today\n`);
     current = { runId: 'r1', logPath: log, fromByte: Buffer.byteLength(before) };
+    await start();
+    assert.deepEqual(tail?.tail().lines, ['today']);
+  });
+
+  it('drops the partial first line when the run began mid-line', async () => {
+    const log = join(dir, 'job.log');
+    await writeFile(log, 'yesterday 1\nhalf-written line\ntoday\n');
+    current = { runId: 'r1', logPath: log, fromByte: Buffer.byteLength('yesterday 1\nhalf-') };
     await start();
     assert.deepEqual(tail?.tail().lines, ['today']);
   });
