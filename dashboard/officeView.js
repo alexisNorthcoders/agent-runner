@@ -82,7 +82,8 @@ export const animating = (scene, t) => !scene.dark && (!!scene.run || t - scene.
 
 /** Whether the mail carrier is out delivering at `t`, away from the reception desk. @param {Scene} scene @param {number} t */
 function carrierOut(scene, t) {
-  if (!scene.run) return false;
+  // by post-run the delivery is long over, whenever the page saw the run start
+  if (!scene.run || scene.run.postRun) return false;
   const { leave, back } = deliveryTimes(scene.run);
   return t >= leave && t < back;
 }
@@ -98,8 +99,9 @@ function drawRun(ctx, layout, scene, t) {
   if (!run || !desk) return;
   const { leave, arrive } = deliveryTimes(run);
   const frame = Math.floor(t / FRAME_MS);
-  if (t < leave) s.phoneRinging(ctx, layout.desk, frame);
-  if (t >= arrive) {
+  if (t < leave && !run.postRun) s.phoneRinging(ctx, layout.desk, frame);
+  // in post-run the worker has been at the desk all along, whenever the page saw the run start
+  if (t >= arrive || run.postRun) {
     const w = workerRect(desk);
     const typing = run.work === 'typing';
     const scribbling = run.work === 'scribbling';

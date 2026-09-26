@@ -238,8 +238,8 @@ describe('office scene: working', () => {
     assert.equal(pile({ turns: 0, elapsedMs: 0 }), 0);
     assert.ok(pile({ turns: 20, elapsedMs: 0 }) > pile({ turns: 5, elapsedMs: 0 }));
     assert.ok(pile({ turns: 0, elapsedMs: 20 * 60_000 }) > pile({ turns: 0, elapsedMs: 60_000 }));
-    // elapsed keeps counting between snapshots
-    assert.ok(pile({ turns: 0, elapsedMs: 0 }, NOW + 20 * 60_000) > 0);
+    // only the snapshot's own progress counts: a stale snapshot doesn't grow the pile on redraw
+    assert.equal(pile({ turns: 0, elapsedMs: 0 }, NOW + 20 * 60_000), 0);
   });
 
   it('caps the pile, so a very long run is visibly high but stays on the desk', () => {

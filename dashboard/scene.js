@@ -122,8 +122,9 @@ function reduceRun(snap, prev, cubicles, now) {
   const review = r.kind === 'issue' && r.phase === 'post-run';
   const postRun = review || !!same?.postRun;
   const work = review ? 'reviewed' : postRun ? 'scribbling' : 'typing';
-  const elapsed = r.elapsedMs == null ? 0 : r.elapsedMs + Math.max(0, now - Date.parse(snap.at));
-  const sheets = Math.min(PILE_MAX, Math.floor(r.turns / TURNS_PER_SHEET) + Math.floor(elapsed / MS_PER_SHEET));
+  // the snapshot's own progress only: the feed's heartbeat resends it well within a sheet's time,
+  // and counting on from a stale snapshot would grow the pile on every redraw
+  const sheets = Math.min(PILE_MAX, Math.floor(r.turns / TURNS_PER_SHEET) + Math.floor((r.elapsedMs ?? 0) / MS_PER_SHEET));
   const started = r.startedAt ? Date.parse(r.startedAt) : NaN;
   return {
     runId: r.runId,
