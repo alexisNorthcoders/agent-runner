@@ -93,6 +93,24 @@ export async function stopOrphanClaude(
 }
 
 /**
+ * The `model` a repo sets for itself in `.claude/settings.local.json`, else `.claude/settings.json`
+ * (Claude Code's own precedence). Missing or unreadable files don't count.
+ * @param {string} cwd
+ * @returns {Promise<string | null>}
+ */
+export async function repoSettingsModel(cwd) {
+  for (const name of ['settings.local.json', 'settings.json']) {
+    try {
+      const model = JSON.parse(await readFile(join(cwd, '.claude', name), 'utf8'))?.model;
+      if (typeof model === 'string' && model.trim()) return model.trim();
+    } catch {
+      /* missing or malformed: try the next one */
+    }
+  }
+  return null;
+}
+
+/**
  * @param {{
  *   bin?: string,
  *   model?: string,
@@ -105,7 +123,8 @@ export async function stopOrphanClaude(
 export function createClaudeBackend({
   bin = resolveClaudeBin(),
   // Pinned so runs don't silently follow the interactive CLI default in ~/.claude/settings.json.
-  model = process.env.CLAUDE_AGENT_MODEL?.trim() || 'sonnet',
+  // A repo's own .claude settings still win (see repoSettingsModel).
+  model: pinnedModel = process.env.CLAUDE_AGENT_MODEL?.trim() || 'sonnet',
   timeoutMs,
   spawnFn = spawn,
   killProcess = killProcessGroup,
@@ -115,6 +134,7 @@ export function createClaudeBackend({
     stopOrphan: (pid) => stopOrphanClaude(pid),
     async start({ prompt, preamble, implement, cwd, logPath, onProgress, onTouch }) {
       await mkdir(dirname(logPath), { recursive: true });
+      const model = (await repoSettingsModel(cwd)) ?? pinnedModel;
       const log = createWriteStream(logPath, { flags: 'w' });
       // a log failure (disk full…) must not crash the runner or fail the run
       log.on('error', () => {});

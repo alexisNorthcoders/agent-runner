@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
-import { mkdtemp, readFile, rm } from 'fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createClaudeBackend } from '../src/agentBackend/claude.js';
@@ -68,6 +68,30 @@ describe('claude AgentBackend', () => {
     assert.equal(o.detached, true);
     child.emit('close', 0, null);
     await run.done;
+  });
+
+  it("uses the repo's own .claude settings model over the pinned one, local before shared", async () => {
+    const repo = join(dir, 'repo');
+    await mkdir(join(repo, '.claude'), { recursive: true });
+    const b = backend();
+    const modelFor = async () => {
+      child = fakeChild();
+      const run = await b.start({ prompt: 'P', cwd: repo, logPath: join(dir, 'm.log') });
+      child.emit('close', 0, null);
+      await run.done;
+      const { args } = spawned.at(-1);
+      return args[args.indexOf('--model') + 1];
+    };
+
+    assert.equal(await modelFor(), 'sonnet');
+    await writeFile(join(repo, '.claude', 'settings.json'), JSON.stringify({ model: 'haiku' }));
+    assert.equal(await modelFor(), 'haiku');
+    await writeFile(join(repo, '.claude', 'settings.local.json'), JSON.stringify({ permissions: {} }));
+    assert.equal(await modelFor(), 'haiku');
+    await writeFile(join(repo, '.claude', 'settings.local.json'), JSON.stringify({ model: 'opus' }));
+    assert.equal(await modelFor(), 'opus');
+    await writeFile(join(repo, '.claude', 'settings.local.json'), '{ not json');
+    assert.equal(await modelFor(), 'haiku');
   });
 
   it('puts the preamble before the prompt, and /implement before everything for implement runs', async () => {
