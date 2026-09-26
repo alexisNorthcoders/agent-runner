@@ -466,6 +466,19 @@ describe('runner: startup recovery', () => {
     assert.equal(await lock.current(), null);
   });
 
+  it('records the interrupted run in history, so its room shows it', async () => {
+    const { runner, lock, history } = setup({ isAlive: () => false });
+    await lock.tryAcquire({ runId: 'old', kind: 'freeform', label: 'fix stuff', replyTo: 'jid-1', logPath: '/l/old.log', startedAt: '2026-09-26T10:00:00Z', ownerPid: 1 });
+    await runner.recoverInterruptedRun();
+    assert.equal(history.length, 1);
+    assert.equal(history[0].runId, 'old');
+    assert.equal(history[0].kind, 'freeform');
+    assert.equal(history[0].label, 'fix stuff');
+    assert.equal(history[0].outcome, 'interrupted');
+    assert.equal(history[0].startedAt, '2026-09-26T10:00:00Z');
+    assert.equal(typeof history[0].endedAt, 'string');
+  });
+
   it('warns when the old agent process is still alive', async () => {
     const { runner, lock, outboxEntries } = setup({ isAlive: (pid) => pid === 55 });
     await lock.tryAcquire({ runId: 'old', agentPid: 55 });
@@ -577,6 +590,17 @@ describe('runner: issue runs', () => {
     assert.equal(history[0].result, 'merged');
     assert.equal(history[0].issueNumber, 7);
     assert.equal(history[0].issueRepo, 'o/r');
+    assert.equal(history[0].prUrl, null);
+  });
+
+  it("records the PR's url in history, for the office's hover", async () => {
+    const { runner, starts, finishes, history } = issueSetup();
+    await runner.handleCommand({ text: 'claude issue:a:7', replyTo: 'jid-1' });
+    starts[0].finish('success', 'done');
+    await flush();
+    finishes[0].release({ result: 'pr_open', message: '✅ #7 PR open', silent: false, post: { prResult: { ok: true, url: 'https://github.com/o/r/pull/9' } } });
+    await runner.idle();
+    assert.equal(history[0].prUrl, 'https://github.com/o/r/pull/9');
   });
 
   it('rejects an unknown alias without taking the lock', async () => {

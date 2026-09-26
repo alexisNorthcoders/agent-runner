@@ -2,10 +2,10 @@
 // floor on a canvas, and renders the panel's Now, History and Office tabs as text and tables. No
 // build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeSnapshot.js.
 import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, what } from './format.js';
-import { cartSlots, clickFilter, deskAt, fitScene, inside, layoutOffice, workerRect } from './layout.js';
+import { cartSlots, clickFilter, deskAt, fitScene, inside, layoutOffice, placeRect, workerRect } from './layout.js';
 import { applyLogEvent } from './logPane.js';
 import { animating, drawOffice } from './officeView.js';
-import { reduceScene } from './scene.js';
+import { reduceScene, samePlace } from './scene.js';
 
 const FEED_URL = 'feed';
 const RECONNECT_MS = 3000;
@@ -272,7 +272,17 @@ function clickFloor(e) {
 /** Same floor plan: same size and the same rooms in the same places. @param {any} a @param {any} b */
 const sameLayout = (a, b) => !!a && JSON.stringify(a) === JSON.stringify(b);
 
-/** What's under the pointer: a letter's label, the cron countdown, or a cubicle's workspace. */
+/**
+ * A room's last run, for the hover: how it went, when, and its PR.
+ * @param {import('./scene.js').SceneOutcome | undefined} o
+ */
+function lastRun(o) {
+  if (!o) return '';
+  const pr = o.prUrl ? `\nPR: ${o.prUrl}` : '';
+  return `\nLast run: ${o.outcome}, ended ${ago(new Date(o.endedAt).toISOString(), now())}\n${o.label ?? o.runId}${pr}`;
+}
+
+/** What's under the pointer: a letter's label, the cron countdown, or a room (a cubicle's workspace) and its last run. */
 function hovered() {
   if (!pointer || !scene || !layout || scene.dark) return null;
   const { x, y } = scenePoint(pointer);
@@ -284,7 +294,12 @@ function hovered() {
   if (scene.reception.countdownMs != null && inside(layout.clock, x, y)) return `Next cron tick in ${formatDuration(scene.reception.countdownMs)}`;
   const i = layout.cubicles.findIndex((r) => inside(r, x, y));
   const c = scene.cubicles[i];
-  if (c) return `${c.name}${c.name === c.alias ? '' : ` (${c.alias})`}${c.doNotDisturb ? ': do not disturb' : ''}`;
+  if (c) {
+    const o = scene.outcomes.find((x) => samePlace(x.place, { room: 'cubicle', alias: c.alias }));
+    return `${c.name}${c.name === c.alias ? '' : ` (${c.alias})`}${c.doNotDisturb ? ': do not disturb' : ''}${lastRun(o)}`;
+  }
+  const room = scene.outcomes.find((o) => o.place.room !== 'cubicle' && inside(/** @type {any} */ (placeRect(layout, scene.cubicles, o.place)), x, y));
+  if (room) return `${layout.rooms[/** @type {'annex' | 'library'} */ (room.place.room)].name}${lastRun(room)}`;
   return null;
 }
 

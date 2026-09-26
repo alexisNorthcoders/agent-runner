@@ -51,7 +51,7 @@ function status(overrides = {}) {
         costUsd: 0.5,
         tokens: { input: 1, output: 2, cacheRead: 3, cacheCreate: 4 },
       },
-      { runId: 'h0', endedAt: '2026-09-20T10:00:00Z', outcome: 'failed', costUsd: 1, kind: 'issue', trigger: 'cron', workspaceAlias: 'bot', issueNumber: 3, result: 'failed' },
+      { runId: 'h0', endedAt: '2026-09-20T10:00:00Z', outcome: 'failed', costUsd: 1, kind: 'issue', trigger: 'cron', workspaceAlias: 'bot', issueNumber: 3, result: 'failed', prUrl: 'https://github.com/o/r/pull/3' },
     ],
     queue: [{ id: 'q1', cmd: { kind: 'freeform', prompt: 'secret-ish prompt' }, replyTo: 'jid', label: 'next job', queuedAt: '2026-09-24T11:59:00Z' }],
     manualPauses: [
@@ -175,12 +175,14 @@ describe('buildOfficeSnapshot', () => {
       durationMs: 60_000,
       outcome: 'success',
       result: null,
+      prUrl: null,
       model: 'claude-sonnet-5',
       turns: 2,
       costUsd: 0.5,
       tokens: 10,
     });
     assert.equal(s.history[1].result, 'failed');
+    assert.equal(s.history[1].prUrl, 'https://github.com/o/r/pull/3');
     const { today, week } = spend(st);
     assert.deepEqual(s.spend, {
       today: { runs: today.n, costUsd: today.cost, tokens: today.tokens },

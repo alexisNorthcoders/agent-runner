@@ -559,6 +559,7 @@ export function createRunner({
             workspaceAlias: ws.alias,
             branch: prep.branchName,
             result: fin.result,
+            prUrl: fin.post?.prResult?.ok ? (fin.post.prResult.url ?? null) : null,
             followUps,
             // the whole run's spend, autofix included (per-pass costs stay in followUps)
             costUsd: costs.length ? costs.reduce((x, y) => x + y, 0) : null,
@@ -805,6 +806,30 @@ export function createRunner({
         runId: rec.runId === UNKNOWN_RUN_ID ? '' : rec.runId,
         text: `${name} was interrupted: agent-runner restarted before it finished.${orphan}${wip}${log}`,
       });
+      // so the office shows it in its room, as it does every other finished run
+      if (rec.runId !== UNKNOWN_RUN_ID) {
+        const endedAt = now();
+        const startedMs = rec.startedAt ? Date.parse(rec.startedAt) : NaN;
+        await history
+          .append({
+            runId: rec.runId,
+            kind: rec.kind,
+            label: rec.label,
+            trigger: rec.trigger,
+            workspaceAlias: rec.workspaceAlias,
+            issueNumber: rec.issueNumber,
+            room: rec.room,
+            jobName: rec.jobName,
+            replyTo: rec.replyTo,
+            workspaceRoot: rec.workspaceRoot,
+            logPath: rec.logPath,
+            startedAt: rec.startedAt,
+            endedAt: new Date(endedAt).toISOString(),
+            ...(Number.isFinite(startedMs) ? { durationMs: endedAt - startedMs } : {}),
+            outcome: 'interrupted',
+          })
+          .catch((err) => logger.warn(`recovery of ${rec.runId}: history write failed:`, err?.message || err));
+      }
       if (rec.runId === UNKNOWN_RUN_ID) await lock.forceClear();
       else await lock.release(rec.runId);
       return rec;

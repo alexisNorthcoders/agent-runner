@@ -41,6 +41,8 @@ body.down main {
   background: #111d;
   color: #fff;
   font-size: 12px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
   pointer-events: none;
 }
 @media (max-width: 900px) {

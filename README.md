@@ -253,8 +253,11 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
   "history": [                         // the last 7 days, newest first
     { "runId": "…", "kind": "issue", "trigger": "cron", "label": "…", "workspaceAlias": "bot",
       "issueNumber": 7, "startedAt": "…", "endedAt": "…", "durationMs": 60000,
-      "outcome": "success", "result": "merged", "model": "…", "turns": 3,
-      "costUsd": 1.2, "tokens": 1700000 }   // tokens: input + output + cache
+      "outcome": "success", "result": "merged", "prUrl": "https://github.com/…/pull/9",
+      "model": "…", "turns": 3, "costUsd": 1.2, "tokens": 1700000 }
+      // outcome: success | failed | timeout | stopped | spawn_error | interrupted (by a restart)
+      // result (issue runs): merged | pr_open | pushed | no_changes | timeout | failed, else null
+      // tokens: input + output + cache
   ],
   "spend": { "today": { "runs": 1, "costUsd": 2.33, "tokens": 2900000 },   // since local midnight
              "week":  { "runs": 24, "costUsd": 28.7, "tokens": 32300000 } },
@@ -301,6 +304,24 @@ A live run plays out on the floor:
   review (from the start of post-run: the snapshot can't tell the review from the commit), the
   worker scribbles frantically during the autofix, and the boss walks back when the run ends.
 
+When a run ends, its room shows how it went, and keeps showing it until the next run there starts.
+It comes from the room's latest history row in the feed, so it survives a page reload and a runner
+restart (for rooms with a run in the feed's 7 days):
+
+| Outcome | Scene |
+|---|---|
+| Merged (and a freeform or Joplin run that succeeded) | A big stamp, and the papers go to the out tray. A run under 5 minutes gets just a quick stamp |
+| PR open, or pushed without a PR | A folder on the boss's desk, labelled with the room |
+| Failed, or couldn't start | An injured worker (bandage, ice pack) |
+| Timed out | Asleep at the desk, Zzz |
+| Stopped (`claude:stop`) | The worker has gone home, and that room's lights are off |
+| Interrupted by a restart | A drunk, dizzy worker |
+| No changes | A shrug, and a tumbleweed rolls by now and then |
+
+Hovering a room (a cubicle, the Annex or the Library) shows its last run's outcome, when it ended,
+and its PR. The mapping (`restingState` in `scene.js`) falls back to showing nothing for an outcome
+it doesn't know.
+
 Clicking a cubicle (or its worker) filters the History tab to that workspace, and outlines the
 cubicle. Clicking it again, or anywhere else on the floor, clears the filter.
 
@@ -320,8 +341,8 @@ their alias, and listed aliases that aren't allowlisted are ignored. Keep names 
 characters fit a sign at every size.
 
 The code is split so the rules are testable and the art is replaceable: `scene.js` is the pure
-scene reducer (snapshot + previous scene → scene, tested: room placement, phases, pile growth, and
-when each animation starts), `layout.js` places the rooms, cubicles and desks and hit-tests clicks
+scene reducer (snapshot + previous scene → scene, tested: room placement, phases, pile growth,
+when each animation starts, and each room's last outcome), `layout.js` places the rooms, cubicles and desks and hit-tests clicks
 (tested), `sprites.js` draws every sprite procedurally (swap it for sprite sheets later),
 and `officeView.js` draws a scene on a layout with the sprites, tweening the animations from the
 times the scene gives.
@@ -398,7 +419,7 @@ are told the same rule in their prompt preamble.
 - `dashboard/`: the office dashboard page (static, no build). `docs/nginx/office.conf` serves it.
 - `logs/agent-runs/`: one `<runId>.log` per run (plus `<runId>-autofix.log`), `active/<runId>.json`
   per in-flight run (live progress), `runs.jsonl` history (an issue run's `costUsd` includes its
-  autofix pass).
+  autofix pass; a run a restart cut off gets an `outcome: interrupted` row on startup).
 
 ## Tests
 

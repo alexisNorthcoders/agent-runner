@@ -2,9 +2,10 @@
 // (sprites.js), at the layout's internal resolution. The page scales the result up by a whole
 // number. Not tested: the rules live in the reducer, and this only draws. The animations (the
 // mail carrier's delivery, the boss's walks, typing) are tweened here from the times the scene
-// gives, so the reducer only says what happens and when.
+// gives, so the reducer only says what happens and when, as are the ends of runs (the stamp coming
+// down, the papers to the out tray) from when the run ended.
 import { formatClock } from './format.js';
-import { WALL, cartSlots, cubicleDesk, deskAt, roomAt, workerRect } from './layout.js';
+import { WALL, cartSlots, cubicleDesk, deskAt, placeRect, roomAt, workerRect } from './layout.js';
 import * as s from './sprites.js';
 
 /** @typedef {import('./sprites.js').Ctx} Ctx */
@@ -19,6 +20,19 @@ const HAND_MS = 500;
 /** Animation frames: walking and typing, and the autofix's frantic scribbling. */
 const FRAME_MS = 150;
 const SCRIBBLE_MS = 60;
+/** A finished run's stamp coming down, and its papers going to the out tray (a quick stamp is shorter). */
+const STAMP_MS = 900;
+const QUICK_STAMP_MS = 400;
+const TRAY_MS = 900;
+/** The stamped sheets in the out tray. */
+const TRAY_SHEETS = 6;
+/** A tumbleweed rolls through a quiet room this often, taking this long. */
+const TUMBLE_EVERY_MS = 9000;
+const TUMBLE_MS = 3000;
+/** Resting states that keep moving: Zzz, stars, the tumbleweed. */
+const RESTLESS = new Set(['asleep', 'dizzy', 'shrug']);
+/** The most folders the boss's desk holds. */
+const FOLDERS_MAX = 4;
 
 /** @param {Ctx} ctx @param {Layout} layout */
 function drawBoss(ctx, layout) {
@@ -78,7 +92,9 @@ function deliveryTimes(run) {
  * Whether anything on the floor moves at time `t`, so the page knows to keep drawing frames.
  * @param {Scene} scene @param {number} t
  */
-export const animating = (scene, t) => !scene.dark && (!!scene.run || t - scene.boss.since < WALK_MS);
+export const animating = (scene, t) =>
+  !scene.dark &&
+  (!!scene.run || t - scene.boss.since < WALK_MS || scene.outcomes.some((o) => RESTLESS.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
 
 /** Whether the mail carrier is out delivering at `t`, away from the reception desk. @param {Scene} scene @param {number} t */
 function carrierOut(scene, t) {
@@ -119,6 +135,82 @@ function drawRun(ctx, layout, scene, t) {
   const f = going ? (t - leave) / WALK_MS : (t - arrive - HAND_MS) / WALK_MS;
   const [a, b] = going ? [from, to] : [to, from];
   s.walkingCarrier(ctx, lerp(a.x, b.x, f), lerp(a.y, b.y, f), frame, t < arrive + HAND_MS ? run.delivery.by : null);
+}
+
+/**
+ * How each room's last run left it, until its next run: the stamp and the out tray, the injured,
+ * sleeping, dizzy or shrugging worker, the tumbleweed, or the lights off where the worker went home.
+ * A PR left open is a folder on the boss's desk instead (drawFolders).
+ * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {number} t
+ */
+function drawOutcomes(ctx, layout, scene, t) {
+  for (const o of scene.outcomes) {
+    const desk = deskAt(layout, scene.cubicles, o.place);
+    const area = placeRect(layout, scene.cubicles, o.place);
+    if (!desk || !area) continue;
+    const w = workerRect(desk);
+    const since = t - o.endedAt;
+    switch (o.state) {
+      case 'stamped': {
+        const sheet = { x: desk.x + 2, y: desk.y + 1 };
+        const tray = { x: desk.x + desk.w - 11, y: desk.y + 3 };
+        if (o.quick) {
+          s.stampedSheet(ctx, sheet.x, sheet.y);
+          if (since < QUICK_STAMP_MS) s.stamp(ctx, sheet.x, sheet.y + 1, lerp(6, 0, since / QUICK_STAMP_MS), false);
+        } else if (since < STAMP_MS) {
+          s.paperPile(ctx, sheet.x, sheet.y + 2, TRAY_SHEETS);
+          s.stamp(ctx, sheet.x - 1, sheet.y + 2 - TRAY_SHEETS, lerp(14, 0, since / STAMP_MS), true);
+        } else if (since < STAMP_MS + TRAY_MS) {
+          // the sheets slide over to the tray one by one
+          const f = (since - STAMP_MS) / TRAY_MS;
+          const moved = Math.min(TRAY_SHEETS, Math.floor(f * (TRAY_SHEETS + 1)));
+          s.paperPile(ctx, sheet.x, sheet.y + 2, TRAY_SHEETS - moved);
+          s.outTray(ctx, tray.x, tray.y, moved);
+        } else s.outTray(ctx, tray.x, tray.y, TRAY_SHEETS);
+        break;
+      }
+      case 'injured':
+        s.worker(ctx, w, 0);
+        s.bandage(ctx, w);
+        break;
+      case 'asleep':
+        s.sleepingWorker(ctx, w, desk.y);
+        s.zzz(ctx, w.x + 9, desk.y - 12, Math.floor(t / 500));
+        break;
+      case 'dizzy': {
+        const sway = { ...w, x: w.x + (Math.floor(t / 400) % 2) };
+        s.worker(ctx, sway, 0);
+        s.flushed(ctx, sway);
+        s.dizzyStars(ctx, sway.x + 1, sway.y - 4, Math.floor(t / 200));
+        break;
+      }
+      case 'shrug': {
+        s.shruggingWorker(ctx, w);
+        const roll = (t - o.endedAt) % TUMBLE_EVERY_MS;
+        if (roll >= 0 && roll < TUMBLE_MS) {
+          const floorY = area.y + area.h - 3;
+          s.tumbleweed(ctx, lerp(area.x + 4, area.x + area.w - 11, roll / TUMBLE_MS), floorY, Math.floor(t / 120));
+        }
+        break;
+      }
+      case 'home':
+        s.lightsOff(ctx, area);
+        break;
+    }
+  }
+}
+
+/**
+ * The folders the rooms with a PR left open put on the boss's desk, each labelled with its room.
+ * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene
+ */
+function drawFolders(ctx, layout, scene) {
+  const d = layout.desks.boss;
+  const open = scene.outcomes.filter((o) => o.state === 'folder').slice(0, FOLDERS_MAX);
+  open.forEach((o, i) => {
+    const name = o.place.room === 'cubicle' ? (scene.cubicles.find((c) => c.alias === /** @type {{ alias: string }} */ (o.place).alias)?.name ?? '') : layout.rooms[o.place.room].name;
+    s.folder(ctx, d.x + (i % 2) * 29, d.y - 1 - Math.floor(i / 2) * 9, 27, name);
+  });
 }
 
 /**
@@ -182,8 +274,10 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   s.mailCart(ctx, layout.cart);
   for (const slot of cartSlots(layout, scene.reception.letters)) s.letter(ctx, slot.rect, slot.pile);
   s.plant(ctx, rooms.reception.rect.x + rooms.reception.rect.w - 14, rooms.reception.rect.y + WALL + 4);
+  drawOutcomes(ctx, layout, scene, t);
   drawRun(ctx, layout, scene, t);
   drawBossFigure(ctx, layout, scene, t);
+  drawFolders(ctx, layout, scene);
 
   if (scene.dark) {
     s.darkness(ctx, layout.width, layout.height);

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { PILE_MAX, reduceScene } from '../dashboard/scene.js';
+import { PILE_MAX, reduceScene, restingState } from '../dashboard/scene.js';
 
 const NOW = Date.parse('2026-09-26T12:00:00Z');
 const iso = (ms) => new Date(NOW + ms).toISOString();
@@ -324,5 +324,116 @@ describe('office scene: post-run', () => {
       for (const s of scenes) assert.deepEqual(s.boss, { at: null, from: null, since: 0 }, kind);
       assert.equal(scenes[1].run.work, 'typing', kind);
     }
+  });
+});
+
+/** A finished run, as the office feed's history carries it. @returns {any} */
+const row = (over = {}) => ({
+  runId: 'h1',
+  kind: 'issue',
+  trigger: 'cron',
+  label: 'issue bot#3',
+  workspaceAlias: 'bot',
+  issueNumber: 3,
+  room: null,
+  startedAt: iso(-20 * 60_000),
+  endedAt: iso(-60_000),
+  durationMs: 19 * 60_000,
+  outcome: 'success',
+  result: 'merged',
+  prUrl: 'https://github.com/o/bot/pull/9',
+  model: null,
+  turns: 10,
+  costUsd: 1,
+  tokens: 100,
+  ...over,
+});
+
+describe('office scene: outcomes', () => {
+  it('maps every outcome and result the runner records to a resting state', () => {
+    const cases = [
+      [{ outcome: 'success', result: 'merged' }, 'stamped'],
+      [{ outcome: 'success', result: 'pr_open' }, 'folder'],
+      [{ outcome: 'success', result: 'pushed' }, 'folder'],
+      [{ outcome: 'success', result: 'no_changes' }, 'shrug'],
+      [{ outcome: 'success', result: 'failed' }, 'injured'],
+      [{ outcome: 'timeout', result: 'timeout' }, 'asleep'],
+      [{ outcome: 'failed', result: 'failed' }, 'injured'],
+      [{ outcome: 'spawn_error', result: 'failed' }, 'injured'],
+      [{ outcome: 'stopped', result: 'failed' }, 'home'],
+      [{ outcome: 'interrupted', result: null }, 'dizzy'],
+      // freeform, Joplin and scheduled jobs have no pipeline result
+      [{ outcome: 'success', result: null }, 'stamped'],
+      [{ outcome: 'failed', result: null }, 'injured'],
+      [{ outcome: 'spawn_error', result: null }, 'injured'],
+      [{ outcome: 'timeout', result: null }, 'asleep'],
+      [{ outcome: 'stopped', result: null }, 'home'],
+      // something newer than this page: neutral
+      [{ outcome: 'success', result: 'launched' }, 'idle'],
+      [{ outcome: 'exploded', result: null }, 'idle'],
+    ];
+    for (const [over, state] of cases) assert.equal(restingState(row(over)), state, JSON.stringify(over));
+  });
+
+  it("puts each room's latest run in it, and nothing where no run has ended", () => {
+    const history = [
+      row({ runId: 'b2', workspaceAlias: 'bot', result: 'no_changes' }),
+      row({ runId: 'b1', workspaceAlias: 'bot', result: 'merged', endedAt: iso(-3_600_000) }),
+      row({ runId: 'f1', kind: 'freeform', workspaceAlias: null, issueNumber: null, result: null, outcome: 'timeout', prUrl: null }),
+      row({ runId: 'j1', kind: 'joplin', workspaceAlias: null, issueNumber: null, result: null, outcome: 'stopped', prUrl: null }),
+      row({ runId: 's1', kind: 'job', trigger: 'schedule', workspaceAlias: null, room: 'dots', result: null }),
+    ];
+    const scene = reduceScene(snap({ history }), null, up);
+    assert.deepEqual(
+      scene.outcomes.map((o) => [o.place, o.runId, o.state]),
+      [
+        [{ room: 'cubicle', alias: 'bot' }, 'b2', 'shrug'],
+        [{ room: 'annex' }, 'f1', 'asleep'],
+        [{ room: 'library' }, 'j1', 'home'],
+      ]
+    );
+  });
+
+  it('carries what the hover shows: the outcome, when it ended and the PR link', () => {
+    const [o] = reduceScene(snap({ history: [row({ result: 'pr_open' })] }), null, up).outcomes;
+    assert.equal(o.label, 'issue bot#3');
+    assert.equal(o.outcome, 'PR open');
+    assert.equal(o.endedAt, NOW - 60_000);
+    assert.equal(o.prUrl, 'https://github.com/o/bot/pull/9');
+  });
+
+  it('describes every state for the hover, with the raw outcome for the fallback', () => {
+    assert.equal(reduceScene(snap({ history: [row()] }), null, up).outcomes[0].outcome, 'merged');
+    assert.equal(reduceScene(snap({ history: [row({ outcome: 'interrupted', result: null })] }), null, up).outcomes[0].outcome, 'interrupted by a restart');
+    assert.equal(reduceScene(snap({ history: [row({ outcome: 'exploded', result: null })] }), null, up).outcomes[0].outcome, 'exploded');
+  });
+
+  it('stamps a short run quickly, and a long one with papers to the out tray', () => {
+    const quick = reduceScene(snap({ history: [row({ durationMs: 60_000 })] }), null, up).outcomes[0];
+    const long = reduceScene(snap({ history: [row()] }), null, up).outcomes[0];
+    assert.equal(quick.quick, true);
+    assert.equal(long.quick, false);
+  });
+
+  it('clears a room once its next run starts there, and keeps the others', () => {
+    const history = [row({ runId: 'b1' }), row({ runId: 'c1', workspaceAlias: 'chess-trainer', result: 'pr_open' })];
+    const scene = reduceScene(snap({ ...running({ workspaceAlias: 'bot' }), history }), null, up);
+    assert.deepEqual(
+      scene.outcomes.map((o) => o.runId),
+      ['c1']
+    );
+  });
+
+  it('shows the last outcomes after a reload and while the runner is down', () => {
+    const history = [row()];
+    const fresh = reduceScene(snap({ history }), null, up);
+    assert.equal(fresh.outcomes.length, 1);
+    const dark = reduceScene(snap({ history }), fresh, { ...up, up: false });
+    assert.equal(dark.outcomes.length, 1);
+  });
+
+  it('puts an issue run whose workspace has no cubicle in the Annex', () => {
+    const [o] = reduceScene(snap({ history: [row({ workspaceAlias: 'gone' })] }), null, up).outcomes;
+    assert.deepEqual(o.place, { room: 'annex' });
   });
 });

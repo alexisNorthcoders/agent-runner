@@ -49,14 +49,15 @@ import { spend, totalTokens } from './statusFormat.js';
  *   durationMs: number | null,
  *   outcome: string,
  *   result: string | null,
+ *   prUrl: string | null,
  *   model: string | null,
  *   turns: number,
  *   costUsd: number | null,
  *   tokens: number,
  * }} OfficeHistoryEntry
  *   A finished run. `outcome` is the agent's (`success`, `failed`, `timeout`, `stopped`,
- *   `spawn_error`); `result` is an issue run's pipeline result (`merged`, `pr_open`, `pushed`,
- *   `no_changes`, …). `tokens` is the total over input, output and cache.
+ *   `spawn_error`), or `interrupted` for a run a restart cut off; `result` is an issue run's
+ *   pipeline result (`merged`, `pr_open`, `pushed`, `no_changes`, …), and `prUrl` its PR's. `tokens` is the total over input, output and cache.
  *
  * @typedef {{ runs: number, costUsd: number, tokens: number }} SpendTotals
  *
@@ -171,6 +172,7 @@ function historyEntry(h) {
     durationMs: Number.isFinite(durationMs) ? durationMs : null,
     outcome: h.outcome,
     result: typeof h.result === 'string' ? h.result : null,
+    prUrl: typeof h.prUrl === 'string' ? h.prUrl : null,
     model: h.model ?? null,
     turns: h.turns ?? 0,
     costUsd: h.costUsd ?? null,
