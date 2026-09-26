@@ -51,6 +51,14 @@ describe('workspace allowlist', () => {
     assert.deepEqual(await ws.aliases(), ['alpha', 'c', 'zed']);
   });
 
+  it('lists the workspaces with their canonical roots, leaving out unreachable ones', async () => {
+    const ws = createWorkspaceAllowlist({ env: { CLAUDE_WORKSPACE_MAP: `zed=${repoA},b=${join(dir, 'link-b')},gone=${join(dir, 'missing')}` } });
+    assert.deepEqual(await ws.list(), [
+      { alias: 'b', root: repoB },
+      { alias: 'zed', root: repoA },
+    ]);
+  });
+
   it('rejects an unknown alias and lists the valid ones', async () => {
     const ws = createWorkspaceAllowlist({ env: { CLAUDE_WORKSPACE_MAP: `zed=${repoA},alpha=${repoB}` } });
     await assert.rejects(ws.resolveIssueWorkspace('nope'), /Unknown workspace alias "nope"\. Valid aliases: alpha, zed/);

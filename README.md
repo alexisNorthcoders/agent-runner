@@ -24,7 +24,7 @@ WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-resta
 
 | Text | Effect |
 | --- | --- |
-| `claude <instructions>` | Run the agent in `~/Projects` (`AGENT_WORKSPACE`). If it changes a git repo, its preamble has it branch, commit, push, open a PR, review it, merge it and return to the default branch (`src/preamble.js`). |
+| `claude <instructions>` | Run the agent in `~/Projects` (`AGENT_WORKSPACE`). If it changes a git repo, its preamble has it branch, commit, push, open a PR, review it, merge it and return to the default branch (`src/preamble.js`). The runner infers which allowlisted workspace it works in (see [Freeform runs' workspace](#freeform-runs-workspace)). |
 | `claude joplin:<note title or id>` | Use a note from the `WhatsApp Bot` notebook as the instructions (Joplin Data API). |
 | `claude issue:<alias>:<n> [extra instructions]` | Implement GitHub issue `n` in the allowlisted `<alias>` workspace, then commit, PR, review and merge. See [Issue runs](#issue-runs). |
 | `claude issue:<n> [extra instructions]` | The same, in the `CLAUDE_ISSUE_DEFAULT_ALIAS` workspace. |
@@ -45,6 +45,20 @@ in Redis, so it survives a restart, and the runner re-checks it every 15s (e.g. 
 ends). The cron skips its tick while anything is queued. A due [scheduled job](#scheduled-jobs) joins
 the same queue. Status and history
 replies are a single compact message, with no log paths or excerpts.
+
+## Freeform runs' workspace
+
+A freeform run's **inferred workspace** is the allowlisted workspace its first edit or command
+works in: an edit of a file under the workspace's path, or a command run in it (the agent's shell
+`cd`s there) or naming a path in it (`git -C`, `npm --prefix`, an absolute or `~/` path). Reads
+and searches don't count. Paths are compared by realpath. Once set, it doesn't change for the rest
+of the run.
+
+The agent backend turns its tool calls into agent-neutral touches (`AgentTouch`; Claude's parsing is
+`src/agentBackend/claudeToolTouch.js`), and `src/workspaceInference.js` matches them to the
+allowlist. The workspace is recorded as `inferredWorkspace` on the lock record and the active-run
+file, in the history row and the office snapshot, and shows in `claude:status` and
+`claude:history` as `fix the login bug → whatsapp-bot`. Joplin runs don't infer one.
 
 ## Terminal status
 
@@ -230,6 +244,7 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
   "activeRun": {                       // the run this runner is executing, or null
     "runId": "…", "kind": "issue", "trigger": "cron",   // trigger: "cron" | "manual" | "schedule"
     "label": "issue bot#7 \"Fix it\"", "workspaceAlias": "bot", "issueNumber": 7,
+    "inferredWorkspace": null,         // a freeform run's workspace, once inferred (see below)
     "room": null,                      // a scheduled job's room, else null
     "health": "running",               // running | orphaned | stale
     "phase": "agent",                  // agent | post-run | job, null if not run by this process
@@ -249,10 +264,11 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
     "nextTickAt": "…"                  // last tick start + interval; null before a tick or if dead
   },
   "lock": { "runId": "…", "kind": "issue", "trigger": "cron", "label": "…",
-            "workspaceAlias": "bot", "issueNumber": 7, "startedAt": "…" },  // or null
+            "workspaceAlias": "bot", "inferredWorkspace": null, "issueNumber": 7,
+            "room": null, "startedAt": "…" },  // or null
   "history": [                         // the last 7 days, newest first
     { "runId": "…", "kind": "issue", "trigger": "cron", "label": "…", "workspaceAlias": "bot",
-      "issueNumber": 7, "startedAt": "…", "endedAt": "…", "durationMs": 60000,
+      "inferredWorkspace": null, "issueNumber": 7, "startedAt": "…", "endedAt": "…", "durationMs": 60000,
       "outcome": "success", "result": "merged", "prUrl": "https://github.com/…/pull/9",
       "model": "…", "turns": 3, "costUsd": 1.2, "tokens": 1700000 }
       // outcome: success | failed | timeout | stopped | spawn_error | interrupted (by a restart)
@@ -297,7 +313,9 @@ A live run plays out on the floor:
   for a cron run, or the Reception phone rings first for a manual (WhatsApp) one. A page opened
   mid-run doesn't replay it.
 - **Rooms:** an issue run is worked in its workspace's cubicle, a freeform run in the Annex, a Joplin
-  run in the Library. (Scheduled jobs get their rooms in #26.)
+  run in the Library. (Scheduled jobs get their rooms in #26.) When a freeform run's workspace is
+  inferred (below), its worker picks up their papers and walks from the Annex to that cubicle, and
+  its outcome shows there when it ends.
 - **Agent phase:** the worker types, the paper pile on the desk grows with turns and elapsed time
   (to a cap), and a speech bubble shows the last activity, shortened (hover the worker for all of it).
 - **Post-run** (issue runs): the boss walks over and reads over the worker's shoulder during the

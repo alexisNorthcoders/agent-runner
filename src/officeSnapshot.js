@@ -19,6 +19,7 @@ import { spend, totalTokens } from './statusFormat.js';
  *   trigger: import('./runLock.js').RunTrigger,
  *   label: string | null,
  *   workspaceAlias: string | null,
+ *   inferredWorkspace: string | null,
  *   issueNumber: number | null,
  *   room: string | null,
  *   health: RunHealth,
@@ -33,7 +34,9 @@ import { spend, totalTokens } from './statusFormat.js';
  *   agentPid: number | null,
  * }} OfficeRun
  *   An in-flight run. `trigger` is `cron` for the cron issue tracer, `schedule` for a scheduled
- *   job (`kind: job`, with its `room`), else `manual` (WhatsApp or HTTP). A job's phase is `job`. `phase` is known only for the run this process is executing (null for an orphaned or
+ *   job (`kind: job`, with its `room`), else `manual` (WhatsApp or HTTP). `inferredWorkspace`: the
+ *   allowlisted workspace a freeform run turned out to work in, once its first edit or command
+ *   there is seen (null until then, and for other kinds). A job's phase is `job`. `phase` is known only for the run this process is executing (null for an orphaned or
  *   stale one). `elapsedMs` is as of the snapshot's `at`.
  *
  * @typedef {{
@@ -42,6 +45,7 @@ import { spend, totalTokens } from './statusFormat.js';
  *   trigger: import('./runLock.js').RunTrigger,
  *   label: string | null,
  *   workspaceAlias: string | null,
+ *   inferredWorkspace: string | null,
  *   issueNumber: number | null,
  *   room: string | null,
  *   startedAt: string | null,
@@ -58,7 +62,7 @@ import { spend, totalTokens } from './statusFormat.js';
  *   A finished run. `outcome` is the agent's (`success`, `failed`, `timeout`, `stopped`,
  *   `spawn_error`), or `interrupted` for a run a restart cut off; `result` is an issue run's
  *   pipeline result (`merged`, `pr_open`, `pushed`, `no_changes`, …), and `prUrl` its PR's.
- *   `tokens` is the total over input, output and cache.
+ *   `tokens` is the total over input, output and cache. `inferredWorkspace`: as on `OfficeRun`.
  *
  * @typedef {{ runs: number, costUsd: number, tokens: number }} SpendTotals
  *
@@ -90,6 +94,7 @@ import { spend, totalTokens } from './statusFormat.js';
  *   trigger: import('./runLock.js').RunTrigger,
  *   label: string | null,
  *   workspaceAlias: string | null,
+ *   inferredWorkspace: string | null,
  *   issueNumber: number | null,
  *   room: string | null,
  *   startedAt: string | null,
@@ -113,7 +118,7 @@ import { spend, totalTokens } from './statusFormat.js';
  *   first. `queue`: oldest first. `history`: the last 7 days, newest first. `spend`: today (since
  *   local midnight) and the last 7 days. `workspaces`: the allowlisted aliases, sorted.
  *
- * @typedef {{ runId: string, phase?: 'agent' | 'post-run' | 'job' } & Partial<import('./agentBackend/index.js').AgentProgress>} LiveRun
+ * @typedef {{ runId: string, phase?: 'agent' | 'post-run' | 'job', inferredWorkspace?: string } & Partial<import('./agentBackend/index.js').AgentProgress>} LiveRun
  *   What this process knows about the run it's executing (from `runner.status()`), fresher than
  *   the throttled active-run file.
  */
@@ -126,6 +131,9 @@ const triggerOf = (trigger) => (trigger === 'cron' || trigger === 'schedule' ? t
 
 /** @param {unknown} room @returns {string | null} */
 const roomOf = (room) => (typeof room === 'string' ? room : null);
+
+/** @param {unknown} alias @returns {string | null} */
+const aliasOf = (alias) => (typeof alias === 'string' ? alias : null);
 
 /**
  * @param {import('./activeRuns.js').ActiveRun} r
@@ -142,6 +150,7 @@ function officeRun(r, live, now) {
     trigger: triggerOf(r.trigger),
     label: r.label ?? null,
     workspaceAlias: r.workspaceAlias ?? null,
+    inferredWorkspace: aliasOf(p.inferredWorkspace),
     issueNumber: r.issueNumber ?? null,
     room: roomOf(r.room),
     health: r.health,
@@ -166,6 +175,7 @@ function historyEntry(h) {
     trigger: triggerOf(h.trigger),
     label: h.label ?? null,
     workspaceAlias: typeof h.workspaceAlias === 'string' ? h.workspaceAlias : null,
+    inferredWorkspace: aliasOf(h.inferredWorkspace),
     issueNumber: typeof h.issueNumber === 'number' ? h.issueNumber : null,
     room: roomOf(h.room),
     startedAt: h.startedAt ?? null,
@@ -225,6 +235,7 @@ export function buildOfficeSnapshot({ status: d, live, workspaces }) {
           trigger: triggerOf(d.lock.trigger),
           label: d.lock.label ?? null,
           workspaceAlias: d.lock.workspaceAlias ?? null,
+          inferredWorkspace: aliasOf(d.lock.inferredWorkspace),
           issueNumber: d.lock.issueNumber ?? null,
           room: roomOf(d.lock.room),
           startedAt: d.lock.startedAt ?? null,

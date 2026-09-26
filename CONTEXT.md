@@ -22,6 +22,10 @@ _Avoid_: cron job (the cron is the issue tracer), job (for any other run)
 An allowlisted repo on the Pi, named by its alias (e.g. `chess-trainer`). Issue runs only happen in workspaces.
 _Avoid_: project, repo (when you mean the alias)
 
+**Inferred workspace**:
+The **Workspace** a freeform **Run** turned out to work in: the first one its agent edits a file in or runs a command in (reads don't count). Set once, it never changes for the run.
+_Avoid_: target repo, detected workspace
+
 **Phase**:
 Where the executing run is: `agent` (an agent pass, the first one or the autofix), `post-run` (commit, PR, review, merge), or `job` (a **Scheduled job**'s command).
 
@@ -56,7 +60,7 @@ _Avoid_: map, canvas (for the concept)
 The open-plan middle of the office, where the **Cubicles** are.
 
 **Cubicle**:
-A **Workspace**'s desk in the office bullpen, one per allowlisted alias, where its issue runs are worked.
+A **Workspace**'s desk in the office bullpen, one per allowlisted alias, where its issue runs are worked, and freeform runs whose **Inferred workspace** it is.
 
 **Department sign**:
 The name on a **Cubicle**. It comes from the dashboard config (`dashboard/office.json`), which also sets the cubicles' order; an alias the config doesn't name shows the alias.
@@ -90,7 +94,7 @@ The office's front desk, by the front door: the **Mail carrier**, the cron count
 The cart at **Reception** with one letter per queued request, oldest first; hovering a letter shows its label. When the cart is full, its last slot is a pile standing for the rest.
 
 **Annex**:
-The room for freeform runs, which work outside a known **Workspace**.
+The room for freeform runs, which work outside a known **Workspace**. A freeform run's **Worker** starts here and walks to a **Cubicle** once the run's **Inferred workspace** is set.
 
 **Library**:
 The room for Joplin runs, whose instructions come from a Joplin note.
@@ -102,7 +106,7 @@ The figure who delivers each run to its room: an interoffice envelope for a cron
 
 - The **Office feed** pushes **Office snapshots**; the **Office** only ever reads them.
 - Each allowlisted **Workspace** has one **Cubicle**; an **Issue run** is worked in its **Cubicle**.
-- A freeform **Run** is worked in the **Annex**, a Joplin **Run** in the **Library**, a **Scheduled job** in the room its config names.
+- A freeform **Run** is worked in the **Annex**, or in the **Cubicle** of its **Inferred workspace** once it has one; a Joplin **Run** in the **Library**, a **Scheduled job** in the room its config names.
 - The **Queue** waits at **Reception** until the **Mail carrier** delivers the next **Run**.
 
 ## Flagged ambiguities

@@ -28,6 +28,17 @@ describe('activeRuns', () => {
     assert.deepEqual(await active.list(), []);
   });
 
+  it('setRecord rewrites the record at once and keeps the progress', async () => {
+    const active = createActiveRuns({ dir, isAlive: () => true, throttleMs: 0 });
+    const t = active.track(rec('r1'));
+    await t.update({ model: 'm', turns: 3, outputTokens: 40, contextTokens: 900, lastActivity: 'Edit: a.js' });
+    await t.setRecord(rec('r1', { inferredWorkspace: 'bot' }));
+    const [run] = await active.list();
+    assert.equal(run.inferredWorkspace, 'bot');
+    assert.equal(run.turns, 3);
+    await t.finish();
+  });
+
   it('throttles progress writes but flushes the latest one afterwards', async () => {
     const active = createActiveRuns({ dir, isAlive: () => true, throttleMs: 30 });
     const t = active.track(rec('r1'));

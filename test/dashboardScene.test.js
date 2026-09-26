@@ -217,6 +217,47 @@ describe('office scene: a run starting', () => {
   });
 });
 
+describe('office scene: a freeform run finding its workspace', () => {
+  const freeform = (over = {}) => running({ kind: 'freeform', workspaceAlias: null, issueNumber: null, inferredWorkspace: null, ...over });
+
+  it('starts in the Annex, then picks up their papers and walks to the cubicle once it is inferred', () => {
+    const [before, after, later] = play([
+      [freeform({ turns: 10 }), NOW],
+      [freeform({ turns: 12, inferredWorkspace: 'bot' }), NOW + 5_000],
+      [freeform({ turns: 15, inferredWorkspace: 'bot' }), NOW + 9_000],
+    ]);
+    assert.deepEqual(before.run?.place, { room: 'annex' });
+    assert.equal(before.run?.moved, null);
+    assert.deepEqual(after.run?.place, { room: 'cubicle', alias: 'bot' });
+    assert.deepEqual(after.run?.moved, { from: { room: 'annex' }, since: NOW + 5_000 });
+    // the walk keeps its start, and the pile comes along
+    assert.deepEqual(later.run?.moved, after.run?.moved);
+    assert.equal(after.run?.pile, before.run?.pile);
+  });
+
+  it('stays in the Annex while no workspace is inferred, or its workspace has no cubicle', () => {
+    assert.deepEqual(reduceScene(freeform(), null, up).run?.place, { room: 'annex' });
+    assert.deepEqual(reduceScene(freeform({ inferredWorkspace: 'gone' }), null, up).run?.place, { room: 'annex' });
+  });
+
+  it("sits straight at the cubicle when the page opens after the move (no walk it didn't see)", () => {
+    const scene = reduceScene(freeform({ inferredWorkspace: 'dots' }), null, up);
+    assert.deepEqual(scene.run?.place, { room: 'cubicle', alias: 'dots' });
+    assert.equal(scene.run?.moved, null);
+  });
+
+  it("clears the cubicle's last outcome, and puts the run's own outcome there when it ends", () => {
+    const history = [row({ runId: 'b1', workspaceAlias: 'bot', result: 'merged' })];
+    const working = reduceScene(snap({ ...freeform({ inferredWorkspace: 'bot' }), history }), null, up);
+    assert.deepEqual(working.outcomes, []);
+    const ended = reduceScene(snap({ history: [row({ runId: 'f1', kind: 'freeform', workspaceAlias: null, issueNumber: null, inferredWorkspace: 'bot', result: null, prUrl: null }), ...history] }), working, up);
+    assert.deepEqual(
+      ended.outcomes.map((o) => [o.place, o.runId]),
+      [[{ room: 'cubicle', alias: 'bot' }, 'f1']]
+    );
+  });
+});
+
 describe('office scene: working', () => {
   it('types at the desk during the agent phase, with the last activity in a speech bubble', () => {
     const scene = reduceScene(running({ lastActivity: 'Bash: npm test' }), null, up);

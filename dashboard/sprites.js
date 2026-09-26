@@ -430,6 +430,34 @@ export function worker(ctx, r, hands) {
   ctx.fillRect(x + 7, y + (hands === 2 ? 15 : 17), 2, 2);
 }
 
+/**
+ * A worker on foot, carrying their papers (`pile` sheets, a few at most) in both hands: a freeform
+ * run moving from the Annex to its cubicle. (x, y) is the top of the head, as in `worker`, and
+ * `step` moves the legs.
+ * @param {Ctx} ctx @param {number} x @param {number} y @param {number} step @param {number} pile
+ */
+export function walkingWorker(ctx, x, y, step, pile) {
+  ctx.fillStyle = PALETTE.hair;
+  ctx.fillRect(x + 2, y, 6, 2);
+  ctx.fillStyle = PALETTE.skin;
+  ctx.fillRect(x + 2, y + 2, 6, 5);
+  ctx.fillStyle = PALETTE.ink;
+  ctx.fillRect(x + 6, y + 4, 1, 1);
+  ctx.fillStyle = PALETTE.shirt;
+  ctx.fillRect(x + 1, y + 7, 8, 10);
+  ctx.fillStyle = PALETTE.tie;
+  ctx.fillRect(x + 5, y + 8, 1, 5);
+  // the papers held against the chest, hands at the bottom
+  paperPile(ctx, x + 2, y + 13, Math.max(2, Math.min(5, pile)));
+  ctx.fillStyle = PALETTE.skin;
+  ctx.fillRect(x + 1, y + 12, 2, 2);
+  ctx.fillRect(x + 7, y + 12, 2, 2);
+  const s = step % 2;
+  ctx.fillStyle = PALETTE.ink;
+  ctx.fillRect(x + 2, y + 17, 2, s ? 3 : 4);
+  ctx.fillRect(x + 6, y + 17, 2, s ? 4 : 3);
+}
+
 /** Scribbles flying off the worker's paper (the autofix). @param {Ctx} ctx @param {Rect} r workerRect @param {number} frame */
 export function scribbles(ctx, r, frame) {
   ctx.fillStyle = PALETTE.ink;

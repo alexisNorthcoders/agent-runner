@@ -60,6 +60,12 @@ function table(headers, rows, empty) {
 /** @param {[string, string | Node][]} pairs */
 const dl = (pairs) => h('dl', null, ...pairs.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, v)]));
 
+/**
+ * The workspace a run worked in: an issue run's, or the one a freeform run was inferred to.
+ * @param {{ workspaceAlias: string | null, inferredWorkspace?: string | null }} r
+ */
+const workspaceOf = (r) => r.workspaceAlias ?? r.inferredWorkspace ?? null;
+
 /** The snapshot's clock, advanced by the time since it arrived. */
 const now = () => Date.parse(snap.at) + (Date.now() - receivedAt);
 
@@ -75,7 +81,7 @@ function renderNow() {
       h('h2', null, what(run)),
       dl([
         ['trigger', run.trigger],
-        ['workspace', run.workspaceAlias ?? '-'],
+        ['workspace', run.workspaceAlias ?? (run.inferredWorkspace ? `${run.inferredWorkspace} (inferred)` : '-')],
         ['issue', run.issueNumber != null ? `#${run.issueNumber}` : '-'],
         ['phase', run.phase ?? '-'],
         ['model', shortModel(run.model)],
@@ -116,7 +122,7 @@ function filterNote() {
 
 function renderHistory() {
   const t = now();
-  const rows = filter ? snap.history.filter((r) => r.workspaceAlias === filter) : snap.history;
+  const rows = filter ? snap.history.filter((r) => workspaceOf(r) === filter) : snap.history;
   return [
     h('p', null, `Today: ${formatTotals(snap.spend.today)}`, h('br'), `7 days: ${formatTotals(snap.spend.week)}`),
     filterNote(),
@@ -169,7 +175,7 @@ function renderOffice() {
       ['workspace', 'state'],
       snap.workspaces.map((alias) => {
         const wp = paused.get(alias);
-        const busy = snap.activeRun?.workspaceAlias === alias;
+        const busy = !!snap.activeRun && workspaceOf(snap.activeRun) === alias;
         return [alias, wp ? `paused for ${remaining(wp.until, t)}${wp.reason ? ` (${wp.reason})` : ''}` : busy ? 'working' : 'idle'];
       }),
       'No allowlisted workspaces.'

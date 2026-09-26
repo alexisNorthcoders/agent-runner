@@ -22,6 +22,7 @@
  *   pile: number,
  *   bubble: string | null,
  *   postRun: boolean,
+ *   moved: { from: Place, since: number } | null,
  * }} SceneRun
  *   The active run's worker. `delivery`: how the mail carrier brought it (an interoffice envelope
  *   for the cron, the phone ringing first for a manual run), and when, on the snapshot's clock.
@@ -31,6 +32,9 @@
  *   the hover tip. `postRun`: an issue run's post-run has been seen, so a later agent phase is the
  *   autofix. The snapshot can't tell the review from the commit and PR before it, so the whole of
  *   post-run counts as the review. A page opened mid-autofix can't tell it from the first pass.
+ *   `moved`: the worker picked up their papers and walked here from `from` (a freeform run leaving
+ *   the Annex for the cubicle it turned out to work in), at `since` on the snapshot's clock. Null
+ *   when they haven't moved, or the page opened after they did.
  *
  * @typedef {{ at: Place | null, from: Place | null, since: number }} SceneBoss
  *   Where the boss is: `at` a worker's desk, or null for their own office. `from` and `since`:
@@ -119,17 +123,20 @@ function shorten(s, n) {
 }
 
 /**
- * The room a run is worked in: its workspace's cubicle for an issue run, the Library for a Joplin
- * run, the Annex for freeform runs (and an issue run whose workspace has no cubicle). Null for a
- * scheduled job, whose rooms aren't in the office yet.
- * @param {{ kind: string | null, workspaceAlias: string | null }} r a run, in flight or finished
+ * The room a run is worked in: its workspace's cubicle for an issue run, and for a freeform run
+ * once its workspace is inferred, the Library for a Joplin run, else the Annex (a freeform run
+ * that hasn't found a workspace, or any run whose workspace has no cubicle). Null for a scheduled
+ * job, whose rooms aren't in the office yet.
+ * @param {{ kind: string | null, workspaceAlias: string | null, inferredWorkspace?: string | null }} r
+ *   a run, in flight or finished
  * @param {SceneCubicle[]} cubicles
  * @returns {Place | null}
  */
 function placeOf(r, cubicles) {
   if (r.kind === 'job') return null;
   if (r.kind === 'joplin') return { room: 'library' };
-  if (r.kind === 'issue' && cubicles.some((c) => c.alias === r.workspaceAlias)) return { room: 'cubicle', alias: /** @type {string} */ (r.workspaceAlias) };
+  const alias = r.kind === 'issue' ? r.workspaceAlias : r.kind === 'freeform' ? r.inferredWorkspace : null;
+  if (alias && cubicles.some((c) => c.alias === alias)) return { room: 'cubicle', alias };
   return { room: 'annex' };
 }
 
@@ -232,6 +239,7 @@ function reduceRun(snap, prev, cubicles, now) {
     pile: Math.max(same?.pile ?? 0, sheets),
     bubble: work === 'reviewed' ? null : shorten(r.lastActivity, BUBBLE_CHARS),
     postRun,
+    moved: same && !samePlace(same.place, place) ? { from: same.place, since: now } : (same?.moved ?? null),
   };
 }
 

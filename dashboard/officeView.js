@@ -105,8 +105,28 @@ function carrierOut(scene, t) {
 }
 
 /**
+ * Where the worker is at `t` while they walk their papers over to a new desk (a freeform run
+ * leaving the Annex for its cubicle), as the top of their head. Null when they aren't walking.
+ * The walk starts once the mail carrier has handed the run over.
+ * @param {Layout} layout @param {Scene} scene @param {number} t
+ * @returns {{ x: number, y: number } | null}
+ */
+function walking(layout, scene, t) {
+  const run = scene.run;
+  if (!run?.moved) return null;
+  const start = Math.max(run.moved.since, deliveryTimes(run).arrive);
+  const f = (t - start) / WALK_MS;
+  const from = deskAt(layout, scene.cubicles, run.moved.from);
+  const to = deskAt(layout, scene.cubicles, run.place);
+  if (f < 0 || f >= 1 || !from || !to) return null;
+  const a = workerRect(from);
+  const b = workerRect(to);
+  return { x: lerp(a.x, b.x, f), y: lerp(a.y, b.y, f) };
+}
+
+/**
  * The active run: the delivery, the worker at their desk (typing, still, or scribbling), their pile
- * and speech bubble.
+ * and speech bubble, or walking over to a new desk with the pile.
  * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {number} t
  */
 function drawRun(ctx, layout, scene, t) {
@@ -116,8 +136,11 @@ function drawRun(ctx, layout, scene, t) {
   const { leave, arrive } = deliveryTimes(run);
   const frame = Math.floor(t / FRAME_MS);
   if (t < leave && !run.postRun) s.phoneRinging(ctx, layout.desk, frame);
-  // in post-run the worker has been at the desk all along, whenever the page saw the run start
-  if (t >= arrive || run.postRun) {
+  const walked = walking(layout, scene, t);
+  if (walked) {
+    s.walkingWorker(ctx, walked.x, walked.y, frame, run.pile);
+  } else if (t >= arrive || run.postRun) {
+    // in post-run the worker has been at the desk all along, whenever the page saw the run start
     const w = workerRect(desk);
     const typing = run.work === 'typing';
     const scribbling = run.work === 'scribbling';

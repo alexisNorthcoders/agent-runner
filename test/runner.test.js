@@ -67,6 +67,7 @@ function setup(overrides = {}) {
       return {
         ready: Promise.resolve(),
         update: async (p) => void t.progress.push(p),
+        setRecord: async (r) => void (t.record = r),
         finish: async () => void (t.finished = true),
       };
     },
@@ -297,6 +298,65 @@ describe('runner: freeform runs', () => {
   it('returns parse errors as the reply', async () => {
     const { runner } = setup();
     assert.match((await runner.handleCommand({ text: 'claude', replyTo: 'a' })).reply, /Usage/);
+  });
+});
+
+describe('runner: a freeform run finds its workspace', () => {
+  const allowlist = {
+    resolveIssueWorkspace: async (alias) => ({ alias, root: `/repos/${alias}` }),
+    list: async () => [
+      { alias: 'bot', root: '/repos/bot' },
+      { alias: 'chess', root: '/repos/chess' },
+    ],
+  };
+  // /repos doesn't exist, so each path resolves to itself after a few failed realpath calls
+  /** Resolves once `cond` holds (or after 2s). @param {() => Promise<boolean>} cond */
+  const until = async (cond) => {
+    for (let i = 0; i < 200 && !(await cond()); i++) await new Promise((r) => setTimeout(r, 10));
+  };
+
+  it('records the first edit or command in a workspace on the active run, the lock, status and history', async () => {
+    const changes = [];
+    const { runner, starts, lock, tracked, history } = setup({ workspaces: allowlist, onChange: (w) => changes.push(w) });
+    await runner.handleCommand({ text: 'claude fix the bot', replyTo: 'jid' });
+    const { onTouch } = starts[0].opts;
+    onTouch({ action: 'command', paths: ['/home/u/Projects'] });
+    onTouch({ action: 'edit', paths: ['/repos/bot/src/a.js'] });
+    onTouch({ action: 'edit', paths: ['/repos/chess/b.js'] });
+    await until(async () => changes.includes('inferred-workspace'));
+    // time for the later touch to have been looked at too
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal((await lock.current())?.inferredWorkspace, 'bot');
+    assert.equal(tracked[0].record.inferredWorkspace, 'bot');
+    assert.equal((await runner.status()).activeRun?.inferredWorkspace, 'bot');
+    assert.equal(changes.filter((c) => c === 'inferred-workspace').length, 1);
+    starts[0].finish();
+    await runner.idle();
+    assert.equal(history[0].inferredWorkspace, 'bot');
+    assert.equal(history[0].workspaceAlias, undefined);
+  });
+
+  it('a run that touches no workspace has none', async () => {
+    const { runner, starts, history } = setup({ workspaces: allowlist });
+    await runner.handleCommand({ text: 'claude look around', replyTo: 'jid' });
+    starts[0].opts.onTouch({ action: 'command', paths: ['/home/u/Projects', '/tmp/x'] });
+    await new Promise((r) => setTimeout(r, 50));
+    starts[0].finish();
+    await runner.idle();
+    assert.equal('inferredWorkspace' in history[0], false);
+  });
+
+  it('only freeform runs infer one', async () => {
+    const { runner, starts } = setup({ workspaces: allowlist });
+    await runner.handleCommand({ text: 'claude joplin:Plan', replyTo: 'jid' });
+    assert.equal(starts[0].opts.onTouch, undefined);
+  });
+
+  it('startup recovery keeps it in the interrupted run\'s history row', async () => {
+    const { runner, lock, history } = setup({ isAlive: () => false });
+    await lock.tryAcquire({ runId: 'old', kind: 'freeform', label: 'x', startedAt: '2026-09-24T11:00:00Z', inferredWorkspace: 'bot' });
+    await runner.recoverInterruptedRun();
+    assert.equal(history[0].inferredWorkspace, 'bot');
   });
 });
 

@@ -17,13 +17,15 @@
  *   ownerPid?: number,
  *   agentPid?: number | null,
  *   workspaceAlias?: string,
+ *   inferredWorkspace?: string,
  *   issueNumber?: number,
  *   trigger?: RunTrigger,
  *   jobName?: string,
  *   room?: string,
  * }} RunRecord
  *   A scheduled job's run has `kind: 'job'`, `trigger: 'schedule'`, its `jobName` and `room`, and
- *   `agentPid` is its command's pid.
+ *   `agentPid` is its command's pid. `inferredWorkspace`: the allowlisted workspace a freeform run
+ *   turned out to work in (its first edit or command there), once known; it never changes.
  */
 
 export const LOCK_KEY = 'agent-runner:lock';

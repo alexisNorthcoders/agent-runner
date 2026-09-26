@@ -113,14 +113,14 @@ export function createClaudeBackend({
   return {
     name: 'claude',
     stopOrphan: (pid) => stopOrphanClaude(pid),
-    async start({ prompt, preamble, implement, cwd, logPath, onProgress }) {
+    async start({ prompt, preamble, implement, cwd, logPath, onProgress, onTouch }) {
       await mkdir(dirname(logPath), { recursive: true });
       const log = createWriteStream(logPath, { flags: 'w' });
       // a log failure (disk full…) must not crash the runner or fail the run
       log.on('error', () => {});
       log.write(`cwd=${cwd}\nbin=${bin}\nmodel=${model}\n--- prompt ---\n${prompt}\n--- (preamble prepended for the agent) ---\n\n`);
 
-      const stream = createStreamAccumulator();
+      const stream = createStreamAccumulator({ cwd, onTouch });
       const child = spawnFn(
         bin,
         ['-p', '--model', model, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions', buildClaudePrompt({ prompt, preamble, implement })],

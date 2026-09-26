@@ -8,6 +8,7 @@ import { DEFAULT_JOB_TIMEOUT_MINUTES } from './scheduledJobs.js';
 import { decideSafeRestart } from './safeRestart.js';
 import { describeRun, UNKNOWN_RUN_ID } from './runLock.js';
 import { pidAlive } from './pidAlive.js';
+import { createWorkspaceInference } from './workspaceInference.js';
 import { formatDuration, renderHistoryText, renderStatusText } from './statusFormat.js';
 
 /**
@@ -116,7 +117,10 @@ export function formatJobResult(rec, r, durationMs) {
  *   statusSnapshot: () => Promise<import('./statusCollect.js').StatusSnapshot>,
  *   joplin: { getNote: (query: string) => Promise<{ id: string, title: string, body: string }> },
  *   launchSafeRestart: (replyTo: string) => void,
- *   workspaces?: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
+ *   workspaces?: {
+ *     resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }>,
+ *     list?: () => Promise<Array<{ alias: string, root: string }>>,
+ *   },
  *   issues?: Pick<import('./issuePipeline/index.js').IssuePipeline, 'prepare' | 'finish' | 'commitInterruptedWork'>,
  *   jobs?: Pick<import('./jobProcess.js').JobLauncher, 'start'>,
  *   jobTimeoutMs?: number,
@@ -178,6 +182,31 @@ export function createRunner({
     active.tracker.update(p);
     onChange('progress');
   };
+
+  /**
+   * The inferred workspace of freeform run `runId`, from its first edit or command in an allowlisted
+   * workspace: set once on the active run, its lock record and active-run file, and later its
+   * history row. Null when there's no allowlist to infer from.
+   * @param {string} runId
+   * @returns {((t: import('./agentBackend/index.js').AgentTouch) => void) | undefined}
+   */
+  function inferWorkspace(runId) {
+    const list = workspaces?.list;
+    if (!list) return undefined;
+    const inference = createWorkspaceInference({
+      workspaces: list,
+      logger,
+      async onInferred(alias) {
+        const a = active;
+        if (a?.record.runId !== runId || a.record.inferredWorkspace) return;
+        a.record = { ...a.record, inferredWorkspace: alias };
+        a.tracker.setRecord(a.record);
+        await lock.update(a.record).catch(() => {});
+        onChange('inferred-workspace');
+      },
+    });
+    return (t) => void inference.touch(t);
+  }
 
   /** @param {ActiveRun} a @param {ActiveRun['phase']} phase */
   const setPhase = (a, phase) => {
@@ -288,6 +317,7 @@ export function createRunner({
           durationMs: endedAt - Date.parse(/** @type {string} */ (record.startedAt)),
           outcome: result.outcome,
           exitCode: result.exitCode,
+          ...(a.record.inferredWorkspace ? { inferredWorkspace: a.record.inferredWorkspace } : {}),
           ...out.history,
         });
       } catch (err) {
@@ -430,7 +460,8 @@ export function createRunner({
       } else {
         prompt = cmd.prompt;
       }
-      await launch(record, { prompt, preamble: await freeformPreambleNow(), cwd: workspaceRoot }, async (result) => ({ text: formatRunResult(record, result) }));
+      const onTouch = cmd.kind === 'freeform' ? inferWorkspace(record.runId) : undefined;
+      await launch(record, { prompt, preamble: await freeformPreambleNow(), cwd: workspaceRoot, ...(onTouch ? { onTouch } : {}) }, async (result) => ({ text: formatRunResult(record, result) }));
       return { reply: `Started run ${record.runId}${source} in ${workspaceRoot}.\nLog: ${record.logPath}`, started: true };
     } catch (err) {
       await lock.release(record.runId).catch(() => {});
@@ -822,6 +853,7 @@ export function createRunner({
             label: rec.label,
             trigger: rec.trigger,
             workspaceAlias: rec.workspaceAlias,
+            inferredWorkspace: rec.inferredWorkspace,
             issueNumber: rec.issueNumber,
             room: rec.room,
             jobName: rec.jobName,
