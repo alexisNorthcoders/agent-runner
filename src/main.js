@@ -5,6 +5,7 @@ import { loadConfig } from './config.js';
 import { connectRedis, createRedisStore } from './redisStore.js';
 import { createRunLock } from './runLock.js';
 import { createPauseFlag } from './pauseFlag.js';
+import { createRunQueue } from './runQueue.js';
 import { createOutbox } from './outbox.js';
 import { createAgentBackend } from './agentBackend/index.js';
 import { createRunHistory } from './runHistory.js';
@@ -20,6 +21,7 @@ import { createWorkspaceAllowlist } from './workspaces.js';
 import { createIssuePipeline } from './issuePipeline/index.js';
 
 const config = loadConfig();
+const QUEUE_POLL_MS = 15_000;
 
 /**
  * Run `bin/safe-restart.js` fully detached. The `sh … &` double fork re-parents it away from this
@@ -41,6 +43,7 @@ const store = createRedisStore(redis);
 const lock = createRunLock({ store, ttlSeconds: config.lockTtlSeconds });
 const outbox = createOutbox({ store });
 const pause = createPauseFlag({ store });
+const queue = createRunQueue({ store });
 const history = createRunHistory({ dir: config.logsDir });
 const activeRuns = createActiveRuns({ dir: config.logsDir });
 const cronState = createCronState({ store });
@@ -50,11 +53,12 @@ const issues = createIssuePipeline({ settings: config.pipeline });
 const runner = createRunner({
   lock,
   pause,
+  queue,
   outbox,
   backend: createAgentBackend({ timeoutMs: config.agentTimeoutMs }),
   history,
   activeRuns,
-  statusSnapshot: () => collectStatus({ activeRuns, history, readCron: cronState.read, readPause: pause.get, readLock: lock.current }),
+  statusSnapshot: () => collectStatus({ activeRuns, history, readCron: cronState.read, readPause: pause.get, readLock: lock.current, readQueue: queue.list }),
   joplin: createJoplinClient(config.joplin),
   launchSafeRestart,
   workspaces,
@@ -92,6 +96,12 @@ try {
   console.error('agent-runner: startup recovery failed:', err?.message || err);
 }
 
+// Requests queued before a restart start now, and the timer picks the queue back up once a pause
+// (e.g. the one safe-restart holds while this process starts) is cleared.
+await runner.drainQueue();
+const queueTimer = setInterval(() => runner.drainQueue(), QUEUE_POLL_MS);
+queueTimer.unref();
+
 // After recovery, so a leftover lock can't make the first tick skip.
 const cron = createCronTracer({
   startIssueRun: runner.startIssueRun,
@@ -117,6 +127,7 @@ if (config.cron.enabled) {
 for (const sig of /** @type {const} */ (['SIGINT', 'SIGTERM'])) {
   process.once(sig, () => {
     cron.stop();
+    clearInterval(queueTimer);
     server.close();
     redis.quit().finally(() => process.exit(0));
   });

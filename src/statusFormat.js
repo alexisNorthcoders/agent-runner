@@ -183,6 +183,7 @@ export function renderStatus(d, c = plain) {
   if (d.paused === 'unknown') out.push(`${c.bold('PAUSED')}  ${c.dim('unknown (Redis unreachable)')}`);
   else if (!d.paused) out.push(`${c.bold('PAUSED')}  ${c.dim('no')}`);
   else out.push(`${c.bold('PAUSED')}  ${c.yellow(`yes, ${d.paused.reason}`)}${d.paused.pausedAt ? ` (${formatAgo(since(d.now, d.paused.pausedAt))})` : ''}`);
+  if (d.queue?.length) out.push(`${c.bold('QUEUE')}   ${d.queue.map((q, i) => `${i + 1}. ${clip(q.label, 60)}`).join('  ')}`);
   out.push('');
 
   const { today, week } = spend(d);
@@ -250,6 +251,7 @@ export function renderStatusText(d) {
   if (d.paused === 'unknown') out.push('Paused: unknown (Redis unreachable)');
   else if (!d.paused) out.push('Paused: no');
   else out.push(`Paused: yes (${d.paused.reason}${d.paused.pausedAt ? `, ${formatAgo(since(d.now, d.paused.pausedAt))}` : ''})`);
+  if (d.queue?.length) out.push(`Queue: ${d.queue.length} waiting (next: ${clip(d.queue[0].label, 60)})`);
 
   if (!d.cron) out.push('Cron: not started (no ticks recorded)');
   else if (!d.cron.lastTickEndedAt) out.push(`Cron: ${describeCronOutcome(null)}`);

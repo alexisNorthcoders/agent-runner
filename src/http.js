@@ -3,7 +3,7 @@ import { createServer } from 'http';
 /**
  * Localhost-only command API for the bot (bind to 127.0.0.1; there is no auth):
  *   POST /command {text, replyTo} → {reply}
- *   GET  /status                  → {busy, activeRun, paused}
+ *   GET  /status                  → {busy, activeRun, paused, queued}
  */
 
 const MAX_BODY_BYTES = 256 * 1024;

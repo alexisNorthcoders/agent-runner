@@ -55,6 +55,12 @@ describe('parseCommand', () => {
     assert.deepEqual(parseCommand('claude:history 500'), { kind: 'history', count: 30 });
   });
 
+  it('parses claude:queue [clear]', () => {
+    assert.deepEqual(parseCommand('claude:queue'), { kind: 'queue', clear: false });
+    assert.deepEqual(parseCommand('claude:queue CLEAR'), { kind: 'queue', clear: true });
+    assert.equal(parseCommand('claude:queue everything').kind, 'error');
+  });
+
   it('rejects a bad claude:history count', () => {
     for (const t of ['claude:history 0', 'claude:history lots', 'claude:history -2']) {
       const r = parseCommand(t);

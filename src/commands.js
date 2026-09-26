@@ -9,6 +9,7 @@
  *   | { kind: 'restart' }
  *   | { kind: 'status' }
  *   | { kind: 'history', count: number }
+ *   | { kind: 'queue', clear: boolean }
  *   | { kind: 'error', message: string }} Command
  */
 
@@ -17,7 +18,9 @@ claude <instructions>  run the agent in ~/Projects
 claude joplin:<note title or id>  use a Joplin note as the instructions
 claude issue:<alias>:<n> [extra instructions]  implement GitHub issue <n> in the <alias> workspace, then PR, review and merge
 claude issue:<n> [extra instructions]  the same, in the default issue workspace
-claude:stop  kill the active run
+claude:stop  kill the active run (queued requests still run)
+claude:queue  list the requests waiting for the agent
+claude:queue clear  drop every waiting request
 claude:restart  safely restart agent-runner (refused while a run is active)
 claude:status  active run, pause, last cron tick and recent runs
 claude:history [n]  the last n finished runs with cost and tokens`;
@@ -51,6 +54,12 @@ export function parseCommand(text) {
       if (!arg) return { kind: 'history', count: DEFAULT_HISTORY_COUNT };
       if (!/^\d+$/.test(arg) || parseInt(arg, 10) < 1) return { kind: 'error', message: HISTORY_USAGE };
       return { kind: 'history', count: Math.min(parseInt(arg, 10), MAX_HISTORY_COUNT) };
+    }
+    if (name === 'queue') {
+      const arg = (sub[2] ?? '').trim().toLowerCase();
+      if (!arg) return { kind: 'queue', clear: false };
+      if (arg === 'clear') return { kind: 'queue', clear: true };
+      return { kind: 'error', message: 'Usage: claude:queue [clear]' };
     }
     return { kind: 'error', message: `Unknown command "claude:${sub[1]}".\n\n${USAGE}` };
   }

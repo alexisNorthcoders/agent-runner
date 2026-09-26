@@ -1,7 +1,7 @@
 import { createClient } from 'redis';
 
 /**
- * The narrow slice of Redis the runner uses. The lock, pause flag, outbox and cron state depend on this
+ * The narrow slice of Redis the runner uses. The lock, pause flag, queue, outbox and cron state depend on this
  * interface, not on the client, so tests swap in `test/helpers/memoryStore.js`.
  *
  * @typedef {{
@@ -15,6 +15,11 @@ import { createClient } from 'redis';
  *   hashSet: (key: string, field: string, value: string) => Promise<void>,
  *   hashDelete: (key: string, field: string) => Promise<void>,
  *   appendToStream: (key: string, fields: Record<string, string>, opts: { minIdMs: number }) => Promise<string>,
+ *   listPushBack: (key: string, value: string) => Promise<number>,
+ *   listPushFront: (key: string, value: string) => Promise<number>,
+ *   listPopFront: (key: string) => Promise<string | null>,
+ *   listAll: (key: string) => Promise<string[]>,
+ *   listLength: (key: string) => Promise<number>,
  * }} Store
  */
 
@@ -65,6 +70,11 @@ export function createRedisStore(client) {
         TRIM: { strategy: 'MINID', strategyModifier: '~', threshold: minIdMs },
       });
     },
+    listPushBack: (key, value) => client.rPush(key, value),
+    listPushFront: (key, value) => client.lPush(key, value),
+    listPopFront: (key) => client.lPop(key),
+    listAll: (key) => client.lRange(key, 0, -1),
+    listLength: (key) => client.lLen(key),
   };
 }
 
