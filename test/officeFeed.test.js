@@ -157,6 +157,34 @@ describe('office feed', () => {
     await until(() => c.events.length === 2);
   });
 
+  it('never sends a client an older snapshot after a newer one', async () => {
+    /** @type {{ n: number, release: () => void }[]} */
+    const builds = [];
+    let n = 0;
+    t = await setup({
+      snapshot: () => {
+        const b = { n: ++n, release: () => {} };
+        builds.push(b);
+        return new Promise((r) => (b.release = () => r({ n: b.n })));
+      },
+    });
+    const a = await t.connect();
+    await until(() => builds.length === 1);
+    builds[0].release();
+    await until(() => a.events.length === 1);
+    t.changes.notify('progress'); // build 2, held back
+    await until(() => builds.length === 2);
+    const b = await t.connect(); // build 3
+    await until(() => builds.length === 3);
+    builds[2].release();
+    await until(() => b.events.length === 1);
+    builds[1].release();
+    await until(() => a.events.length === 2);
+    await wait(50);
+    assert.deepEqual(a.events.map((e) => e.data.n), [1, 2]);
+    assert.deepEqual(b.events.map((e) => e.data.n), [3]);
+  });
+
   it('refuses clients over the limit', async () => {
     t = await setup({ maxClients: 1 });
     const a = await t.connect();

@@ -67,6 +67,17 @@ describe('notifyingStore', () => {
     ]);
   });
 
+  it('settles a write only once an async notify has (a CLI publishes before it exits)', async () => {
+    /** @type {string[]} */
+    const published = [];
+    const store = notifyingStore(createMemoryStore(), async (key) => {
+      await new Promise((r) => setTimeout(r, 5));
+      published.push(key);
+    });
+    await createManualPause({ store }).set({ scope: 'all', seconds: 60 });
+    assert.deepEqual(published, ['agent-runner:manual-pause']);
+  });
+
   it('stays quiet on reads, failed writes and the outbox', async () => {
     const { store, seen } = setup();
     const lock = createRunLock({ store, ttlSeconds: 60 });

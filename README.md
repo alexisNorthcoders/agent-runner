@@ -144,8 +144,11 @@ read-only: it takes no input and there is no control route beside it.
 - Changes come from the runner's one internal change notification (`src/stateChanges.js`): every
   Redis state write goes through a notifying store, and the runner reports progress, phase and runs
   ending. Changes are coalesced, so pushes are at least 1s apart and a change shows within ~1.3s.
+- Writes by other processes (`npm run agent:pause` / `agent:resume`, safe-restart's pause flag)
+  are published on the Redis channel `agent-runner:state-changed`, which the runner subscribes to,
+  so they push too.
 - Every 30s the snapshot is resent anyway. That keeps the connection open through proxies, and
-  picks up what another process changed (`npm run agent:pause`, safe-restart's pause flag).
+  catches what nothing announces (a run turning orphaned or stale, a pause expiring).
 - Each event is `event: snapshot` with the JSON on one `data:` line. Up to 20 clients.
 
 ```sh
@@ -230,6 +233,7 @@ sudo nginx -t && sudo systemctl reload nginx     # open http://<pi>/office/
 | `agent-runner:cron:state` | string (JSON) | The cron's last tick (`pid`, `intervalMs`, times, outcome), for the status views. |
 | `agent-runner:cron:last-started` | hash | `owner/repo` → the last issue the cron made progress on there. |
 | `agent-runner:cron:pr-attempts` | hash | `owner/repo#n` → the PR state (`headSha:baseSha`) the cron last worked. Not written when an approved PR's merge failed only on a network error, so the next tick works it again. |
+| `agent-runner:state-changed` | pub/sub channel | The CLIs and safe-restart publish the key of each state write they make, so the runner's office feed pushes. |
 | `agent-runner:cron:park-notices` | hash | `owner/repo#n` → the parked PR state the owner was last told about. |
 
 ```sh

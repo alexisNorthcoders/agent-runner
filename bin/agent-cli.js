@@ -9,7 +9,8 @@ import { spawn } from 'child_process';
 import { access, readFile } from 'fs/promises';
 import { createClient } from 'redis';
 import { loadConfig } from '../src/config.js';
-import { createRedisStore } from '../src/redisStore.js';
+import { createRedisStore, publishStateChange } from '../src/redisStore.js';
+import { notifyingStore } from '../src/stateChanges.js';
 import { createPauseFlag } from '../src/pauseFlag.js';
 import { createRunLock } from '../src/runLock.js';
 import { createActiveRuns } from '../src/activeRuns.js';
@@ -67,7 +68,8 @@ function createRedisReader() {
   async function withStore(fn) {
     const client = await connect();
     try {
-      return await fn(createRedisStore(client));
+      // writes (pause, resume) tell the runner's office feed
+      return await fn(notifyingStore(createRedisStore(client), publishStateChange(client)));
     } catch (err) {
       connecting = null;
       client.disconnect().catch(() => {});

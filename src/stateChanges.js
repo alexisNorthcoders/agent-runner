@@ -4,8 +4,10 @@
  * a new snapshot on change instead of polling. Notifications carry only a reason, for logs and
  * tests: subscribers re-read the state themselves, so a burst of changes can be coalesced.
  *
- * Sources: every Redis state write (lock, queue, pauses, cron state) through `notifyingStore`, and
- * the runner's in-memory changes (agent progress, phase, a finished run's history row).
+ * Sources: every Redis state write (lock, queue, pauses, cron state) through `notifyingStore`, the
+ * runner's in-memory changes (agent progress, phase, a run starting and ending), and writes by
+ * other processes (the `agent:pause` CLI, safe-restart), which publish them on a Redis channel
+ * (`STATE_CHANNEL` in src/redisStore.js) the runner subscribes to.
  *
  * @typedef {(reason: string) => void} NotifyChange
  */
@@ -37,9 +39,10 @@ export function createStateChanges({ logger = console } = {}) {
 
 /**
  * `store` with `notify(key)` after each write that changed something. Reads and the outbox stream
- * (messages, not state) stay quiet, and so do conditional writes that didn't apply.
+ * (messages, not state) stay quiet, and so do conditional writes that didn't apply. A write
+ * settles once `notify` has (so a CLI's publish goes out before it exits).
  * @param {import('./redisStore.js').Store} store
- * @param {NotifyChange} notify
+ * @param {(key: string) => void | Promise<void>} notify
  * @returns {import('./redisStore.js').Store}
  */
 export function notifyingStore(store, notify) {
@@ -53,7 +56,7 @@ export function notifyingStore(store, notify) {
     /** @type {F} */ (
       async (key, ...rest) => {
         const r = await write(key, ...rest);
-        if (changed(r)) notify(key);
+        if (changed(r)) await notify(key);
         return r;
       }
     );

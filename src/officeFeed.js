@@ -38,28 +38,36 @@ export function createOfficeFeed({
   maxClients = FEED_MAX_CLIENTS,
   logger = console,
 }) {
-  /** @type {Set<import('http').ServerResponse>} */
-  const clients = new Set();
+  /** Each client, with the number of the newest snapshot it has been sent. @type {Map<import('http').ServerResponse, number>} */
+  const clients = new Map();
   /** @type {NodeJS.Timeout | null} */
   let timer = null;
   let building = false;
   let dirty = false;
   let lastPush = 0;
-  /** Counts changes, so a client that connected mid-change gets the push it missed. */
-  let changes = 0;
-  /** Clients still waiting for their first snapshot. */
-  let joining = 0;
+  /** Snapshots are numbered in the order their builds start, so a client never gets an older one after a newer one. */
+  let builds = 0;
 
   /** @param {unknown} snap */
   const event = (snap) => `event: snapshot\ndata: ${JSON.stringify(snap)}\n\n`;
 
+  /** @returns {Promise<{ seq: number, text: string } | null>} */
   async function build() {
+    const seq = ++builds;
     try {
-      return await snapshot();
+      return { seq, text: event(await snapshot()) };
     } catch (err) {
       logger.warn(`office feed: snapshot failed: ${err?.message || err}`);
       return null;
     }
+  }
+
+  /** @param {import('http').ServerResponse} res @param {{ seq: number, text: string } | null} snap */
+  function send(res, snap) {
+    const sent = clients.get(res);
+    if (!snap || sent == null || sent >= snap.seq) return;
+    clients.set(res, snap.seq);
+    res.write(snap.text);
   }
 
   async function push() {
@@ -70,10 +78,7 @@ export function createOfficeFeed({
     const snap = await build();
     building = false;
     lastPush = Date.now();
-    if (snap != null) {
-      const text = event(snap);
-      for (const res of clients) res.write(text);
-    }
+    for (const res of clients.keys()) send(res, snap);
     if (dirty) schedule();
   }
 
@@ -87,10 +92,7 @@ export function createOfficeFeed({
     timer = setTimeout(() => void push(), delay);
   }
 
-  const unsubscribe = subscribe(() => {
-    changes++;
-    schedule();
-  });
+  const unsubscribe = subscribe(() => schedule());
   const heartbeat = setInterval(schedule, heartbeatMs);
   heartbeat.unref();
 
@@ -101,7 +103,7 @@ export function createOfficeFeed({
      * @param {import('http').ServerResponse} res
      */
     async attach(req, res) {
-      if (clients.size + joining >= maxClients) {
+      if (clients.size >= maxClients) {
         res.writeHead(503, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ reply: 'Too many office feed clients' }));
         return;
@@ -115,20 +117,10 @@ export function createOfficeFeed({
       });
       // the browser's EventSource waits this long before reconnecting
       res.write('retry: 3000\n\n');
-      // joins the broadcast only after its first snapshot, so it never gets an older one after a newer one
-      let gone = false;
-      res.on('close', () => {
-        gone = true;
-        clients.delete(res);
-      });
-      const seen = changes;
-      joining++;
-      const snap = await build();
-      joining--;
-      if (gone) return;
-      if (snap != null) res.write(event(snap));
-      clients.add(res);
-      if (changes !== seen) schedule();
+      clients.set(res, 0);
+      res.on('close', () => clients.delete(res));
+      // its own first snapshot, unless a push got a newer one to it first
+      send(res, await build());
     },
 
     /** How many clients are connected. */
@@ -140,7 +132,7 @@ export function createOfficeFeed({
       clearInterval(heartbeat);
       if (timer) clearTimeout(timer);
       timer = null;
-      for (const res of clients) res.end();
+      for (const res of clients.keys()) res.end();
       clients.clear();
     },
   };

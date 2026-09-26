@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
 import { loadConfig } from './config.js';
-import { connectRedis, createRedisStore } from './redisStore.js';
+import { connectRedis, createRedisStore, subscribeStateChanges } from './redisStore.js';
 import { createRunLock } from './runLock.js';
 import { createPauseFlag } from './pauseFlag.js';
 import { createRunQueue } from './runQueue.js';
@@ -46,6 +46,11 @@ const redis = await connectRedis({ url: config.redisUrl });
 // every Redis state write (lock, queue, pauses, cron state) tells the office feed
 const changes = createStateChanges();
 const store = notifyingStore(createRedisStore(redis), changes.notify);
+// …and so does every write another process announces (npm run agent:pause, safe-restart)
+const unsubscribeChanges = await subscribeStateChanges(redis, (key) => changes.notify(`elsewhere: ${key}`)).catch((err) => {
+  console.warn(`agent-runner: cannot subscribe to state changes from other processes: ${err?.message || err}`);
+  return async () => {};
+});
 const lock = createRunLock({ store, ttlSeconds: config.lockTtlSeconds });
 const outbox = createOutbox({ store });
 const pause = createPauseFlag({ store });
@@ -149,6 +154,7 @@ for (const sig of /** @type {const} */ (['SIGINT', 'SIGTERM'])) {
     clearInterval(queueTimer);
     officeFeed.close();
     server.close();
-    redis.quit().finally(() => process.exit(0));
+    unsubscribeChanges()
+      .then(() => redis.quit()).finally(() => process.exit(0));
   });
 }

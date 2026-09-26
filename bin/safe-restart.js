@@ -8,7 +8,8 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { parseArgs } from 'util';
 import { loadConfig } from '../src/config.js';
-import { connectRedis, createRedisStore } from '../src/redisStore.js';
+import { connectRedis, createRedisStore, publishStateChange } from '../src/redisStore.js';
+import { notifyingStore } from '../src/stateChanges.js';
 import { createRunLock } from '../src/runLock.js';
 import { createPauseFlag } from '../src/pauseFlag.js';
 import { createOutbox } from '../src/outbox.js';
@@ -37,7 +38,8 @@ async function waitForReady() {
 }
 
 const redis = await connectRedis({ url: config.redisUrl });
-const store = createRedisStore(redis);
+// the pause flag's writes tell the runner's office feed
+const store = notifyingStore(createRedisStore(redis), publishStateChange(redis));
 const pauseFlag = createPauseFlag({ store });
 
 // The pause is set and cleared in this process. runSafeRestart clears it in a `finally`, but a
