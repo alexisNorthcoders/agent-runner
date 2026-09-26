@@ -24,7 +24,7 @@ WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-resta
 
 | Text | Effect |
 | --- | --- |
-| `claude <instructions>` | Run the agent in `~/Projects` (`AGENT_WORKSPACE`). |
+| `claude <instructions>` | Run the agent in `~/Projects` (`AGENT_WORKSPACE`). If it changes a git repo, its preamble has it branch, commit, push, open a PR, review it, merge it and return to the default branch (`src/preamble.js`). |
 | `claude joplin:<note title or id>` | Use a note from the `WhatsApp Bot` notebook as the instructions (Joplin Data API). |
 | `claude issue:<alias>:<n> [extra instructions]` | Implement GitHub issue `n` in the allowlisted `<alias>` workspace, then commit, PR, review and merge. See [Issue runs](#issue-runs). |
 | `claude issue:<n> [extra instructions]` | The same, in the `CLAUDE_ISSUE_DEFAULT_ALIAS` workspace. |
@@ -151,6 +151,7 @@ are told the same rule in their prompt preamble.
 - `src/main.js`: wiring (Redis, HTTP on 127.0.0.1, startup recovery).
 - `src/runner.js`: command handling, the run lifecycle and status.
 - `src/commands.js`: parses `claude…` text.
+- `src/preamble.js`: the rules prepended to every agent prompt. Freeform and Joplin runs add the git rules, and issue runs don't, since their post-run commits and merges.
 - `src/agentBackend/`: the `AgentBackend` seam. `claude.js` holds everything Claude-specific (CLI
   flags, stream-json parsing, cost/tokens, `/implement`).
 - `src/runLock.js`, `src/runQueue.js`, `src/pauseFlag.js`, `src/outbox.js`, `src/cronState.js`: Redis state over

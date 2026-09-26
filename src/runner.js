@@ -88,6 +88,7 @@ export function formatRunResult(rec, r) {
  *   workspaceRoot: string,
  *   logsDir: string,
  *   preamble: string,
+ *   freeformPreamble?: string,
  *   newRunId?: () => string,
  *   now?: () => number,
  *   isAlive?: (pid: number) => boolean,
@@ -111,6 +112,7 @@ export function createRunner({
   workspaceRoot,
   logsDir,
   preamble,
+  freeformPreamble = preamble,
   newRunId = timestampRunId,
   now = Date.now,
   isAlive = pidAlive,
@@ -177,14 +179,15 @@ export function createRunner({
    * the agent's result into the outbox text (or null to send nothing) and extra history fields.
    * Releases the lock if the agent can't start.
    * @param {import('./runLock.js').RunRecord} record
-   * @param {Omit<import('./agentBackend/index.js').AgentStartOptions, 'preamble' | 'logPath' | 'onProgress'>} opts
+   * @param {Omit<import('./agentBackend/index.js').AgentStartOptions, 'logPath' | 'onProgress'>} opts
+   *   `preamble` defaults to the issue-run preamble.
    * @param {(result: import('./agentBackend/index.js').AgentResult, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
    */
   async function launch(record, opts, report) {
     const { runId } = record;
     let run;
     try {
-      run = await backend.start({ ...opts, preamble, logPath: record.logPath, onProgress: trackProgress(runId) });
+      run = await backend.start({ preamble, ...opts, logPath: record.logPath, onProgress: trackProgress(runId) });
     } catch (err) {
       await lock.release(runId).catch(() => {});
       throw err;
@@ -315,7 +318,7 @@ export function createRunner({
       } else {
         prompt = cmd.prompt;
       }
-      await launch(record, { prompt, cwd: workspaceRoot }, async (result) => ({ text: formatRunResult(record, result) }));
+      await launch(record, { prompt, preamble: freeformPreamble, cwd: workspaceRoot }, async (result) => ({ text: formatRunResult(record, result) }));
       return { reply: `Started run ${record.runId}${source} in ${workspaceRoot}.\nLog: ${record.logPath}`, started: true };
     } catch (err) {
       await lock.release(record.runId).catch(() => {});

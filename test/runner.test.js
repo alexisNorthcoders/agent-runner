@@ -103,6 +103,7 @@ function setup(overrides = {}) {
     workspaceRoot: '/home/u/Projects',
     logsDir: '/runner/logs/agent-runs',
     preamble: 'PREAMBLE',
+    freeformPreamble: 'FREEFORM PREAMBLE',
     newRunId: () => `run-${++n}`,
     now: () => clock,
     logger: { error() {}, warn() {}, info() {} },
@@ -135,7 +136,7 @@ describe('runner: freeform runs', () => {
     assert.equal(starts.length, 1);
     assert.deepEqual(
       { ...starts[0].opts, onProgress: undefined },
-      { prompt: 'list the repos', preamble: 'PREAMBLE', cwd: '/home/u/Projects', logPath: '/runner/logs/agent-runs/run-1.log', onProgress: undefined }
+      { prompt: 'list the repos', preamble: 'FREEFORM PREAMBLE', cwd: '/home/u/Projects', logPath: '/runner/logs/agent-runs/run-1.log', onProgress: undefined }
     );
     assert.equal((await lock.current())?.agentPid, 900);
 
@@ -301,6 +302,7 @@ describe('runner: joplin', () => {
     const { reply } = await runner.handleCommand({ text: 'claude joplin:Plan', replyTo: 'a' });
     assert.match(reply, /Joplin note "Plan"/);
     assert.equal(starts[0].opts.prompt, 'note instructions');
+    assert.equal(starts[0].opts.preamble, 'FREEFORM PREAMBLE');
   });
 
   it('replies with the Joplin error and frees the lock', async () => {
@@ -528,6 +530,8 @@ describe('runner: issue runs', () => {
     assert.equal(starts.length, 1);
     assert.equal(starts[0].opts.prompt, '# GitHub issue #7');
     assert.equal(starts[0].opts.implement, true);
+    // post-run commits, reviews and merges an issue run, so it gets the base preamble
+    assert.equal(starts[0].opts.preamble, 'PREAMBLE');
     assert.equal(starts[0].opts.cwd, '/repos/a');
     const held = await lock.current();
     assert.equal(held?.kind, 'issue');
