@@ -22,9 +22,18 @@ describe('http API', () => {
   /** @type {import('http').Server} */
   let server;
   let base;
+  /** @type {string[]} */
+  const feedCalls = [];
+  const officeFeed = {
+    async attach(req, res) {
+      feedCalls.push(req.method);
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.end('event: snapshot\ndata: {}\n\n');
+    },
+  };
 
   before(async () => {
-    server = createHttpServer({ runner, logger: { error() {} } });
+    server = createHttpServer({ runner, officeFeed, logger: { error() {} } });
     await new Promise((r) => server.listen(0, '127.0.0.1', () => r(undefined)));
     const addr = /** @type {import('net').AddressInfo} */ (server.address());
     base = `http://127.0.0.1:${addr.port}`;
@@ -60,6 +69,17 @@ describe('http API', () => {
     const res = await fetch(`${base}/status`);
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { busy: false, activeRun: null, paused: false, queued: 0 });
+  });
+
+  it('GET /office/feed serves the office feed, which is read-only', async () => {
+    const res = await fetch(`${base}/office/feed`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'text/event-stream');
+    await res.text();
+    assert.deepEqual(feedCalls, ['GET']);
+    for (const method of ['POST', 'PUT', 'DELETE']) assert.equal((await fetch(`${base}/office/feed`, { method })).status, 404);
+    assert.equal((await fetch(`${base}/office/command`, { method: 'POST', body: '{}' })).status, 404);
+    assert.deepEqual(feedCalls, ['GET']);
   });
 
   it('404s anything else', async () => {

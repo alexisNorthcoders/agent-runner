@@ -96,7 +96,10 @@ export function formatRunResult(rec, r) {
  *   isAlive?: (pid: number) => boolean,
  *   stopOrphanAgent?: (pid: number) => Promise<boolean>,
  *   logger?: Pick<Console, 'error' | 'warn' | 'info'>,
+ *   onChange?: import('./stateChanges.js').NotifyChange,
  * }} deps
+ *   `onChange` is told about state that lives only here or in files (progress, phase, the run
+ *   starting and finishing); Redis state tells it through its store (src/stateChanges.js).
  */
 export function createRunner({
   lock,
@@ -121,6 +124,7 @@ export function createRunner({
   isAlive = pidAlive,
   stopOrphanAgent = async (pid) => (backend.stopOrphan ? backend.stopOrphan(pid) : false),
   logger = console,
+  onChange = () => {},
 }) {
   /** The run this process is executing, if any. @type {ActiveRun | null} */
   let active = null;
@@ -135,6 +139,13 @@ export function createRunner({
     if (active?.record.runId !== runId) return;
     active.progress = p;
     active.tracker.update(p);
+    onChange('progress');
+  };
+
+  /** @param {ActiveRun} a @param {ActiveRun['phase']} phase */
+  const setPhase = (a, phase) => {
+    a.phase = phase;
+    onChange('phase');
   };
 
   /**
@@ -210,10 +221,11 @@ export function createRunner({
     /** @type {ActiveRun} */
     const a = { record: running, run, progress: null, phase: 'agent', stopRequested: false, tracker: activeRuns.track(running) };
     active = a;
+    onChange('run-started');
     await lock.update(a.record).catch(() => {});
     const done = (async () => {
       const result = await run.done;
-      a.phase = 'post-run';
+      setPhase(a, 'post-run');
       let out = { text: formatRunResult(record, result), history: {} };
       try {
         out = { history: {}, ...(await report(result, a)) };
@@ -255,6 +267,7 @@ export function createRunner({
         // after the history write, so the CLIs never lose sight of the run
         await a.tracker.finish();
         if (active === a) active = null;
+        onChange('run-ended');
         try {
           await lock.release(runId);
         } catch (err) {
@@ -280,18 +293,18 @@ export function createRunner({
       try {
         const run = await backend.start({ prompt, preamble, cwd: a.record.workspaceRoot, logPath, onProgress: trackProgress(a.record.runId) });
         a.run = run;
-        a.phase = 'agent';
+        setPhase(a, 'agent');
         a.record = { ...a.record, agentPid: run.pid };
         // re-publish with the new agent pid (the tracker's record is fixed)
         await a.tracker.finish();
         a.tracker = activeRuns.track(a.record);
         await lock.update(a.record).catch(() => {});
         const result = await run.done;
-        a.phase = 'post-run';
+        setPhase(a, 'post-run');
         a.followUps.push({ label, outcome: result.outcome, logPath, costUsd: result.usage.costUsd, turns: result.usage.turns });
         return result;
       } catch (err) {
-        a.phase = 'post-run';
+        setPhase(a, 'post-run');
         return { outcome: 'spawn_error', exitCode: null, text: '', stderr: err?.message || String(err) };
       }
     };

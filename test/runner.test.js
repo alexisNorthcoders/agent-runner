@@ -379,6 +379,21 @@ describe('runner: status', () => {
   });
 });
 
+describe('runner: state change notification', () => {
+  it('tells onChange when a run starts, progresses, changes phase and ends', async () => {
+    /** @type {string[]} */
+    const changes = [];
+    const { runner, starts } = setup({ onChange: (r) => changes.push(r) });
+    await runner.handleCommand({ text: 'claude job', replyTo: 'a' });
+    assert.deepEqual(changes, ['run-started']);
+    starts[0].opts.onProgress({ model: 'm', turns: 1, outputTokens: 1, contextTokens: 1, lastActivity: 'Bash: ls' });
+    assert.deepEqual(changes, ['run-started', 'progress']);
+    starts[0].finish();
+    await runner.idle();
+    assert.deepEqual(changes, ['run-started', 'progress', 'phase', 'run-ended']);
+  });
+});
+
 describe('runner: active-run files', () => {
   it('tracks a run from start to finish, with its progress and duration in history', async () => {
     const { runner, starts, tracked, history, advance } = setup();

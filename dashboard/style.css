@@ -1,0 +1,88 @@
+:root {
+  color-scheme: light dark;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+}
+body {
+  margin: 0 auto;
+  max-width: 1100px;
+  padding: 1rem;
+}
+body.down main {
+  opacity: 0.45;
+}
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1rem;
+  border-bottom: 1px solid #8884;
+  padding-bottom: 0.5rem;
+}
+h1 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+h2 {
+  font-size: 1.1rem;
+}
+h3 {
+  font-size: 1rem;
+  margin-top: 1.5rem;
+}
+#status.up {
+  color: #2a9d4b;
+}
+#status.up::before,
+#status.down::before {
+  content: '● ';
+}
+#status.down {
+  color: #d64545;
+  font-weight: bold;
+}
+nav {
+  display: flex;
+  gap: 1rem;
+  margin-left: auto;
+}
+nav a {
+  color: inherit;
+  text-decoration: none;
+  padding: 0.2rem 0.4rem;
+}
+nav a.active {
+  border-bottom: 2px solid currentColor;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.25rem 0.6rem;
+  border-bottom: 1px solid #8883;
+  vertical-align: top;
+}
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+}
+dt {
+  opacity: 0.7;
+}
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.dim {
+  opacity: 0.6;
+}
+@media (max-width: 700px) {
+  table {
+    display: block;
+    overflow-x: auto;
+  }
+}

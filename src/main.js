@@ -20,6 +20,9 @@ import { createRunner } from './runner.js';
 import { createHttpServer } from './http.js';
 import { createWorkspaceAllowlist } from './workspaces.js';
 import { createIssuePipeline } from './issuePipeline/index.js';
+import { createStateChanges, notifyingStore } from './stateChanges.js';
+import { collectOfficeSnapshot } from './officeSnapshot.js';
+import { createOfficeFeed } from './officeFeed.js';
 
 const config = loadConfig();
 const QUEUE_POLL_MS = 15_000;
@@ -40,7 +43,9 @@ function launchSafeRestart(replyTo) {
 }
 
 const redis = await connectRedis({ url: config.redisUrl });
-const store = createRedisStore(redis);
+// every Redis state write (lock, queue, pauses, cron state) tells the office feed
+const changes = createStateChanges();
+const store = notifyingStore(createRedisStore(redis), changes.notify);
 const lock = createRunLock({ store, ttlSeconds: config.lockTtlSeconds });
 const outbox = createOutbox({ store });
 const pause = createPauseFlag({ store });
@@ -52,6 +57,9 @@ const cronState = createCronState({ store });
 const workspaces = createWorkspaceAllowlist();
 const issues = createIssuePipeline({ settings: config.pipeline });
 
+const statusSnapshot = () =>
+  collectStatus({ activeRuns, history, readCron: cronState.read, readPause: pause.get, readLock: lock.current, readQueue: queue.list, readManualPauses: manualPause.list });
+
 const runner = createRunner({
   lock,
   pause,
@@ -61,7 +69,7 @@ const runner = createRunner({
   backend: createAgentBackend({ timeoutMs: config.agentTimeoutMs }),
   history,
   activeRuns,
-  statusSnapshot: () => collectStatus({ activeRuns, history, readCron: cronState.read, readPause: pause.get, readLock: lock.current, readQueue: queue.list, readManualPauses: manualPause.list }),
+  statusSnapshot,
   joplin: createJoplinClient(config.joplin),
   launchSafeRestart,
   workspaces,
@@ -70,6 +78,7 @@ const runner = createRunner({
   logsDir: config.logsDir,
   preamble: buildPreamble({ repoRoot: config.repoRoot }),
   freeformPreamble: buildFreeformPreamble({ repoRoot: config.repoRoot }),
+  onChange: changes.notify,
 });
 
 // Runs killed with the previous process (e.g. a restart mid-run) would otherwise show as `stale`
@@ -79,7 +88,11 @@ const runner = createRunner({
 const removed = await activeRuns.removeStale({ ownersGone: true }).catch(() => []);
 if (removed.length) console.warn(`agent-runner: removed stale active-run files: ${removed.join(', ')}`);
 
-const server = createHttpServer({ runner });
+const officeFeed = createOfficeFeed({
+  snapshot: () => collectOfficeSnapshot({ statusSnapshot, liveRun: runner.status, workspaceAliases: workspaces.aliases }),
+  subscribe: changes.subscribe,
+});
+const server = createHttpServer({ runner, officeFeed });
 // Bind before recovery: if another runner holds the port we exit here, so any lock found below
 // really was left by a dead process.
 await new Promise((resolve, reject) => {
@@ -134,6 +147,7 @@ for (const sig of /** @type {const} */ (['SIGINT', 'SIGTERM'])) {
   process.once(sig, () => {
     cron.stop();
     clearInterval(queueTimer);
+    officeFeed.close();
     server.close();
     redis.quit().finally(() => process.exit(0));
   });
