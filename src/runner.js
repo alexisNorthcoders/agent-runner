@@ -6,7 +6,7 @@ import { OWNER } from './outbox.js';
 import { decideSafeRestart } from './safeRestart.js';
 import { describeRun, UNKNOWN_RUN_ID } from './runLock.js';
 import { pidAlive } from './pidAlive.js';
-import { renderHistoryText, renderStatusText } from './statusFormat.js';
+import { formatDuration, renderHistoryText, renderStatusText } from './statusFormat.js';
 
 /**
  * The runner: turns a `claude…` command into at most one agent run at a time and reports every
@@ -54,12 +54,36 @@ export function formatRunResult(rec, r) {
 }
 
 /**
+ * A failed scheduled job's one-line report. Null for a success, which stays quiet.
+ * @param {import('./runLock.js').RunRecord} rec
+ * @param {import('./jobProcess.js').JobResult} r
+ * @param {number} durationMs
+ */
+export function formatJobResult(rec, r, durationMs) {
+  const name = `Scheduled job ${rec.jobName}`;
+  const log = rec.logPath ? ` Log: ${rec.logPath}` : '';
+  const took = formatDuration(durationMs);
+  switch (r.outcome) {
+    case 'success':
+      return null;
+    case 'stopped':
+      return `${name} was stopped by claude:stop after ${took}.${log}`;
+    case 'timeout':
+      return `${name} timed out after ${took} and was killed.${log}`;
+    case 'spawn_error':
+      return `${name} could not start: ${r.error}`;
+    default:
+      return `${name} failed (${r.signal ? `killed by ${r.signal}` : `exit ${r.exitCode ?? 'n/a'}`}) after ${took}.${log}`;
+  }
+}
+
+/**
  * @typedef {import('./agentBackend/index.js').AgentRun} AgentRun
  * @typedef {{
  *   record: import('./runLock.js').RunRecord,
- *   run: AgentRun,
+ *   run: { pid: number | null, stop: () => void },
  *   progress: import('./agentBackend/index.js').AgentProgress | null,
- *   phase: 'agent' | 'post-run',
+ *   phase: 'agent' | 'post-run' | 'job',
  *   stopRequested: boolean,
  *   tracker: ReturnType<ReturnType<typeof import('./activeRuns.js').createActiveRuns>['track']>,
  *   followUps?: Array<{ label: string, outcome: string, logPath: string, costUsd: number | null, turns: number }>,
@@ -87,6 +111,8 @@ export function formatRunResult(rec, r) {
  *   launchSafeRestart: (replyTo: string) => void,
  *   workspaces?: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
  *   issues?: Pick<import('./issuePipeline/index.js').IssuePipeline, 'prepare' | 'finish' | 'commitInterruptedWork'>,
+ *   jobs?: Pick<import('./jobProcess.js').JobLauncher, 'start'>,
+ *   jobTimeoutMs?: number,
  *   workspaceRoot: string,
  *   logsDir: string,
  *   preamble: string,
@@ -115,6 +141,8 @@ export function createRunner({
   launchSafeRestart,
   workspaces,
   issues,
+  jobs,
+  jobTimeoutMs = 20 * 60 * 1000,
   workspaceRoot,
   logsDir,
   preamble,
@@ -200,41 +228,38 @@ export function createRunner({
   }
 
   /**
-   * Start the agent for a run that holds the lock, then report in the background: `report` turns
-   * the agent's result into the outbox text (or null to send nothing) and extra history fields.
-   * Releases the lock if the agent can't start.
+   * Watch a started run that holds the lock until it ends, then in the background: report it,
+   * append its history row, release the lock and start the next queued request. `report` turns the
+   * result into the outbox text (or null to send nothing) and the history fields; if it throws,
+   * `fallback` is used.
+   * @template R
    * @param {import('./runLock.js').RunRecord} record
-   * @param {Omit<import('./agentBackend/index.js').AgentStartOptions, 'logPath' | 'onProgress'>} opts
-   *   `preamble` defaults to the issue-run preamble.
-   * @param {(result: import('./agentBackend/index.js').AgentResult, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
+   * @param {{ pid: number | null, done: Promise<R & { outcome: string, exitCode: number | null }>, stop: () => void }} run
+   * @param {'agent' | 'job'} phase
+   * @param {(result: R & { outcome: string, exitCode: number | null }, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
+   * @param {(result: R & { outcome: string, exitCode: number | null }) => { text: string | null, history?: object }} fallback
    */
-  async function launch(record, opts, report) {
+  async function supervise(record, run, phase, report, fallback) {
     const { runId } = record;
-    let run;
-    try {
-      run = await backend.start({ preamble, ...opts, logPath: record.logPath, onProgress: trackProgress(runId) });
-    } catch (err) {
-      await lock.release(runId).catch(() => {});
-      throw err;
-    }
     const running = { ...record, agentPid: run.pid };
     /** @type {ActiveRun} */
-    const a = { record: running, run, progress: null, phase: 'agent', stopRequested: false, tracker: activeRuns.track(running) };
+    const a = { record: running, run, progress: null, phase, stopRequested: false, tracker: activeRuns.track(running) };
     active = a;
     onChange('run-started');
     await lock.update(a.record).catch(() => {});
     const done = (async () => {
       const result = await run.done;
-      setPhase(a, 'post-run');
-      let out = { text: formatRunResult(record, result), history: {} };
+      if (phase === 'agent') setPhase(a, 'post-run');
+      let out;
       try {
-        out = { history: {}, ...(await report(result, a)) };
+        out = await report(result, a);
       } catch (err) {
         logger.error(`run ${runId}: report failed:`, err);
+        out = fallback(result);
       }
       if (out.text) {
         try {
-          await outbox.send({ replyTo: record.replyTo, runId, text: out.text });
+          await outbox.send({ replyTo: /** @type {string} */ (record.replyTo), runId, text: out.text });
         } catch (err) {
           logger.error(`run ${runId}: outbox write failed:`, err?.message || err);
         }
@@ -247,14 +272,12 @@ export function createRunner({
           label: record.label,
           replyTo: record.replyTo,
           workspaceRoot: record.workspaceRoot,
-          logPath: result.logPath,
+          logPath: record.logPath,
           startedAt: record.startedAt,
           endedAt: new Date(endedAt).toISOString(),
-          durationMs: endedAt - Date.parse(record.startedAt),
-          backend: backend.name,
+          durationMs: endedAt - Date.parse(/** @type {string} */ (record.startedAt)),
           outcome: result.outcome,
           exitCode: result.exitCode,
-          ...result.usage,
           ...out.history,
         });
       } catch (err) {
@@ -276,6 +299,37 @@ export function createRunner({
         drainQueue();
       });
     return a;
+  }
+
+  /**
+   * Start the agent for a run that holds the lock, then report in the background (`supervise`):
+   * `report` turns the agent's result into the outbox text and extra history fields. Releases the
+   * lock if the agent can't start.
+   * @param {import('./runLock.js').RunRecord} record
+   * @param {Omit<import('./agentBackend/index.js').AgentStartOptions, 'logPath' | 'onProgress'>} opts
+   *   `preamble` defaults to the issue-run preamble.
+   * @param {(result: import('./agentBackend/index.js').AgentResult, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
+   */
+  async function launch(record, opts, report) {
+    let run;
+    try {
+      run = await backend.start({ preamble, ...opts, logPath: /** @type {string} */ (record.logPath), onProgress: trackProgress(record.runId) });
+    } catch (err) {
+      await lock.release(record.runId).catch(() => {});
+      throw err;
+    }
+    /** @param {import('./agentBackend/index.js').AgentResult} result */
+    const agentHistory = (result) => ({ backend: backend.name, logPath: result.logPath, ...result.usage });
+    return supervise(
+      record,
+      run,
+      'agent',
+      async (result, a) => {
+        const out = await report(result, a);
+        return { text: out.text, history: { ...agentHistory(result), ...out.history } };
+      },
+      (result) => ({ text: formatRunResult(record, result), history: agentHistory(result) })
+    );
   }
 
   /**
@@ -371,6 +425,43 @@ export function createRunner({
       await lock.release(record.runId).catch(() => {});
       return { reply: `Could not start the agent: ${err?.message || err}`, started: false };
     }
+  }
+
+  /**
+   * Run a scheduled job's command under the lock: no preamble, no post-run. Its output goes to the
+   * job's log file (else a run log). History gets `trigger: schedule`; `owner` hears only about a
+   * failure, including one to start, since nobody is waiting for the reply.
+   * @param {import('./scheduledJobs.js').ScheduledJob} job
+   * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
+   */
+  async function startJobRun(job) {
+    if (!jobs) return { reply: 'Scheduled jobs are not configured on this runner.', started: false };
+    const record = newRecord({ kind: 'job', label: `scheduled job ${job.name}`, replyTo: OWNER, workspaceRoot: job.cwd, trigger: 'schedule', jobName: job.name, room: job.room });
+    if (job.logFile) record.logPath = job.logFile;
+    const refused = await acquire(record);
+    if (refused) return { reply: refused.reply, started: false, refused: refused.why };
+    let run;
+    try {
+      run = await jobs.start({
+        command: job.command,
+        cwd: job.cwd,
+        logPath: /** @type {string} */ (record.logPath),
+        env: job.env,
+        timeoutMs: job.timeoutMinutes ? job.timeoutMinutes * 60_000 : jobTimeoutMs,
+      });
+    } catch (err) {
+      await lock.release(record.runId).catch(() => {});
+      const reply = `Scheduled job ${job.name} could not start: ${err?.message || err}`;
+      await outbox.send({ replyTo: OWNER, runId: record.runId, text: reply }).catch((e) => logger.error('job: outbox write failed:', e?.message || e));
+      return { reply, started: false };
+    }
+    /** @param {import('./jobProcess.js').JobResult} result */
+    const report = (result) => ({
+      text: formatJobResult(record, result, now() - Date.parse(/** @type {string} */ (record.startedAt))),
+      history: { trigger: 'schedule', jobName: job.name, room: job.room, signal: result.signal, ...(result.error ? { error: result.error } : {}) },
+    });
+    await supervise(record, run, 'job', async (result) => report(result), report);
+    return { reply: `Started run ${record.runId}: scheduled job ${job.name} in ${job.cwd}.\nLog: ${record.logPath}`, started: true };
   }
 
   /**
@@ -491,6 +582,7 @@ export function createRunner({
    * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
    */
   async function startCommand(cmd, replyTo) {
+    if (cmd.kind === 'job') return startJobRun(cmd.job);
     if (cmd.kind !== 'issue') return startRun(cmd, replyTo);
     const r = await startIssueRun({ ...cmd, replyTo });
     return { reply: r.reply, started: r.done != null, ...(r.refused ? { refused: r.refused } : {}) };
@@ -502,23 +594,27 @@ export function createRunner({
       ? oneLine(cmd.prompt, 60)
       : cmd.kind === 'joplin'
         ? `joplin:${cmd.noteQuery}`
-        : `issue ${cmd.alias ? `${cmd.alias}#` : '#'}${cmd.issueNumber}`;
+        : cmd.kind === 'job'
+          ? `scheduled job ${cmd.job.name}`
+          : `issue ${cmd.alias ? `${cmd.alias}#` : '#'}${cmd.issueNumber}`;
 
   /**
-   * A run request from a user: start it now if nothing is ahead of it, else queue it.
+   * A run request (from a user, or a due scheduled job): start it now if nothing is ahead of it,
+   * else queue it. `accepted` is false only when the queue was full.
    * @param {import('./runQueue.js').QueuedRun['cmd']} cmd
    * @param {string} replyTo
+   * @returns {Promise<{ reply: string, accepted: boolean }>}
    */
   async function submit(cmd, replyTo) {
     let why = 'busy';
     if ((await queue.length()) === 0) {
       const r = await startCommand(cmd, replyTo);
-      if (!r.refused) return r.reply;
+      if (!r.refused) return { reply: r.reply, accepted: true };
       why = r.refused;
     }
     const label = labelFor(cmd);
     const pos = await queue.push({ id: randomUUID(), cmd, replyTo, label, queuedAt: new Date(now()).toISOString() });
-    if (pos == null) return `The queue is full (${queue.maxLength} waiting). Try again later, or send claude:queue clear.`;
+    if (pos == null) return { reply: `The queue is full (${queue.maxLength} waiting). Try again later, or send claude:queue clear.`, accepted: false };
     let ahead = '';
     if (why === 'paused') {
       const p = await pausedReason();
@@ -529,7 +625,7 @@ export function createRunner({
     }
     // in case the runner went idle between the start attempt and the push
     drainQueue();
-    return `Queued (position ${pos}): ${label}.${ahead} It will start when the runs ahead of it finish.`;
+    return { reply: `Queued (position ${pos}): ${label}.${ahead} It will start when the runs ahead of it finish.`, accepted: true };
   }
 
   /**
@@ -549,6 +645,11 @@ export function createRunner({
           if (r.refused) {
             await queue.unshift(item);
             return;
+          }
+          // a job reports only its own failures (startJobRun, and its run's report)
+          if (item.cmd.kind === 'job') {
+            if (r.started) return;
+            continue;
           }
           const text = r.started ? `Queued request "${item.label}": ${r.reply}` : `Queued request "${item.label}" did not start: ${r.reply}`;
           await outbox.send({ replyTo: item.replyTo, text }).catch((err) => logger.error('queue: outbox write failed:', err?.message || err));
@@ -582,6 +683,7 @@ export function createRunner({
         return `Run ${active.record.runId} is past the agent, in post-run (commit, PR, review, merge), which can't be interrupted. No further agent pass will start. Its report will follow.`;
       }
       active.run.stop();
+      if (active.phase === 'job') return `Stopping run ${active.record.runId} (${active.record.label}). Its report will follow.`;
       return `Stopping run ${active.record.runId}. Its report will follow.`;
     }
     const cur = await lock.current();
@@ -625,7 +727,7 @@ export function createRunner({
         case 'history':
           return { reply: renderHistoryText(await history.read({ limit: cmd.count }), now()) };
         default:
-          return { reply: await submit(cmd, replyTo) };
+          return { reply: (await submit(cmd, replyTo)).reply };
       }
     },
 
@@ -648,10 +750,14 @@ export function createRunner({
     async recoverInterruptedRun() {
       const rec = await lock.current();
       if (!rec) return null;
-      const name = `Agent ${describeRun(rec)}`;
+      const isJob = rec.kind === 'job';
+      const name = isJob ? capitalize(describeRun(rec)) : `Agent ${describeRun(rec)}`;
       let agentAlive = Boolean(rec.agentPid && isAlive(rec.agentPid));
       let orphan = '';
-      if (agentAlive) {
+      if (agentAlive && isJob) {
+        // not an agent, so the agent's orphan check doesn't apply; left alone, but said
+        orphan = `\nIts process (pid ${rec.agentPid}) is still running, but nobody will report its result.`;
+      } else if (agentAlive) {
         // nobody will report it, and a re-run must not share the repo with it
         agentAlive = !(await stopOrphanAgent(rec.agentPid).catch(() => false));
         orphan = agentAlive
@@ -674,6 +780,12 @@ export function createRunner({
 
     startIssueRun,
     drainQueue,
+
+    /**
+     * A due scheduled job joins the run queue (or starts, if nothing is ahead of it).
+     * @param {import('./scheduledJobs.js').ScheduledJob} job
+     */
+    submitJob: (job) => submit({ kind: 'job', job }, OWNER),
 
     /** Resolves once the current run (if any) has been reported and unlocked, and the queue drain it kicked off is done. */
     idle: async () => {

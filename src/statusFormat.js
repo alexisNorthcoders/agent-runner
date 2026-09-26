@@ -239,9 +239,13 @@ export function renderHistoryLines(rows, now, c = plain) {
 
 // --- WhatsApp (plain text, one message) ---
 
+/** A scheduled job's run: a command, not an agent, so it has no turns, tokens or cost. @param {{ kind?: string }} r */
+const isJob = (r) => r.kind === 'job';
+
 /** @param {HistoryEntry} r @param {number} now */
 const historyLine = (r, now) =>
-  `${formatAgo(since(now, r.endedAt))} · ${clip(what(r), 60)} — ${r.outcome}, ${formatDuration(durationOf(r))}, ${formatCost(r.costUsd)}, ${formatTokens(totalTokens(r.tokens))} tok`;
+  `${formatAgo(since(now, r.endedAt))} · ${clip(what(r), 60)} — ${r.outcome}, ${formatDuration(durationOf(r))}` +
+  (isJob(r) ? '' : `, ${formatCost(r.costUsd)}, ${formatTokens(totalTokens(r.tokens))} tok`);
 
 export const STATUS_RECENT_COUNT = 3;
 
@@ -253,7 +257,7 @@ export function renderStatusText(d) {
   const out = [];
   if (!d.active.length) out.push('Agent: idle');
   for (const r of d.active) {
-    const progress = r.health === 'running' ? `, ${r.turns ?? 0} turns, ${formatTokens(r.outputTokens ?? 0)} out tok` : '';
+    const progress = r.health === 'running' && !isJob(r) ? `, ${r.turns ?? 0} turns, ${formatTokens(r.outputTokens ?? 0)} out tok` : '';
     out.push(`Agent: ${clip(what(r), 60)} (${r.health}, ${formatDuration(since(d.now, r.startedAt))}${progress})`);
     if (r.health === 'orphaned') out.push(`⚠ Orphaned: agent-runner restarted but agent pid ${r.agentPid} is still running; nothing will report its result.`);
     else if (r.health === 'stale') out.push('⚠ Stale: leftover from a crash (no live process).');

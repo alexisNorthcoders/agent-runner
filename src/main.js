@@ -23,6 +23,8 @@ import { createIssuePipeline } from './issuePipeline/index.js';
 import { createStateChanges, notifyingStore } from './stateChanges.js';
 import { collectOfficeSnapshot } from './officeSnapshot.js';
 import { createOfficeFeed } from './officeFeed.js';
+import { createJobLauncher } from './jobProcess.js';
+import { createJobScheduler, loadJobsFile } from './scheduledJobs.js';
 
 const config = loadConfig();
 const QUEUE_POLL_MS = 15_000;
@@ -79,6 +81,8 @@ const runner = createRunner({
   launchSafeRestart,
   workspaces,
   issues,
+  jobs: createJobLauncher(),
+  jobTimeoutMs: config.agentTimeoutMs,
   workspaceRoot: config.workspaceRoot,
   logsDir: config.logsDir,
   preamble: buildPreamble({ repoRoot: config.repoRoot }),
@@ -124,6 +128,16 @@ await runner.drainQueue();
 const queueTimer = setInterval(() => runner.drainQueue(), QUEUE_POLL_MS);
 queueTimer.unref();
 
+// After recovery and the first drain: a job missed while the runner was down fires now, behind
+// whatever was already queued.
+const scheduler = createJobScheduler({
+  store,
+  loadJobs: () => loadJobsFile(config.jobsFile),
+  submitJob: runner.submitJob,
+  outbox,
+});
+await scheduler.start();
+
 // After recovery, so a leftover lock can't make the first tick skip.
 const cron = createCronTracer({
   startIssueRun: runner.startIssueRun,
@@ -151,6 +165,7 @@ if (config.cron.enabled) {
 for (const sig of /** @type {const} */ (['SIGINT', 'SIGTERM'])) {
   process.once(sig, () => {
     cron.stop();
+    scheduler.stop();
     clearInterval(queueTimer);
     officeFeed.close();
     server.close();

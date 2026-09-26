@@ -79,6 +79,7 @@ describe('buildOfficeSnapshot', () => {
       label: 'issue bot#7 "Fix it"',
       workspaceAlias: 'bot',
       issueNumber: 7,
+      room: null,
       health: 'running',
       phase: 'post-run',
       model: 'claude-sonnet-5',
@@ -116,7 +117,7 @@ describe('buildOfficeSnapshot', () => {
   it('lists the queue, the lock holder and every pause', () => {
     const s = buildOfficeSnapshot({ status: status({ paused: { token: 't', reason: 'safe-restart', pausedAt: '2026-09-24T11:59:30Z' } }), live: null, workspaces: [] });
     assert.deepEqual(s.queue, [{ id: 'q1', kind: 'freeform', label: 'next job', queuedAt: '2026-09-24T11:59:00Z' }]);
-    assert.deepEqual(s.lock, { runId: 'r1', kind: 'issue', trigger: 'cron', label: 'issue bot#7 "Fix it"', workspaceAlias: 'bot', issueNumber: 7, startedAt: '2026-09-24T11:50:00Z' });
+    assert.deepEqual(s.lock, { runId: 'r1', kind: 'issue', trigger: 'cron', label: 'issue bot#7 "Fix it"', workspaceAlias: 'bot', issueNumber: 7, room: null, startedAt: '2026-09-24T11:50:00Z' });
     assert.deepEqual(s.pauses, {
       restart: { reason: 'safe-restart', pausedAt: '2026-09-24T11:59:30Z' },
       general: { reason: 'lunch', pausedAt: '2026-09-24T11:00:00Z', until: '2026-09-24T13:00:00Z' },
@@ -143,6 +144,20 @@ describe('buildOfficeSnapshot', () => {
     assert.equal(buildOfficeSnapshot({ status: status({ cron: null }), live: null, workspaces: [] }).cron, null);
   });
 
+  it('marks a scheduled job with trigger schedule and its room', () => {
+    const job = { runId: 'j1', kind: 'job', trigger: /** @type {const} */ ('schedule'), jobName: 'cleanup_agent', room: 'reddit-bot', label: 'scheduled job cleanup_agent' };
+    const st = status();
+    const s = buildOfficeSnapshot({
+      status: { ...st, lock: { ...job, startedAt: '2026-09-24T11:50:00Z' }, history: [{ ...job, endedAt: '2026-09-24T10:01:00Z', outcome: 'success' }] },
+      live: null,
+      workspaces: [],
+    });
+    assert.equal(s.lock?.trigger, 'schedule');
+    assert.equal(s.lock?.room, 'reddit-bot');
+    assert.equal(s.history[0].trigger, 'schedule');
+    assert.equal(s.history[0].room, 'reddit-bot');
+  });
+
   it('carries 7 days of history and the same spend totals as agent:status', () => {
     const st = status();
     const s = buildOfficeSnapshot({ status: st, live: null, workspaces: [] });
@@ -154,6 +169,7 @@ describe('buildOfficeSnapshot', () => {
       label: 'say hi',
       workspaceAlias: null,
       issueNumber: null,
+      room: null,
       startedAt: '2026-09-24T10:00:00Z',
       endedAt: '2026-09-24T10:01:00Z',
       durationMs: 60_000,

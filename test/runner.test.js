@@ -805,3 +805,179 @@ describe('runner: pauses set by hand', () => {
     assert.equal((await runner.handleCommand({ text: 'claude:resume a', replyTo: 'jid-1' })).reply, 'a was not paused.');
   });
 });
+
+/** Controllable job launcher fake: each start() creates a job run you settle by hand. */
+function fakeJobs({ startError = null } = {}) {
+  /** @type {any[]} */
+  const starts = [];
+  return {
+    starts,
+    jobs: {
+      async start(opts) {
+        if (startError) throw new Error(startError);
+        /** @type {(r: any) => void} */
+        let settle = () => {};
+        const run = {
+          opts,
+          stopped: false,
+          pid: 700 + starts.length,
+          done: new Promise((r) => (settle = r)),
+          stop() {
+            run.stopped = true;
+            settle({ outcome: 'stopped', exitCode: null, signal: 'SIGTERM' });
+          },
+          /** @param {number} [exitCode] */
+          exit: (exitCode = 0) => settle({ outcome: exitCode === 0 ? 'success' : 'failed', exitCode, signal: null }),
+        };
+        starts.push(run);
+        return run;
+      },
+    },
+  };
+}
+
+const cleanupJob = {
+  name: 'cleanup_agent',
+  room: 'reddit-bot',
+  cwd: '/home/u/reddit-bot',
+  command: 'npm run cleanup_agent',
+  at: '02:00',
+  logFile: '/home/u/reddit-bot/reports/cron-cleanup.log',
+};
+
+function jobSetup({ startError = null, overrides = {} } = {}) {
+  const fj = fakeJobs({ startError });
+  return { ...fj, jobStarts: fj.starts, ...setup({ jobs: fj.jobs, jobTimeoutMs: 1_200_000, ...overrides }) };
+}
+
+describe('runner: scheduled jobs', () => {
+  it('runs the command as-is under the lock, stays quiet on success, and records trigger: schedule', async () => {
+    const { runner, jobStarts, starts, lock, history, outboxEntries, advance, tracked } = jobSetup();
+    const r = await runner.submitJob(cleanupJob);
+    assert.equal(r.accepted, true);
+    assert.match(r.reply, /Started run run-1: scheduled job cleanup_agent/);
+    assert.equal(starts.length, 0, 'no agent');
+    assert.deepEqual(jobStarts[0].opts, {
+      command: 'npm run cleanup_agent',
+      cwd: '/home/u/reddit-bot',
+      logPath: '/home/u/reddit-bot/reports/cron-cleanup.log',
+      env: undefined,
+      timeoutMs: 1_200_000,
+    });
+    const held = await lock.current();
+    assert.equal(held?.kind, 'job');
+    assert.equal(held?.trigger, 'schedule');
+    assert.equal(held?.agentPid, 700);
+    assert.equal(tracked[0].record.label, 'scheduled job cleanup_agent');
+    assert.equal((await runner.status()).activeRun?.phase, 'job');
+
+    advance(125_000);
+    jobStarts[0].exit(0);
+    await runner.idle();
+    assert.deepEqual(outboxEntries(), []);
+    assert.equal(await lock.current(), null);
+    assert.equal(history.length, 1);
+    assert.equal(history[0].kind, 'job');
+    assert.equal(history[0].trigger, 'schedule');
+    assert.equal(history[0].jobName, 'cleanup_agent');
+    assert.equal(history[0].room, 'reddit-bot');
+    assert.equal(history[0].outcome, 'success');
+    assert.equal(history[0].exitCode, 0);
+    assert.equal(history[0].durationMs, 125_000);
+    assert.equal(history[0].logPath, '/home/u/reddit-bot/reports/cron-cleanup.log');
+  });
+
+  it('uses the job timeout, env, and a run log when the job has no log file', async () => {
+    const { runner, jobStarts } = jobSetup();
+    const { logFile, ...noLog } = cleanupJob;
+    await runner.submitJob({ ...noLog, env: { A: 'b' }, timeoutMinutes: 45 });
+    assert.equal(jobStarts[0].opts.logPath, '/runner/logs/agent-runs/run-1.log');
+    assert.deepEqual(jobStarts[0].opts.env, { A: 'b' });
+    assert.equal(jobStarts[0].opts.timeoutMs, 45 * 60_000);
+  });
+
+  it('a failure sends one line to owner', async () => {
+    const { runner, jobStarts, outboxEntries, advance } = jobSetup();
+    await runner.submitJob(cleanupJob);
+    advance(61_000);
+    jobStarts[0].exit(2);
+    await runner.idle();
+    const msgs = outboxEntries();
+    assert.equal(msgs.length, 1);
+    assert.equal(msgs[0].replyTo, 'owner');
+    assert.equal(msgs[0].text, 'Scheduled job cleanup_agent failed (exit 2) after 1m01s. Log: /home/u/reddit-bot/reports/cron-cleanup.log');
+    assert.doesNotMatch(msgs[0].text, /\n/);
+  });
+
+  it('waits in the queue behind an active run, then runs without a "started" message', async () => {
+    const { runner, starts, jobStarts, queue, outboxEntries, history } = jobSetup();
+    await runner.handleCommand({ text: 'claude long job', replyTo: 'jid-1' });
+    const r = await runner.submitJob(cleanupJob);
+    assert.equal(r.accepted, true);
+    assert.match(r.reply, /Queued \(position 1\): scheduled job cleanup_agent/);
+    assert.deepEqual((await queue.list()).map((q) => q.cmd.kind), ['job']);
+    assert.equal(jobStarts.length, 0);
+
+    starts[0].finish();
+    await runner.idle();
+    assert.equal(jobStarts.length, 1);
+    assert.deepEqual(outboxEntries().map((m) => m.replyTo), ['jid-1']);
+    jobStarts[0].exit(0);
+    await runner.idle();
+    assert.deepEqual(history.map((h) => h.kind), ['freeform', 'job']);
+  });
+
+  it('is not accepted when the queue is full', async () => {
+    const { runner } = jobSetup();
+    for (const t of ['a', 'b', 'c', 'd']) await runner.handleCommand({ text: `claude ${t}`, replyTo: 'x' });
+    const r = await runner.submitJob(cleanupJob);
+    assert.equal(r.accepted, false);
+  });
+
+  it('claude:stop stops a job run, and the stop is reported', async () => {
+    const { runner, jobStarts, lock, outboxEntries, history } = jobSetup();
+    await runner.submitJob(cleanupJob);
+    const { reply } = await runner.handleCommand({ text: 'claude:stop', replyTo: 'jid-2' });
+    assert.match(reply, /Stopping run run-1 \(scheduled job cleanup_agent\)/);
+    assert.equal(jobStarts[0].stopped, true);
+    await runner.idle();
+    assert.match(outboxEntries()[0].text, /^Scheduled job cleanup_agent was stopped by claude:stop/);
+    assert.equal(outboxEntries()[0].replyTo, 'owner');
+    assert.equal(history[0].outcome, 'stopped');
+    assert.equal(await lock.current(), null);
+  });
+
+  it('tells owner when the command cannot be started, and frees the lock', async () => {
+    const { runner, lock, outboxEntries } = jobSetup({ startError: 'EACCES: permission denied' });
+    const r = await runner.submitJob(cleanupJob);
+    assert.equal(r.accepted, true);
+    assert.equal(await lock.current(), null);
+    assert.deepEqual(
+      outboxEntries().map((m) => [m.replyTo, m.text]),
+      [['owner', 'Scheduled job cleanup_agent could not start: EACCES: permission denied']]
+    );
+  });
+
+  it('startup recovery reports an interrupted job to owner, with no WIP commit', async () => {
+    const fi = fakeIssues();
+    const { runner, lock, outboxEntries } = jobSetup({ overrides: { issues: fi.issues, workspaces: fakeWorkspaces, isAlive: () => false } });
+    await lock.tryAcquire({ runId: 'old', kind: 'job', trigger: 'schedule', jobName: 'cleanup_agent', label: 'scheduled job cleanup_agent', workspaceRoot: '/home/u/reddit-bot', logPath: '/l/c.log', agentPid: 55 });
+    await runner.recoverInterruptedRun();
+    const [msg] = outboxEntries();
+    assert.equal(msg.replyTo, 'owner');
+    assert.match(msg.text, /^Run old \(scheduled job cleanup_agent\) was interrupted: agent-runner restarted/);
+    assert.match(msg.text, /\/l\/c\.log/);
+    assert.deepEqual(fi.recoveries, []);
+    assert.equal(await lock.current(), null);
+  });
+
+  it('startup recovery says when the job process outlived the runner, without the agent orphan check', async () => {
+    /** @type {number[]} */
+    const orphanStops = [];
+    const { runner, lock, outboxEntries } = jobSetup({ overrides: { isAlive: (pid) => pid === 55, stopOrphanAgent: async (pid) => (orphanStops.push(pid), true) } });
+    await lock.tryAcquire({ runId: 'old', kind: 'job', label: 'scheduled job cleanup_agent', agentPid: 55 });
+    await runner.recoverInterruptedRun();
+    assert.deepEqual(orphanStops, []);
+    assert.match(outboxEntries()[0].text, /Its process \(pid 55\) is still running/);
+  });
+});

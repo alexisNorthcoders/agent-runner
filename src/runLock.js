@@ -15,8 +15,12 @@
  *   agentPid?: number | null,
  *   workspaceAlias?: string,
  *   issueNumber?: number,
- *   trigger?: 'manual' | 'cron',
+ *   trigger?: 'manual' | 'cron' | 'schedule',
+ *   jobName?: string,
+ *   room?: string,
  * }} RunRecord
+ *   A scheduled job's run has `kind: 'job'`, `trigger: 'schedule'`, its `jobName` and `room`, and
+ *   `agentPid` is its command's pid.
  */
 
 export const LOCK_KEY = 'agent-runner:lock';

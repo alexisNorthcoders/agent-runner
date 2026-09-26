@@ -1,0 +1,20 @@
+[
+  {
+    "name": "cleanup_agent",
+    "room": "reddit-bot",
+    "cwd": "/home/alexis/Projects/reddit-bot",
+    "command": "npm run cleanup_agent",
+    "at": "02:00",
+    "logFile": "/home/alexis/Projects/reddit-bot/reports/cron-cleanup.log",
+    "env": { "CLAUDE_AGENT_BIN": "/home/alexis/.local/bin/claude" }
+  },
+  {
+    "name": "report_agent",
+    "room": "reddit-bot",
+    "cwd": "/home/alexis/Projects/reddit-bot",
+    "command": "npm run report_agent",
+    "at": "02:30",
+    "logFile": "/home/alexis/Projects/reddit-bot/reports/cron-insight.log",
+    "env": { "CLAUDE_AGENT_BIN": "/home/alexis/.local/bin/claude" }
+  }
+]

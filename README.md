@@ -7,7 +7,7 @@ WhatsappBot `docs/adr/0001-agent-runner-out-of-process.md`.
 
 Built so far: freeform runs, `joplin:` runs, the GitHub issue pipeline (`claude issue:…`),
 `claude:stop`, `claude:restart`, status/history (`claude:status`, `claude:history`,
-`npm run agent:*`), the cron issue tracer, and the office dashboard's feed and plain panel.
+`npm run agent:*`), the cron issue tracer, scheduled jobs, and the office dashboard's feed and plain panel.
 
 ## Setup
 
@@ -28,7 +28,7 @@ WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-resta
 | `claude joplin:<note title or id>` | Use a note from the `WhatsApp Bot` notebook as the instructions (Joplin Data API). |
 | `claude issue:<alias>:<n> [extra instructions]` | Implement GitHub issue `n` in the allowlisted `<alias>` workspace, then commit, PR, review and merge. See [Issue runs](#issue-runs). |
 | `claude issue:<n> [extra instructions]` | The same, in the `CLAUDE_ISSUE_DEFAULT_ALIAS` workspace. |
-| `claude:stop` | Kill the active run. Its "stopped" report lands in the outbox, and the next queued request starts. |
+| `claude:stop` | Kill the active run, or the active [scheduled job](#scheduled-jobs)'s command. Its "stopped" report lands in the outbox, and the next queued request starts. |
 | `claude:queue` | List the requests waiting for the agent. |
 | `claude:queue clear` | Drop every waiting request. |
 | `claude:pause [<alias>] [2h] [reason]` | Pause by hand while you work in a repo yourself (duration `30m`, `2h`, `1d`, up to 7d; default 2h). With no alias, no new run starts anywhere: requests queue and the cron skips its ticks. With an alias, only issue runs there are refused (the cron moves on to the next workspace), and freeform runs are told to leave it alone. A run already going is not stopped. |
@@ -42,7 +42,8 @@ run is active, the runner is paused, or other requests are already waiting joins
 (max 20) and gets a "Queued (position n)" reply. When a run finishes, the oldest queued request
 starts, and its "Started run …" reply (or why it couldn't start) goes to the outbox. The queue is
 in Redis, so it survives a restart, and the runner re-checks it every 15s (e.g. after a pause
-ends). The cron skips its tick while anything is queued. Status and history
+ends). The cron skips its tick while anything is queued. A due [scheduled job](#scheduled-jobs) joins
+the same queue. Status and history
 replies are a single compact message, with no log paths or excerpts.
 
 ## Terminal status
@@ -113,6 +114,52 @@ in-process cron (`CRON_ISSUE_TRACER_DISABLE=1` in its `.env`) before enabling th
 
 State is in Redis (below) and starts fresh: nothing is migrated from the bot's JSON files.
 
+## Scheduled jobs
+
+Commands the runner runs once a day at a fixed UTC time, in place of crontab lines (the first are
+reddit-bot's `cleanup_agent` and `report_agent`). They are not agent runs: the command runs as-is,
+with no preamble and no post-run.
+
+**Config**: a JSON array in `SCHEDULED_JOBS_FILE` (default `scheduled-jobs.json` in this repo,
+gitignored; see [`scheduled-jobs.example.json`](scheduled-jobs.example.json)). It is re-read every
+30s, so an edit applies without a restart, and a missing file means no jobs. A bad entry is
+skipped, and `owner` is told once per change of the errors.
+
+```jsonc
+[
+  {
+    "name": "cleanup_agent",           // unique; letters, digits, _ . -
+    "room": "reddit-bot",              // label for the office dashboard
+    "cwd": "/home/alexis/Projects/reddit-bot",   // absolute
+    "command": "npm run cleanup_agent",          // run with `sh -c` in cwd
+    "at": "02:00",                     // daily, HH:MM UTC
+    "logFile": "/home/alexis/Projects/reddit-bot/reports/cron-cleanup.log",  // optional
+    "env": { "CLAUDE_AGENT_BIN": "/home/alexis/.local/bin/claude" },         // optional, added to the runner's env
+    "timeoutMinutes": 20               // optional, 1–60; default AGENT_TIMEOUT_MS
+  }
+]
+```
+
+- **Queueing**: when a job is due it joins the run queue as a `job` request (`owner` is its
+  `replyTo`), so it waits behind an active run, queued requests and pauses like any other request.
+- **Running**: `sh -c <command>` in `cwd`, in its own process group, under the lock. stdout and
+  stderr are appended to `logFile` through one file descriptor, so the file is exactly what
+  `>> file 2>&1` in crontab produced (and its modification time moves the same way). Without a
+  `logFile` the output goes to `logs/agent-runs/<runId>.log`. `claude:stop` or the timeout kills the
+  whole process group.
+- **Records**: a history row with `kind: job`, `trigger: schedule`, `jobName`, `room`, `outcome`
+  (`success`, `failed`, `timeout`, `stopped`, `spawn_error`), `exitCode` and `durationMs`. It shows
+  in `claude:status`, `claude:history` and `npm run agent:*` as `scheduled job <name>`. A success is
+  quiet; anything else sends one line to `owner`.
+- **Once a day**: `agent-runner:jobs:last-fired` records the UTC day each job last joined the
+  queue, so it fires at most once a day, even across restarts. A job whose time passed while the
+  runner was down fires on startup that day. A job new to the config whose time already passed
+  today first runs tomorrow, so moving a job over from crontab never runs it twice that day.
+- **Startup recovery**: an interrupted job run is reported to `owner`. There is no WIP commit, and
+  a job process that outlived the runner is left alone (the report says so).
+
+Moving a crontab line over: add the job to the config, then remove the line from `crontab -e`.
+
 ## HTTP API (127.0.0.1 only, no auth)
 
 - `POST /command {text, replyTo}` → `{reply}`. The reply is synchronous ("Started run X", "Queued (position n)…",
@@ -166,10 +213,11 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
   "version": 1,                        // bumped on a breaking change
   "at": "2026-09-26T04:44:30.885Z",    // when it was taken
   "activeRun": {                       // the run this runner is executing, or null
-    "runId": "…", "kind": "issue", "trigger": "cron",   // trigger: "cron" | "manual"
+    "runId": "…", "kind": "issue", "trigger": "cron",   // trigger: "cron" | "manual" | "schedule"
     "label": "issue bot#7 \"Fix it\"", "workspaceAlias": "bot", "issueNumber": 7,
+    "room": null,                      // a scheduled job's room, else null
     "health": "running",               // running | orphaned | stale
-    "phase": "agent",                  // agent | post-run, null if not run by this process
+    "phase": "agent",                  // agent | post-run | job, null if not run by this process
     "model": "claude-opus-5-5", "turns": 12, "outputTokens": 900, "contextTokens": 136635,
     "lastActivity": "Read src/a.js", "startedAt": "…", "elapsedMs": 378907, "agentPid": 583232
   },
@@ -235,6 +283,7 @@ sudo nginx -t && sudo systemctl reload nginx     # open http://<pi>/office/
 | `agent-runner:cron:pr-attempts` | hash | `owner/repo#n` → the PR state (`headSha:baseSha`) the cron last worked. Not written when an approved PR's merge failed only on a network error, so the next tick works it again. |
 | `agent-runner:state-changed` | pub/sub channel | The CLIs and safe-restart publish the key of each state write they make, so the runner's office feed pushes. |
 | `agent-runner:cron:park-notices` | hash | `owner/repo#n` → the parked PR state the owner was last told about. |
+| `agent-runner:jobs:last-fired` | hash | Scheduled job name → the UTC day (`YYYY-MM-DD`) it last joined the queue. `hdel` a field to let a job fire again today. |
 
 ```sh
 redis-cli XREVRANGE agent-runner:outbox + - COUNT 5
@@ -258,6 +307,8 @@ are told the same rule in their prompt preamble.
 - `src/runLock.js`, `src/runQueue.js`, `src/pauseFlag.js`, `src/manualPause.js`, `src/outbox.js`, `src/cronState.js`: Redis state over
   `src/redisStore.js`.
 - `src/cronTracer.js`: the cron issue tracer (picking, parking, progress), over `runner.startIssueRun`.
+- `src/scheduledJobs.js`: scheduled jobs' config and once-a-day scheduler, over `runner.submitJob`.
+  `src/jobProcess.js` runs a job's command with its output appended to the log file.
 - `src/safeRestart.js` + `bin/safe-restart.js`: restart decision logic and the CLI.
 - `src/joplin.js`: Joplin Data API client.
 - `src/workspaces.js`: the issue-run workspace allowlist.
