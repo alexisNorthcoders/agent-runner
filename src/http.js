@@ -4,6 +4,7 @@ import { createServer } from 'http';
  * Localhost-only command API for the bot (bind to 127.0.0.1; there is no auth):
  *   POST /command {text, replyTo} → {reply}
  *   GET  /status                  → {busy, activeRun, paused, queued}
+ *   GET  /office/feed             → the office feed, an SSE stream of snapshots (read-only)
  */
 
 const MAX_BODY_BYTES = 256 * 1024;
@@ -38,15 +39,19 @@ function readJson(req) {
 /**
  * @param {{
  *   runner: Pick<ReturnType<typeof import('./runner.js').createRunner>, 'handleCommand' | 'status'>,
+ *   officeFeed?: Pick<ReturnType<typeof import('./officeFeed.js').createOfficeFeed>, 'attach'>,
  *   logger?: Pick<Console, 'error'>,
  * }} p
  */
-export function createHttpServer({ runner, logger = console }) {
+export function createHttpServer({ runner, officeFeed, logger = console }) {
   return createServer(async (req, res) => {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
     try {
       if (req.method === 'GET' && path === '/status') {
         return send(res, 200, await runner.status());
+      }
+      if (req.method === 'GET' && path === '/office/feed' && officeFeed) {
+        return await officeFeed.attach(req, res);
       }
       if (req.method === 'POST' && path === '/command') {
         let body;

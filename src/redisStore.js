@@ -78,6 +78,36 @@ export function createRedisStore(client) {
   };
 }
 
+/** Pub/sub channel where other processes (the CLIs, safe-restart) announce their state writes. */
+export const STATE_CHANNEL = 'agent-runner:state-changed';
+
+/**
+ * Announce a state write on `STATE_CHANNEL`, for a process other than the runner (pass it to
+ * `notifyingStore`). A failed publish only delays the office feed, so it's swallowed.
+ * @param {import('redis').RedisClientType<any, any, any>} client
+ * @returns {(key: string) => Promise<void>}
+ */
+export const publishStateChange = (client) => async (key) => {
+  await client.publish(STATE_CHANNEL, key).catch(() => {});
+};
+
+/**
+ * Call `onChange(key)` for each state write another process announces. Pub/sub needs its own
+ * connection, a duplicate of `client`. Resolves with a function that closes it.
+ * @param {import('redis').RedisClientType<any, any, any>} client
+ * @param {(key: string) => void} onChange
+ * @returns {Promise<() => Promise<void>>}
+ */
+export async function subscribeStateChanges(client, onChange) {
+  const sub = client.duplicate();
+  sub.on('error', () => {});
+  await sub.connect();
+  await sub.subscribe(STATE_CHANNEL, (key) => onChange(key));
+  return async () => {
+    await sub.quit().catch(() => {});
+  };
+}
+
 /**
  * Connected client for the service and CLIs. Errors are logged, and node-redis keeps reconnecting.
  * @param {{ url: string, logger?: Pick<Console, 'error'> }} opts

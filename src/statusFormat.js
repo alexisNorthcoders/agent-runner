@@ -115,8 +115,11 @@ function describeCronOutcome(o) {
   }
 }
 
-/** @param {StatusSnapshot} d */
-function spend(d) {
+/**
+ * Finished runs, cost and tokens today (since local midnight) and over the last 7 days.
+ * @param {StatusSnapshot} d
+ */
+export function spend(d) {
   const dayStart = new Date(d.now);
   dayStart.setHours(0, 0, 0, 0);
   /** @param {HistoryEntry[]} rows */

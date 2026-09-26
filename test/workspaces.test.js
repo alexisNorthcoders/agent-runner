@@ -44,6 +44,13 @@ describe('workspace allowlist', () => {
     assert.equal((await ws.resolveIssueWorkspace('c')).root, repoA);
   });
 
+  it('lists the allowlisted aliases, sorted, from both maps', async () => {
+    const file = join(dir, 'map-aliases.json');
+    await writeFile(file, JSON.stringify({ c: repoA }));
+    const ws = createWorkspaceAllowlist({ env: { CLAUDE_WORKSPACE_MAP: `zed=${repoA},alpha=${repoB}`, CLAUDE_WORKSPACE_MAP_FILE: file } });
+    assert.deepEqual(await ws.aliases(), ['alpha', 'c', 'zed']);
+  });
+
   it('rejects an unknown alias and lists the valid ones', async () => {
     const ws = createWorkspaceAllowlist({ env: { CLAUDE_WORKSPACE_MAP: `zed=${repoA},alpha=${repoB}` } });
     await assert.rejects(ws.resolveIssueWorkspace('nope'), /Unknown workspace alias "nope"\. Valid aliases: alpha, zed/);

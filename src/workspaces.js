@@ -82,6 +82,9 @@ export function createWorkspaceAllowlist({ env = process.env } = {}) {
   }
 
   return {
+    /** The allowlisted aliases, sorted (no paths, so nothing is resolved). @returns {Promise<string[]>} */
+    aliases: async () => [...(await configuredAliases()).keys()].sort(),
+
     /**
      * @param {string | null} alias null → `CLAUDE_ISSUE_DEFAULT_ALIAS`
      * @returns {Promise<{ alias: string, root: string }>}

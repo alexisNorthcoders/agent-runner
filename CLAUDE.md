@@ -24,8 +24,10 @@ Built so far: freeform runs, `claude joplin:<note>`, the GitHub issue pipeline
 merge, in `src/issuePipeline/`), `claude:stop`, `claude:restart` / `npm run safe-restart`,
 `claude:status` / `claude:history` and the `npm run agent:*` CLIs, the Redis single-flight lock, run queue,
 pause flag and manual pauses (`claude:pause` / `npm run agent:pause`, general or per workspace), startup recovery (with a WIP commit for issue runs), and the cron issue tracer
-(`src/cronTracer.js`, over `runner.startIssueRun`, with its state in Redis). Layout and Redis keys
-are in `README.md`.
+(`src/cronTracer.js`, over `runner.startIssueRun`, with its state in Redis), and the office
+dashboard's feed (`GET /office/feed`, SSE, pushed from `src/stateChanges.js`) and plain panel
+(`dashboard/`). Layout, Redis keys and the office snapshot shape are in `README.md`; dashboard terms
+are in `CONTEXT.md`.
 
 ## Conventions
 

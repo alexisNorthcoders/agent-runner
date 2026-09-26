@@ -16,8 +16,10 @@ import { pidAlive } from './pidAlive.js';
  *   history: import('./runHistory.js').HistoryEntry[],
  *   queue?: import('./runQueue.js').QueuedRun[],
  *   manualPauses?: import('./manualPause.js').ManualPause[],
+ *   lock?: import('./runLock.js').RunRecord | null,
  * }} StatusSnapshot
- *   `history` covers the last 7 days, newest first.
+ *   `history` covers the last 7 days, newest first. `lock` is the lock holder (null when free or
+ *   unreadable).
  */
 
 export const PAUSE_LOOKUP_TIMEOUT_MS = 1500;
@@ -89,5 +91,6 @@ export async function collectStatus({
     history: recent,
     queue,
     manualPauses,
+    lock,
   };
 }

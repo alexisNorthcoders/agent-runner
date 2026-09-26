@@ -1,0 +1,67 @@
+# agent-runner
+
+A standalone service that runs headless coding-agent sessions one at a time, fed by the WhatsApp
+bot and a cron, and reports through a Redis outbox. The office dashboard's plan is issue #17.
+
+## Language
+
+### Runner
+
+**Run**:
+One agent session under the single-flight lock, from start to its one report: freeform, Joplin, or an issue run.
+_Avoid_: job, task, session (for the whole run)
+
+**Issue run**:
+A run that implements one GitHub issue in an allowlisted workspace, then commits, opens a PR, reviews and merges it.
+
+**Workspace**:
+An allowlisted repo on the Pi, named by its alias (e.g. `chess-trainer`). Issue runs only happen in workspaces.
+_Avoid_: project, repo (when you mean the alias)
+
+**Phase**:
+Where the executing run is: `agent` (an agent pass, the first one or the autofix) or `post-run` (commit, PR, review, merge).
+
+**Queue**:
+Run requests waiting for the agent, oldest first.
+
+**Pause**:
+A hold on new runs: the safe-restart pause flag, the owner's general pause, or the owner's pause of one workspace.
+
+### Office dashboard
+
+**Office**:
+The dashboard: a LAN page that shows the runner as an office, with the scene (later) and a panel of tabs (Now, History, Office).
+_Avoid_: UI, frontend, monitor
+
+**Office feed**:
+The read-only SSE endpoint (`GET /office/feed`) that sends an **Office snapshot** on connect and after every state change.
+_Avoid_: websocket, API
+
+**Office snapshot**:
+The one JSON document the office is drawn from (`OfficeSnapshot` in `src/officeSnapshot.js`), built from the same status snapshot as `agent:status`.
+
+**Cubicle**:
+A **Workspace**'s desk in the office bullpen, one per allowlisted alias, where its issue runs are worked.
+
+**Reception**:
+The office's front desk: the **Mail carrier**, the cron countdown, and the **Queue** as letters on the mail cart.
+
+**Annex**:
+The room for freeform runs, which work outside a known **Workspace**.
+
+**Library**:
+The room for Joplin runs, whose instructions come from a Joplin note.
+
+**Mail carrier**:
+The figure who delivers each run to its room: an interoffice envelope for a cron run, a ringing phone first for a manual (WhatsApp) one.
+
+## Relationships
+
+- The **Office feed** pushes **Office snapshots**; the **Office** only ever reads them.
+- Each allowlisted **Workspace** has one **Cubicle**; an **Issue run** is worked in its **Cubicle**.
+- A freeform **Run** is worked in the **Annex**, a Joplin **Run** in the **Library**.
+- The **Queue** waits at **Reception** until the **Mail carrier** delivers the next **Run**.
+
+## Flagged ambiguities
+
+- "Office" names both the whole dashboard and one of its panel tabs (the tab with cron, pauses, lock and queue). In code and docs, "the Office" is the dashboard; say "the Office tab" for the tab.

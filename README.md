@@ -7,7 +7,7 @@ WhatsappBot `docs/adr/0001-agent-runner-out-of-process.md`.
 
 Built so far: freeform runs, `joplin:` runs, the GitHub issue pipeline (`claude issue:…`),
 `claude:stop`, `claude:restart`, status/history (`claude:status`, `claude:history`,
-`npm run agent:*`), and the cron issue tracer.
+`npm run agent:*`), the cron issue tracer, and the office dashboard's feed and plain panel.
 
 ## Setup
 
@@ -119,12 +119,107 @@ State is in Redis (below) and starts fresh: nothing is migrated from the bot's J
   a usage/parse error). `replyTo` is opaque and is echoed on the run's outbox messages.
 - `GET /status` → `{busy, activeRun, paused, queued}`. `activeRun` includes live progress (`lastActivity`,
   `turns`, tokens).
+- `GET /office/feed` → the [office feed](#office-dashboard), a read-only SSE stream of office snapshots.
 
 ```sh
 curl -s localhost:3790/status
 curl -s localhost:3790/command -H 'content-type: application/json' \
   -d '{"text":"claude say hi","replyTo":"test"}'
 ```
+
+## Office dashboard
+
+A LAN page that shows the runner live: the **Now**, **History** and **Office** tabs, as plain text
+and tables for now (the office scene comes later, see #17). The page is static files in
+`dashboard/` with no build step, served by nginx, and it gets everything from the office feed. The
+terms (Office, Cubicle, Reception, …) are in [`CONTEXT.md`](CONTEXT.md).
+
+### Office feed
+
+`GET /office/feed` on the runner's 127.0.0.1 port is a [Server-Sent Events][sse] stream. It is
+read-only: it takes no input and there is no control route beside it.
+
+- On connect it sends a full snapshot, then a new one after every state change: a run starting or
+  ending, agent progress, the phase, the queue, a pause, a cron tick, the lock.
+- Changes come from the runner's one internal change notification (`src/stateChanges.js`): every
+  Redis state write goes through a notifying store, and the runner reports progress, phase and runs
+  ending. Changes are coalesced, so pushes are at least 1s apart and a change shows within ~1.3s.
+- Writes by other processes (`npm run agent:pause` / `agent:resume`, safe-restart's pause flag)
+  are published on the Redis channel `agent-runner:state-changed`, which the runner subscribes to,
+  so they push too.
+- Every 30s the snapshot is resent anyway. That keeps the connection open through proxies, and
+  catches what nothing announces (a run turning orphaned or stale, a pause expiring).
+- Each event is `event: snapshot` with the JSON on one `data:` line. Up to 20 clients.
+
+```sh
+curl -sN localhost:3790/office/feed
+```
+
+### Snapshot shape
+
+`OfficeSnapshot` in `src/officeSnapshot.js` (JSDoc-typed) is the contract. It is built from the
+same status snapshot as `npm run agent:status`, plus the live phase and progress the runner holds
+in memory, so the numbers match. It carries no paths, reply addresses or prompts.
+
+```jsonc
+{
+  "version": 1,                        // bumped on a breaking change
+  "at": "2026-09-26T04:44:30.885Z",    // when it was taken
+  "activeRun": {                       // the run this runner is executing, or null
+    "runId": "…", "kind": "issue", "trigger": "cron",   // trigger: "cron" | "manual"
+    "label": "issue bot#7 \"Fix it\"", "workspaceAlias": "bot", "issueNumber": 7,
+    "health": "running",               // running | orphaned | stale
+    "phase": "agent",                  // agent | post-run, null if not run by this process
+    "model": "claude-opus-5-5", "turns": 12, "outputTokens": 900, "contextTokens": 136635,
+    "lastActivity": "Read src/a.js", "startedAt": "…", "elapsedMs": 378907, "agentPid": 583232
+  },
+  "active": [ /* every in-flight run agent:status lists, orphaned and stale too, same shape */ ],
+  "queue": [ { "id": "…", "kind": "freeform", "label": "…", "queuedAt": "…" } ],
+  "pauses": {
+    "restart": null,                   // safe-restart's flag: {reason, pausedAt}, null or "unknown"
+    "general": null,                   // by hand: {reason, pausedAt, until} or null
+    "workspaces": [ { "alias": "chess-trainer", "reason": "…", "pausedAt": "…", "until": "…" } ]
+  },
+  "cron": {                            // null when the cron hasn't started
+    "alive": true, "pid": 579608, "intervalMs": 600000,
+    "lastTickStartedAt": "…", "lastTickEndedAt": "…", "outcome": { "kind": "no_eligible" },
+    "nextTickAt": "…"                  // last tick start + interval; null before a tick or if dead
+  },
+  "lock": { "runId": "…", "kind": "issue", "trigger": "cron", "label": "…",
+            "workspaceAlias": "bot", "issueNumber": 7, "startedAt": "…" },  // or null
+  "history": [                         // the last 7 days, newest first
+    { "runId": "…", "kind": "issue", "trigger": "cron", "label": "…", "workspaceAlias": "bot",
+      "issueNumber": 7, "startedAt": "…", "endedAt": "…", "durationMs": 60000,
+      "outcome": "success", "result": "merged", "model": "…", "turns": 3,
+      "costUsd": 1.2, "tokens": 1700000 }   // tokens: input + output + cache
+  ],
+  "spend": { "today": { "runs": 1, "costUsd": 2.33, "tokens": 2900000 },   // since local midnight
+             "week":  { "runs": 24, "costUsd": 28.7, "tokens": 32300000 } },
+  "workspaces": ["agent-runner", "bot", "chess-trainer"]   // allowlisted aliases, sorted
+}
+```
+
+Add fields freely; bump `version` for anything that breaks a reader.
+
+### The page and nginx
+
+`dashboard/index.html` + `app.js` (rendering) + `format.js` (number formatting, kept in step with
+`src/statusFormat.js` by a test). It opens the feed at the relative URL `feed`, re-renders every
+second so elapsed times and the cron countdown move, and says **runner down** while the feed
+can't connect (or has been silent for 75s), reconnecting by itself every 3s.
+
+[`docs/nginx/office.conf`](docs/nginx/office.conf) is an example snippet to include in a `server`
+block: it serves `dashboard/` on `/office/` and proxies `/office/feed` to the runner with
+buffering off. It allows only localhost and `192.168.0.0/16`, since the page has no auth. The
+runner's port stays bound to 127.0.0.1.
+
+```sh
+sudo cp docs/nginx/office.conf /etc/nginx/snippets/agent-runner-office.conf
+# add `include snippets/agent-runner-office.conf;` to a server block, then:
+sudo nginx -t && sudo systemctl reload nginx     # open http://<pi>/office/
+```
+
+[sse]: https://html.spec.whatwg.org/multipage/server-sent-events.html
 
 ## Redis
 
@@ -138,6 +233,7 @@ curl -s localhost:3790/command -H 'content-type: application/json' \
 | `agent-runner:cron:state` | string (JSON) | The cron's last tick (`pid`, `intervalMs`, times, outcome), for the status views. |
 | `agent-runner:cron:last-started` | hash | `owner/repo` → the last issue the cron made progress on there. |
 | `agent-runner:cron:pr-attempts` | hash | `owner/repo#n` → the PR state (`headSha:baseSha`) the cron last worked. Not written when an approved PR's merge failed only on a network error, so the next tick works it again. |
+| `agent-runner:state-changed` | pub/sub channel | The CLIs and safe-restart publish the key of each state write they make, so the runner's office feed pushes. |
 | `agent-runner:cron:park-notices` | hash | `owner/repo#n` → the parked PR state the owner was last told about. |
 
 ```sh
@@ -173,6 +269,9 @@ are told the same rule in their prompt preamble.
 - `src/activeRuns.js`, `src/runHistory.js`: the files under `logs/agent-runs/`.
 - `src/statusCollect.js` + `src/statusFormat.js`: the status snapshot and its terminal/WhatsApp
   rendering. `bin/agent-cli.js` is the terminal CLI.
+- `src/stateChanges.js`: the runner's "state changed" notification, and the Redis store that raises it.
+- `src/officeSnapshot.js` + `src/officeFeed.js`: the office snapshot and the SSE feed that pushes it.
+- `dashboard/`: the office dashboard page (static, no build). `docs/nginx/office.conf` serves it.
 - `logs/agent-runs/`: one `<runId>.log` per run (plus `<runId>-autofix.log`), `active/<runId>.json`
   per in-flight run (live progress), `runs.jsonl` history (an issue run's `costUsd` includes its
   autofix pass).

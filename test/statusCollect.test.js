@@ -50,6 +50,7 @@ describe('collectStatus', () => {
     const lock = { runId: 'b', label: 'joplin:plan', startedAt: '2026-09-24T11:59:00Z', ownerPid: 42 };
     const s = await collectStatus(deps({ readLock: async () => lock }).deps);
     assert.deepEqual(s.active.map((r) => [r.runId, r.health]), [['a', 'running'], ['b', 'running']]);
+    assert.equal(s.lock?.runId, 'b');
     const same = await collectStatus(deps({ readLock: async () => ({ runId: 'a', ownerPid: 42 }) }).deps);
     assert.deepEqual(same.active.map((r) => r.runId), ['a']);
   });
