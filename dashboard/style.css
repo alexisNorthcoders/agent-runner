@@ -12,7 +12,7 @@ body.down main {
   opacity: 0.45;
 }
 /* the scene on the left (~65%), the panel on the right; stacked on narrower screens */
-#office {
+#layout {
   display: flex;
   align-items: flex-start;
   gap: 1rem;
@@ -44,7 +44,7 @@ body.down main {
   pointer-events: none;
 }
 @media (max-width: 900px) {
-  #office {
+  #layout {
     flex-direction: column;
     align-items: stretch;
   }

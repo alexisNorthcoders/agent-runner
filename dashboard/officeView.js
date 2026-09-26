@@ -50,9 +50,15 @@ export function drawOffice(ctx, layout, scene) {
 
   const b = rooms.bullpen.rect;
   s.wallWindow(ctx, b.x + 10, b.y + 6, 40);
-  scene.cubicles.forEach((c, i) => layout.cubicles[i] && s.cubicle(ctx, layout.cubicles[i], c));
+  scene.cubicles.forEach((c, i) => {
+    const r = layout.cubicles[i];
+    if (!r) return;
+    s.cubicle(ctx, r, c.name);
+    if (c.doNotDisturb) s.doNotDisturb(ctx, r);
+  });
 
-  s.frontDoor(ctx, layout.door, scene.backInFive);
+  s.frontDoor(ctx, layout.door);
+  if (scene.backInFive) s.backInFive(ctx, layout.door);
   if (scene.reception.countdownMs != null) s.countdownClock(ctx, layout.clock, formatClock(scene.reception.countdownMs));
   s.mailCarrier(ctx, layout.desk.x + 30, layout.desk.y - 16);
   s.receptionDesk(ctx, layout.desk);

@@ -33,6 +33,7 @@ let scene = null;
 let layout = null;
 /** where the pointer is over the scene, in CSS pixels relative to the canvas, for the hover tip */
 let pointer = null;
+const sceneCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene'));
 /** the scene at its internal resolution, before it's scaled up */
 const buffer = document.createElement('canvas');
 
@@ -205,7 +206,7 @@ function render() {
 function drawScene() {
   scene = reduceScene(snap, scene, { up, now: snap ? now() : Date.now(), config });
   const floor = document.getElementById('floor');
-  const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene'));
+  const canvas = sceneCanvas;
   const dpr = window.devicePixelRatio || 1;
   const fit = fitScene(floor.clientWidth, window.innerHeight - document.querySelector('header').offsetHeight - 48, dpr);
   layout = layoutOffice(scene.cubicles.length, fit.mode, fit.width);
@@ -225,7 +226,7 @@ function drawScene() {
 /** What's under the pointer: a letter's label, the cron countdown, or a cubicle's workspace. */
 function hovered() {
   if (!pointer || !scene || !layout || scene.dark) return null;
-  const canvas = document.getElementById('scene');
+  const canvas = sceneCanvas;
   const x = (pointer.x * layout.width) / canvas.clientWidth;
   const y = (pointer.y * layout.height) / canvas.clientHeight;
   const slot = cartSlots(layout, scene.reception.letters).find((sl) => inside(sl.rect, x, y));
@@ -242,7 +243,7 @@ function showTip() {
   const label = hovered();
   tip.hidden = !label;
   if (!label) return;
-  const canvas = document.getElementById('scene');
+  const canvas = sceneCanvas;
   tip.textContent = label;
   // the canvas is centred in #floor, which the tip is positioned in
   const left = canvas.offsetLeft + pointer.x + 12;
@@ -252,7 +253,7 @@ function showTip() {
 
 /** @param {PointerEvent} e */
 function trackPointer(e) {
-  const r = document.getElementById('scene').getBoundingClientRect();
+  const r = sceneCanvas.getBoundingClientRect();
   pointer = { x: e.clientX - r.left, y: e.clientY - r.top };
   showTip();
 }
@@ -305,7 +306,6 @@ window.addEventListener('hashchange', () => {
   if (following) renderLog();
 });
 document.getElementById('log-follow').addEventListener('click', toggleFollow);
-const sceneCanvas = document.getElementById('scene');
 sceneCanvas.addEventListener('pointermove', trackPointer);
 sceneCanvas.addEventListener('pointerdown', trackPointer);
 sceneCanvas.addEventListener('pointerleave', () => {

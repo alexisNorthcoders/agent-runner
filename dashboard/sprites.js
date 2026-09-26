@@ -238,9 +238,9 @@ export function table(ctx, x, y) {
 
 /**
  * A cubicle: partitions on three sides, a desk, and its department sign on the back partition.
- * @param {Ctx} ctx @param {Rect} r @param {{ name: string, doNotDisturb: boolean }} c
+ * @param {Ctx} ctx @param {Rect} r @param {string} sign
  */
-export function cubicle(ctx, r, c) {
+export function cubicle(ctx, r, sign) {
   const x = r.x + 2;
   const y = r.y + 2;
   const w = r.w - 4;
@@ -254,17 +254,18 @@ export function cubicle(ctx, r, c) {
   ctx.fillRect(x, y, 1, h);
   ctx.fillRect(x + w - 1, y, 1, h);
   // department sign
-  const name = fitText(c.name, w - 10);
+  const name = fitText(sign, w - 10);
   const sw = textWidth(name) + 4;
   ctx.fillStyle = PALETTE.signBg;
   ctx.fillRect(x + Math.floor((w - sw) / 2), y + 3, sw, 7);
   text(ctx, name, x + w / 2, y + 4, PALETTE.signText, { center: true });
   desk(ctx, x + 6, y + Math.min(h - 16, 28), w - 12);
-  if (c.doNotDisturb) doNotDisturb(ctx, x + w - 3, y + 14);
 }
 
-/** A "Do not disturb" sign hanging on a partition, right edge at `x`. @param {Ctx} ctx @param {number} x @param {number} y */
-export function doNotDisturb(ctx, x, y) {
+/** A "Do not disturb" sign hanging on a cubicle's right partition. @param {Ctx} ctx @param {Rect} r the cubicle */
+export function doNotDisturb(ctx, r) {
+  const x = r.x + r.w - 5;
+  const y = r.y + 16;
   ctx.fillStyle = PALETTE.ink;
   ctx.fillRect(x - 16, y - 2, 1, 2);
   ctx.fillStyle = PALETTE.red;
@@ -275,11 +276,8 @@ export function doNotDisturb(ctx, x, y) {
 
 // --- reception ---
 
-/**
- * The front door, on the back wall, with "BACK IN 5" hung on it during a general pause.
- * @param {Ctx} ctx @param {Rect} r @param {boolean} backInFive
- */
-export function frontDoor(ctx, r, backInFive) {
+/** The front door, on the back wall. @param {Ctx} ctx @param {Rect} r */
+export function frontDoor(ctx, r) {
   ctx.fillStyle = PALETTE.woodDark;
   ctx.fillRect(r.x - 1, r.y - 1, r.w + 2, r.h + 1);
   ctx.fillStyle = PALETTE.window;
@@ -289,8 +287,10 @@ export function frontDoor(ctx, r, backInFive) {
   ctx.fillStyle = PALETTE.ink;
   ctx.fillRect(r.x + Math.floor(r.w / 2) - 3, r.y + 12, 1, 3);
   ctx.fillRect(r.x + Math.floor(r.w / 2) + 3, r.y + 12, 1, 3);
-  if (!backInFive) return;
-  // a card on a string, wider than the door
+}
+
+/** "BACK IN 5": a card on a string hung on the front door, wider than it. @param {Ctx} ctx @param {Rect} r the door */
+export function backInFive(ctx, r) {
   ctx.fillStyle = PALETTE.ink;
   ctx.fillRect(r.x + 4, r.y + 2, 1, 5);
   ctx.fillRect(r.x + r.w - 5, r.y + 2, 1, 5);
