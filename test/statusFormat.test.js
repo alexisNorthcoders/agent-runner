@@ -131,6 +131,21 @@ describe('renderHistoryText (WhatsApp)', () => {
     assert.equal(second, '2h05m ago · joplin — failed, 5m00s, -, 3.0k tok');
   });
 
+  it("shows a freeform run's inferred workspace, in status and history", () => {
+    const status = renderStatusText(
+      snapshot({
+        active: [{ runId: 'a', kind: 'freeform', label: 'fix the login bug', inferredWorkspace: 'whatsapp-bot', startedAt: ago(2 * MIN), health: 'running', ownerPid: 1, turns: 4, outputTokens: 900 }],
+        history: [row({ inferredWorkspace: 'chess-trainer' })],
+      })
+    );
+    assert.match(status, /^Agent: fix the login bug → whatsapp-bot \(running, 2m00s, 4 turns, 900 out tok\)$/m);
+    assert.match(status, /^10m00s ago · list the repos → chess-trainer — success/m);
+    const history = renderHistoryText([row({ inferredWorkspace: 'chess-trainer' }), row({ runId: 'r2' })], NOW);
+    assert.equal(history.split('\n')[1], '10m00s ago · list the repos → chess-trainer — success, 5m00s, $0.42, 3.0k tok');
+    assert.equal(history.split('\n')[2], '10m00s ago · list the repos — success, 5m00s, $0.42, 3.0k tok');
+    assert.match(renderHistoryLines([row({ inferredWorkspace: 'chess-trainer' })], NOW).join('\n'), /list the repos → chess-trainer/);
+  });
+
   it('shows an active scheduled job as a job, without agent progress', () => {
     const text = renderStatusText(snapshot({ active: [{ runId: 'j', kind: 'job', label: 'scheduled job cleanup_agent', startedAt: ago(2 * MIN), health: 'running', ownerPid: 1 }] }));
     assert.match(text, /^Job: scheduled job cleanup_agent \(running, 2m00s\)$/m);

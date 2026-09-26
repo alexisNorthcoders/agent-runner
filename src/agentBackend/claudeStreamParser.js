@@ -1,4 +1,5 @@
 import { StringDecoder } from 'string_decoder';
+import { createToolTouchReader } from './claudeToolTouch.js';
 
 /**
  * Incremental parser for `claude -p --output-format stream-json --verbose` output (NDJSON).
@@ -61,7 +62,12 @@ function primaryModel(modelUsage) {
  * }} StreamSnapshot
  */
 
-export function createStreamAccumulator() {
+/**
+ * @param {{ cwd?: string, onTouch?: (t: import('./index.js').AgentTouch) => void }} [o] `onTouch`
+ *   hears each edit or command tool call (./claudeToolTouch.js), read from `cwd`.
+ */
+export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
+  const touches = onTouch ? createToolTouchReader({ cwd }) : null;
   const decoder = new StringDecoder('utf8');
   let buffer = '';
   /** @type {StreamSnapshot} */
@@ -118,6 +124,8 @@ export function createStreamAccumulator() {
         if (block.type === 'tool_use') {
           state.lastActivity = describeToolUse(block.name, block.input);
           lines.push(`→ ${state.lastActivity}`);
+          const touch = touches?.read(block.name, block.input);
+          if (touch) onTouch?.(touch);
         } else if (block.type === 'text' && block.text?.trim()) {
           state.assistantText = block.text;
           state.lastActivity = 'writing…';

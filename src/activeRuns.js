@@ -62,11 +62,15 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
      * @param {import('./runLock.js').RunRecord} record
      */
     track(record) {
+      let rec = record;
       const path = join(activeDir, `${record.runId}.json`);
       let finished = false;
       let lastWrite = now();
       /** @type {import('./agentBackend/index.js').AgentProgress | null} */
       let pending = null;
+      /** the progress last written, kept when the record changes */
+      /** @type {import('./agentBackend/index.js').AgentProgress | null} */
+      let written = null;
       /** @type {NodeJS.Timeout | null} */
       let timer = null;
       /** @type {Promise<unknown>} */
@@ -77,7 +81,8 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
       const write = (p) =>
         enqueue(async () => {
           if (finished) return;
-          await writeJsonAtomic(path, { ...record, ...(p ?? {}), updatedAt: new Date(now()).toISOString() });
+          written = p ?? written;
+          await writeJsonAtomic(path, { ...rec, ...(written ?? {}), updatedAt: new Date(now()).toISOString() });
         });
 
       const ready = write(null);
@@ -103,6 +108,14 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
         /** Settles once the first write has been attempted. */
         ready,
         update,
+        /**
+         * Rewrite the record (same runId) now, unthrottled, keeping the progress.
+         * @param {import('./runLock.js').RunRecord} next
+         */
+        setRecord(next) {
+          rec = next;
+          return write(null);
+        },
         finish() {
           if (timer) clearTimeout(timer);
           timer = null;

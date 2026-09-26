@@ -86,6 +86,23 @@ export function createWorkspaceAllowlist({ env = process.env } = {}) {
     aliases: async () => [...(await configuredAliases()).keys()].sort(),
 
     /**
+     * Every allowlisted workspace with its canonical root, sorted by alias. One whose path doesn't
+     * resolve is left out.
+     * @returns {Promise<Array<{ alias: string, root: string }>>}
+     */
+    async list() {
+      const out = [];
+      for (const [alias, raw] of [...(await configuredAliases())].sort(([a], [b]) => a.localeCompare(b))) {
+        try {
+          out.push({ alias, root: await canonicalDir(raw) });
+        } catch {
+          /* not reachable: can't be worked in */
+        }
+      }
+      return out;
+    },
+
+    /**
      * @param {string | null} alias null → `CLAUDE_ISSUE_DEFAULT_ALIAS`
      * @returns {Promise<{ alias: string, root: string }>}
      */

@@ -78,6 +78,7 @@ describe('buildOfficeSnapshot', () => {
       trigger: 'cron',
       label: 'issue bot#7 "Fix it"',
       workspaceAlias: 'bot',
+      inferredWorkspace: null,
       issueNumber: 7,
       room: null,
       health: 'running',
@@ -117,7 +118,7 @@ describe('buildOfficeSnapshot', () => {
   it('lists the queue, the lock holder and every pause', () => {
     const s = buildOfficeSnapshot({ status: status({ paused: { token: 't', reason: 'safe-restart', pausedAt: '2026-09-24T11:59:30Z' } }), live: null, workspaces: [] });
     assert.deepEqual(s.queue, [{ id: 'q1', kind: 'freeform', label: 'next job', queuedAt: '2026-09-24T11:59:00Z' }]);
-    assert.deepEqual(s.lock, { runId: 'r1', kind: 'issue', trigger: 'cron', label: 'issue bot#7 "Fix it"', workspaceAlias: 'bot', issueNumber: 7, room: null, startedAt: '2026-09-24T11:50:00Z' });
+    assert.deepEqual(s.lock, { runId: 'r1', kind: 'issue', trigger: 'cron', label: 'issue bot#7 "Fix it"', workspaceAlias: 'bot', inferredWorkspace: null, issueNumber: 7, room: null, startedAt: '2026-09-24T11:50:00Z' });
     assert.deepEqual(s.pauses, {
       restart: { reason: 'safe-restart', pausedAt: '2026-09-24T11:59:30Z' },
       general: { reason: 'lunch', pausedAt: '2026-09-24T11:00:00Z', until: '2026-09-24T13:00:00Z' },
@@ -158,6 +159,26 @@ describe('buildOfficeSnapshot', () => {
     assert.equal(s.history[0].room, 'reddit-bot');
   });
 
+  it("carries a freeform run's inferred workspace: live, in the lock and in history", () => {
+    const st = status();
+    const run = { ...st.active[0], kind: 'freeform', label: 'fix the bot', workspaceAlias: undefined, issueNumber: undefined };
+    const s = buildOfficeSnapshot({
+      status: {
+        ...st,
+        active: [run],
+        lock: { ...run, inferredWorkspace: 'bot' },
+        history: [{ ...st.history[0], inferredWorkspace: 'chess' }],
+      },
+      // the active-run file may lag; this process's own record is fresher
+      live: { runId: 'r1', phase: 'agent', inferredWorkspace: 'bot' },
+      workspaces: ['bot', 'chess'],
+    });
+    assert.equal(s.activeRun?.inferredWorkspace, 'bot');
+    assert.equal(s.activeRun?.workspaceAlias, null);
+    assert.equal(s.lock?.inferredWorkspace, 'bot');
+    assert.equal(s.history[0].inferredWorkspace, 'chess');
+  });
+
   it('carries 7 days of history and the same spend totals as agent:status', () => {
     const st = status();
     const s = buildOfficeSnapshot({ status: st, live: null, workspaces: [] });
@@ -168,6 +189,7 @@ describe('buildOfficeSnapshot', () => {
       trigger: 'manual',
       label: 'say hi',
       workspaceAlias: null,
+      inferredWorkspace: null,
       issueNumber: null,
       room: null,
       startedAt: '2026-09-24T10:00:00Z',

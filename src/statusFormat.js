@@ -75,6 +75,13 @@ const what = (r) => r.label || r.kind || r.runId;
 /** @param {string} s @param {number} n */
 const clip = (s, n) => (s.length <= n ? s : `${s.slice(0, n - 1)}…`);
 
+/**
+ * What the run was asked to do, clipped to `n`, and the workspace a freeform run turned out to
+ * work in: `fix the login bug → whatsapp-bot`.
+ * @param {{ label?: string, kind?: string, runId: string, inferredWorkspace?: unknown }} r @param {number} n
+ */
+const whatWhere = (r, n) => `${clip(what(r), n)}${typeof r.inferredWorkspace === 'string' ? ` → ${r.inferredWorkspace}` : ''}`;
+
 /** @param {string} s @param {number} n */
 const pad = (s, n) => (s.length >= n ? s : s + ' '.repeat(n - s.length));
 
@@ -171,7 +178,7 @@ export function renderStatus(d, c = plain) {
     const rows = d.active.map((r) => [
       r.runId,
       r.kind ?? '-',
-      clip(what(r), 40),
+      whatWhere(r, 40),
       shortModel(r.model),
       formatDuration(since(d.now, r.startedAt)),
       String(r.turns ?? 0),
@@ -219,7 +226,7 @@ export function renderHistoryLines(rows, now, c = plain) {
   const body = rows.map((r) => [
     formatAgo(since(now, r.endedAt)),
     r.kind ?? '-',
-    clip(what(r), 40),
+    whatWhere(r, 40),
     r.outcome,
     formatDuration(durationOf(r)),
     shortModel(r.model),
@@ -244,7 +251,7 @@ const isJob = (r) => r.kind === 'job';
 
 /** @param {HistoryEntry} r @param {number} now */
 const historyLine = (r, now) =>
-  `${formatAgo(since(now, r.endedAt))} · ${clip(what(r), 60)} — ${r.outcome}, ${formatDuration(durationOf(r))}` +
+  `${formatAgo(since(now, r.endedAt))} · ${whatWhere(r, 60)} — ${r.outcome}, ${formatDuration(durationOf(r))}` +
   (isJob(r) ? '' : `, ${formatCost(r.costUsd)}, ${formatTokens(totalTokens(r.tokens))} tok`);
 
 export const STATUS_RECENT_COUNT = 3;
@@ -258,7 +265,7 @@ export function renderStatusText(d) {
   if (!d.active.length) out.push('Agent: idle');
   for (const r of d.active) {
     const progress = r.health === 'running' && !isJob(r) ? `, ${r.turns ?? 0} turns, ${formatTokens(r.outputTokens ?? 0)} out tok` : '';
-    out.push(`${isJob(r) ? 'Job' : 'Agent'}: ${clip(what(r), 60)} (${r.health}, ${formatDuration(since(d.now, r.startedAt))}${progress})`);
+    out.push(`${isJob(r) ? 'Job' : 'Agent'}: ${whatWhere(r, 60)} (${r.health}, ${formatDuration(since(d.now, r.startedAt))}${progress})`);
     if (r.health === 'orphaned') out.push(`⚠ Orphaned: agent-runner restarted but agent pid ${r.agentPid} is still running; nothing will report its result.`);
     else if (r.health === 'stale') out.push('⚠ Stale: leftover from a crash (no live process).');
     else if (r.lastActivity) out.push(`Phase: ${clip(r.lastActivity, 100)}`);
