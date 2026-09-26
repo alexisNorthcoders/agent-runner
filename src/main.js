@@ -14,7 +14,7 @@ import { createCronState } from './cronState.js';
 import { createCronTracer } from './cronTracer.js';
 import { collectStatus } from './statusCollect.js';
 import { createJoplinClient } from './joplin.js';
-import { buildPreamble } from './preamble.js';
+import { buildFreeformPreamble, buildPreamble } from './preamble.js';
 import { createRunner } from './runner.js';
 import { createHttpServer } from './http.js';
 import { createWorkspaceAllowlist } from './workspaces.js';
@@ -66,6 +66,7 @@ const runner = createRunner({
   workspaceRoot: config.workspaceRoot,
   logsDir: config.logsDir,
   preamble: buildPreamble({ repoRoot: config.repoRoot }),
+  freeformPreamble: buildFreeformPreamble({ repoRoot: config.repoRoot }),
 });
 
 // Runs killed with the previous process (e.g. a restart mid-run) would otherwise show as `stale`
