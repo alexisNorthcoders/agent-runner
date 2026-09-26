@@ -34,7 +34,7 @@ A hold on new runs: the safe-restart pause flag, the owner's general pause, or t
 ### Office dashboard
 
 **Office**:
-The dashboard: a LAN page that shows the runner as an office, with the scene (later) and a panel of tabs (Now, History, Office).
+The dashboard: a LAN page that shows the runner as an office, with the **Scene** on the left and a panel of tabs (Now, History, Office) on the right.
 _Avoid_: UI, frontend, monitor
 
 **Office feed**:
@@ -48,11 +48,33 @@ _Avoid_: log tail, log pane (for the concept)
 **Office snapshot**:
 The one JSON document the office is drawn from (`OfficeSnapshot` in `src/officeSnapshot.js`), built from the same status snapshot as `agent:status`.
 
+**Scene**:
+The office floor drawn on the page's canvas: the **Bullpen** and the rooms around it. The scene reducer (`dashboard/scene.js`) works it out from each **Office snapshot** and the scene before it, then it is drawn.
+_Avoid_: map, canvas (for the concept)
+
+**Bullpen**:
+The open-plan middle of the office, where the **Cubicles** are.
+
 **Cubicle**:
 A **Workspace**'s desk in the office bullpen, one per allowlisted alias, where its issue runs are worked.
 
+**Department sign**:
+The name on a **Cubicle**. It comes from the dashboard config (`dashboard/office.json`), which also sets the cubicles' order; an alias the config doesn't name shows the alias.
+
+**Lights off**:
+The **Scene** while the runner is down (the **Office feed** can't connect): the whole office dark, with only the EXIT sign lit.
+
+**BACK IN 5**:
+The sign on the front door during the owner's general **Pause**. A paused **Workspace**'s **Cubicle** gets a "Do not disturb" sign instead.
+
+**Boss's office**:
+The corner office. Empty for now; later the boss reviews PRs from here.
+
 **Reception**:
-The office's front desk: the **Mail carrier**, the cron countdown, and the **Queue** as letters on the mail cart.
+The office's front desk, by the front door: the **Mail carrier**, the cron countdown (a clock on the wall, hidden when the cron isn't running), and the **Queue** as letters on the **Mail cart**.
+
+**Mail cart**:
+The cart at **Reception** with one letter per queued request, oldest first; hovering a letter shows its label. When the cart is full, its last slot is a pile standing for the rest.
 
 **Annex**:
 The room for freeform runs, which work outside a known **Workspace**.

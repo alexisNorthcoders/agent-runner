@@ -87,3 +87,12 @@ export function describeCronOutcome(o) {
 
 /** What a run was asked to do. @param {{ label: string | null, kind: string | null, runId: string }} r */
 export const what = (r) => r.label || r.kind || r.runId;
+
+/** The countdown clock's face: `9:05`, or `1:02:03` past an hour. @param {number} ms */
+export function formatClock(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const two = (/** @type {number} */ n) => String(n).padStart(2, '0');
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h ? `${h}:${two(m)}:${two(s % 60)}` : `${m}:${two(s % 60)}`;
+}

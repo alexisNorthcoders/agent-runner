@@ -1,0 +1,13 @@
+{
+  "cubicles": [
+    { "alias": "agent-runner", "name": "IT" },
+    { "alias": "bot", "name": "Customer Svc" },
+    { "alias": "chess-trainer", "name": "Accounting" },
+    { "alias": "dots", "name": "Sales" },
+    { "alias": "go-server", "name": "Warehouse" },
+    { "alias": "home-manuals", "name": "HR" },
+    { "alias": "platformer", "name": "QA" },
+    { "alias": "snake-colyseus", "name": "Suppliers" },
+    { "alias": "snake-phaser", "name": "Marketing" }
+  ]
+}

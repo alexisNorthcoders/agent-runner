@@ -176,8 +176,8 @@ curl -s localhost:3790/command -H 'content-type: application/json' \
 
 ## Office dashboard
 
-A LAN page that shows the runner live: the **Now**, **History** and **Office** tabs, as plain text
-and tables for now (the office scene comes later, see #17). The page is static files in
+A LAN page that shows the runner live: a pixel-art office scene, and beside it the **Now**,
+**History** and **Office** tabs as plain text and tables (the plan is #17). The page is static files in
 `dashboard/` with no build step, served by nginx, and it gets everything from the office feed. The
 terms (Office, Cubicle, Reception, …) are in [`CONTEXT.md`](CONTEXT.md).
 
@@ -264,14 +264,51 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
 
 Add fields freely; bump `version` for anything that breaks a reader.
 
-### The page and nginx
+### The page
 
-`dashboard/index.html` + `app.js` (rendering) + `format.js` (number formatting, kept in step with
+`dashboard/index.html` + `app.js` (rendering) + the scene's modules (below) + `format.js` (number formatting, kept in step with
 `src/statusFormat.js` by a test) + `logPane.js` (the live log's lines). The Now tab tails the
 active run's log in a monospace pane that auto-scrolls, with a button to pause and resume
 scrolling. It opens the feed at the relative URL `feed`, re-renders every
 second so elapsed times and the cron countdown move, and says **runner down** while the feed
 can't connect (or has been silent for 75s), reconnecting by itself every 3s.
+
+### The office scene
+
+The office floor is drawn on a `<canvas>` next to the panel: an open-plan bullpen with one cubicle
+per allowlisted workspace, the boss's office and the Library on the left, and Reception (by the
+front door) and the Annex on the right. It shows the office-level state:
+
+- **Runner down:** the whole office is dark, apart from the EXIT sign.
+- **General pause** (`claude:pause`): a "BACK IN 5" sign on the front door.
+- **Workspace pause:** a "Do not disturb" sign on that cubicle.
+- **Reception:** the mail carrier at the desk, a countdown on the wall to the cron's next tick
+  (hidden when the cron isn't running), and one letter on the mail cart per queued request (hover
+  a letter for its label; a full cart piles the rest into its last slot).
+
+Pauses clear on the page as soon as they run out, without waiting for the next snapshot.
+
+The scene is drawn at a small internal resolution (360px tall, 560–720px wide) and scaled up by a
+whole number with smoothing off, so the pixels stay crisp. On a wide screen it takes about 65% of
+the width with the panel on the right; under 900px the panel goes below it, and under 560px the
+rooms stack vertically (Reception first).
+
+Cubicle names and order come from [`dashboard/office.json`](dashboard/office.json):
+
+```json
+{ "cubicles": [{ "alias": "agent-runner", "name": "IT" }, { "alias": "bot", "name": "Customer Svc" }] }
+```
+
+Listed aliases come first, in that order. Allowlisted aliases it doesn't list follow, named by
+their alias, and listed aliases that aren't allowlisted are ignored. Keep names short: about 12
+characters fit a sign at every size.
+
+The code is split so the rules are testable and the art is replaceable: `scene.js` is the pure
+scene reducer (snapshot + previous scene → scene, tested), `layout.js` places the rooms and
+cubicles (tested), `sprites.js` draws every sprite procedurally (swap it for sprite sheets later),
+and `officeView.js` draws a scene on a layout with the sprites.
+
+### nginx
 
 [`docs/nginx/office.conf`](docs/nginx/office.conf) is an example snippet to include in a `server`
 block: it serves `dashboard/` on `/office/` and proxies `/office/feed` to the runner with
