@@ -42,3 +42,13 @@ describe('dashboard formatting matches agent:status', () => {
     }
   });
 });
+
+describe('dashboard countdown clock', () => {
+  it('shows minutes and seconds, and hours past an hour', () => {
+    assert.equal(page.formatClock(0), '0:00');
+    assert.equal(page.formatClock(-5), '0:00');
+    assert.equal(page.formatClock(540_000), '9:00');
+    assert.equal(page.formatClock(59_001), '1:00');
+    assert.equal(page.formatClock(3_723_000), '1:02:03');
+  });
+});

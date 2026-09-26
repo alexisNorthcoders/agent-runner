@@ -1,8 +1,11 @@
-// The office dashboard's plain panel: listens to the office feed (`feed`, next to this page) and
-// renders the Now, History and Office tabs as text and tables. No build step, no dependencies.
-// The snapshot shape is `OfficeSnapshot` in src/officeSnapshot.js.
+// The office dashboard: listens to the office feed (`feed`, next to this page), draws the office
+// floor on a canvas, and renders the panel's Now, History and Office tabs as text and tables. No
+// build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeSnapshot.js.
 import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, what } from './format.js';
+import { cartSlots, fitScene, inside, layoutOffice } from './layout.js';
 import { applyLogEvent } from './logPane.js';
+import { drawOffice } from './officeView.js';
+import { reduceScene } from './scene.js';
 
 const FEED_URL = 'feed';
 const RECONNECT_MS = 3000;
@@ -22,6 +25,17 @@ let silenceTimer = 0;
 /** the active run's live log (masked by the runner), and whether the pane scrolls with it */
 let pane = { runId: null, lines: [] };
 let following = true;
+/** cubicle names and order (office.json) */
+let config = {};
+/** @type {import('./scene.js').Scene | null} */
+let scene = null;
+/** @type {import('./layout.js').Layout | null} */
+let layout = null;
+/** where the pointer is over the scene, in CSS pixels relative to the canvas, for the hover tip */
+let pointer = null;
+const sceneCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene'));
+/** the scene at its internal resolution, before it's scaled up */
+const buffer = document.createElement('canvas');
 
 // --- DOM helpers ---
 
@@ -184,6 +198,71 @@ function render() {
   if (!snap) panel.replaceChildren(h('p', { class: 'dim' }, up ? 'Waiting for the first snapshot…' : 'Runner down: no snapshot yet.'));
   else panel.replaceChildren(...RENDER[tab]());
   showLog();
+  drawScene();
+}
+
+// --- the office floor ---
+
+function drawScene() {
+  scene = reduceScene(snap, scene, { up, now: snap ? now() : Date.now(), config });
+  const floor = document.getElementById('floor');
+  const canvas = sceneCanvas;
+  const dpr = window.devicePixelRatio || 1;
+  const fit = fitScene(floor.clientWidth, window.innerHeight - document.querySelector('header').offsetHeight - 48, dpr);
+  const next = layoutOffice(scene.cubicles.length, fit.mode, fit.width);
+  // the pointer was placed over the old floor plan, so it may be over something else now: drop
+  // the tip until the pointer moves again
+  if (!sameLayout(layout, next) || canvas.width !== next.width * fit.scale || canvas.height !== next.height * fit.scale) pointer = null;
+  layout = next;
+  buffer.width = layout.width;
+  buffer.height = layout.height;
+  drawOffice(buffer.getContext('2d'), layout, scene);
+  canvas.width = layout.width * fit.scale;
+  canvas.height = layout.height * fit.scale;
+  canvas.style.width = `${canvas.width / dpr}px`;
+  canvas.style.height = `${canvas.height / dpr}px`;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(buffer, 0, 0, canvas.width, canvas.height);
+  showTip();
+}
+
+/** Same floor plan: same size and the same rooms in the same places. @param {any} a @param {any} b */
+const sameLayout = (a, b) => !!a && JSON.stringify(a) === JSON.stringify(b);
+
+/** What's under the pointer: a letter's label, the cron countdown, or a cubicle's workspace. */
+function hovered() {
+  if (!pointer || !scene || !layout || scene.dark) return null;
+  const canvas = sceneCanvas;
+  const x = (pointer.x * layout.width) / canvas.clientWidth;
+  const y = (pointer.y * layout.height) / canvas.clientHeight;
+  const slot = cartSlots(layout, scene.reception.letters).find((sl) => inside(sl.rect, x, y));
+  if (slot) return slot.label;
+  if (scene.reception.countdownMs != null && inside(layout.clock, x, y)) return `Next cron tick in ${formatDuration(scene.reception.countdownMs)}`;
+  const i = layout.cubicles.findIndex((r) => inside(r, x, y));
+  const c = scene.cubicles[i];
+  if (c) return `${c.name}${c.name === c.alias ? '' : ` (${c.alias})`}${c.doNotDisturb ? ': do not disturb' : ''}`;
+  return null;
+}
+
+function showTip() {
+  const tip = document.getElementById('tip');
+  const label = hovered();
+  tip.hidden = !label;
+  if (!label) return;
+  const canvas = sceneCanvas;
+  tip.textContent = label;
+  // the canvas is centred in #floor, which the tip is positioned in
+  const left = canvas.offsetLeft + pointer.x + 12;
+  tip.style.left = `${Math.min(left, canvas.offsetLeft + canvas.clientWidth - tip.offsetWidth)}px`;
+  tip.style.top = `${canvas.offsetTop + pointer.y + 16}px`;
+}
+
+/** @param {PointerEvent} e */
+function trackPointer(e) {
+  const r = sceneCanvas.getBoundingClientRect();
+  pointer = { x: e.clientX - r.left, y: e.clientY - r.top };
+  showTip();
 }
 
 // --- feed ---
@@ -234,6 +313,20 @@ window.addEventListener('hashchange', () => {
   if (following) renderLog();
 });
 document.getElementById('log-follow').addEventListener('click', toggleFollow);
+sceneCanvas.addEventListener('pointermove', trackPointer);
+sceneCanvas.addEventListener('pointerdown', trackPointer);
+sceneCanvas.addEventListener('pointerleave', () => {
+  pointer = null;
+  showTip();
+});
+window.addEventListener('resize', drawScene);
+fetch('office.json', { cache: 'no-cache' })
+  .then((r) => (r.ok ? r.json() : {}))
+  .catch(() => ({}))
+  .then((c) => {
+    config = c;
+    render();
+  });
 // keeps elapsed times and countdowns moving between snapshots
 setInterval(() => snap && render(), 1000);
 render();

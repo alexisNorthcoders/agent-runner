@@ -16,12 +16,20 @@
         <a href="#office">Office</a>
       </nav>
     </header>
-    <main id="panel"></main>
-    <!-- outside #panel, which is rebuilt every second, so the log keeps its scroll position -->
-    <section id="log" hidden>
-      <h3>Log <span id="log-run" class="dim"></span> <button id="log-follow" type="button">Pause scrolling</button></h3>
-      <pre id="log-lines"></pre>
-    </section>
+    <div id="layout">
+      <div id="floor">
+        <canvas id="scene" aria-label="The office floor"></canvas>
+        <div id="tip" hidden></div>
+      </div>
+      <aside id="side">
+        <main id="panel"></main>
+        <!-- outside #panel, which is rebuilt every second, so the log keeps its scroll position -->
+        <section id="log" hidden>
+          <h3>Log <span id="log-run" class="dim"></span> <button id="log-follow" type="button">Pause scrolling</button></h3>
+          <pre id="log-lines"></pre>
+        </section>
+      </aside>
+    </div>
     <script type="module" src="app.js"></script>
   </body>
 </html>
