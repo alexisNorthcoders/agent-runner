@@ -31,8 +31,11 @@ function fakeBackend() {
             settle(result('stopped', 'partial'));
           },
           finish: (outcome = 'success', text = 'All done') => settle(result(outcome, text)),
-          /** @param {import('../src/agentBackend/index.js').AgentUsageLimit} limit */
-          hitLimit: (limit) => settle({ ...result('limited', "You've hit your session limit"), exitCode: 1, limit }),
+          /** @param {import('../src/agentBackend/index.js').AgentUsageLimit} limit @param {number} [turns] */
+          hitLimit: (limit, turns = 3) => {
+            const r = result('limited', "You've hit your session limit");
+            settle({ ...r, exitCode: 1, limit, usage: { ...r.usage, turns } });
+          },
         };
         starts.push(run);
         return run;
@@ -1202,6 +1205,89 @@ describe('runner: the usage limit', () => {
     finishes[0].release({ result: 'limited', message: '⏸ #7: the agent hit its usage limit.', silent: false });
     await runner.idle();
     assert.deepEqual(outboxEntries().map((e) => [e.replyTo, e.text]), [['owner', `${NOTICE} 0 requests queued.\n\n⏸ #7: the agent hit its usage limit.`]]);
+  });
+
+  it('a manual request the limit stopped before it started goes back to the head of the queue, and runs after the reset', async () => {
+    const { runner, starts, queue, outboxEntries, history, advance } = setup();
+    await runner.handleCommand({ text: 'claude one', replyTo: 'jid-1' });
+    await runner.handleCommand({ text: 'claude two', replyTo: 'jid-1' });
+    starts[0].hitLimit(LIMIT, 1);
+    await runner.idle();
+    assert.deepEqual((await queue.list()).map((q) => [q.label, q.replyTo, q.cmd]), [
+      ['one', 'jid-1', { kind: 'freeform', prompt: 'one' }],
+      ['two', 'jid-1', { kind: 'freeform', prompt: 'two' }],
+    ]);
+    assert.equal(history[0].outcome, 'limited');
+    assert.deepEqual(outboxEntries().filter((e) => e.replyTo === 'owner').map((e) => e.text), [
+      `${NOTICE} Re-queued "one" at the head of the queue. 2 requests queued.`,
+    ]);
+    assert.match(outboxEntries().find((e) => e.replyTo === 'jid-1')?.text ?? '', /usage limit\.\nLog: .*\nIt is back at the head of the queue, and runs again once the limit resets\.$/);
+
+    advance(61 * 60_000);
+    await runner.drainQueue();
+    assert.equal(starts.length, 1, 'still paused before the reset');
+    advance(61 * 60_000);
+    await runner.drainQueue();
+    assert.deepEqual(starts.map((s) => s.opts.prompt), ['one', 'one']);
+  });
+
+  it('a Joplin request with no turns is re-queued as the same command', async () => {
+    const { runner, starts, queue } = setup();
+    await runner.handleCommand({ text: 'claude joplin:Plan', replyTo: 'jid-1' });
+    starts[0].hitLimit(LIMIT, 0);
+    await runner.idle();
+    assert.deepEqual((await queue.list()).map((q) => [q.label, q.cmd]), [['joplin:Plan', { kind: 'joplin', noteQuery: 'Plan' }]]);
+  });
+
+  it('a request the limit stopped mid-run (more than 1 turn) is reported, not re-queued', async () => {
+    const { runner, starts, queue, outboxEntries } = setup();
+    await runner.handleCommand({ text: 'claude one', replyTo: 'jid-1' });
+    starts[0].hitLimit(LIMIT, 2);
+    await runner.idle();
+    assert.equal(await queue.length(), 0);
+    assert.deepEqual(outboxEntries().filter((e) => e.replyTo === 'owner').map((e) => e.text), [`${NOTICE} 0 requests queued.`]);
+    assert.doesNotMatch(outboxEntries().find((e) => e.replyTo === 'jid-1')?.text ?? '', /queue/);
+  });
+
+  it('a manual issue run the limit stopped before it started is re-queued with its instructions', async () => {
+    const { runner, starts, finishes, queue, outboxEntries } = issueSetup();
+    await runner.handleCommand({ text: 'claude issue:a:7 add tests', replyTo: 'owner' });
+    starts[0].hitLimit(LIMIT, 1);
+    await flush();
+    assert.equal(finishes[0].requeued, true, 'the report says it was re-queued');
+    finishes[0].release({ result: 'limited', message: '⏸ #7: the agent hit its usage limit.', silent: false });
+    await runner.idle();
+    assert.deepEqual((await queue.list()).map((q) => [q.label, q.replyTo, q.cmd]), [
+      ['issue a#7', 'owner', { kind: 'issue', issueNumber: 7, alias: 'a', extraInstructions: 'add tests' }],
+    ]);
+    assert.deepEqual(outboxEntries().map((e) => [e.replyTo, e.text]), [
+      ['owner', `${NOTICE} Re-queued "issue a#7" at the head of the queue. 1 request queued.\n\n⏸ #7: the agent hit its usage limit.`],
+    ]);
+  });
+
+  it('a cron issue run that ends limited is not queued, however few its turns', async () => {
+    const { runner, starts, finishes, queue } = issueSetup();
+    await runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger: 'cron' });
+    starts[0].hitLimit(LIMIT, 0);
+    await flush();
+    assert.equal(finishes[0].requeued, false);
+    finishes[0].release({ result: 'limited', message: '⏸ #7: the agent hit its usage limit.', silent: false });
+    await runner.idle();
+    assert.equal(await queue.length(), 0);
+  });
+
+  it('an issue run whose autofix hits the limit is not re-queued', async () => {
+    const { runner, starts, finishes, queue } = issueSetup();
+    await runner.handleCommand({ text: 'claude issue:a:7', replyTo: 'jid-1' });
+    starts[0].finish('success');
+    await flush();
+    const autofix = finishes[0].runAgent({ prompt: 'fix review', label: 'autofix' });
+    await flush();
+    starts[1].hitLimit(LIMIT, 0);
+    await autofix;
+    finishes[0].release({ result: 'pr_open', message: 'blocked', silent: false });
+    await runner.idle();
+    assert.equal(await queue.length(), 0);
   });
 
   it('a second hit with an earlier reset does not shorten the pause', async () => {

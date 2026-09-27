@@ -6,6 +6,7 @@ import { createGithubPr } from './githubPr.js';
 import { createLlm } from './llm.js';
 import { createGmailSender } from './mailer.js';
 import { createPostRun } from './postRun.js';
+import { REQUEUED_NOTE } from '../runQueue.js';
 
 /**
  * The GitHub issue pipeline behind `claude issue:<alias>:<n>` and the cron tracer: the two
@@ -58,7 +59,7 @@ function limitedPass(agent, post) {
  * Short message for a finished issue run: one `✅` line on success, a short `⚠️` naming the
  * problem, a `⏸` for a run the usage limit cut short, or null when there is nothing to report
  * (post-run off, or the agent changed nothing). The full narrative (`post.note`) goes to the run
- * log instead.
+ * log instead. `requeued` says the runner put the request back at the head of the queue.
  * @param {{
  *   issue: { number: number, title?: string },
  *   agentOk: boolean,
@@ -66,10 +67,11 @@ function limitedPass(agent, post) {
  *   post: import('./postRun.js').PostRunResult | null,
  *   postErrMessage?: string,
  *   trigger?: 'cron' | 'manual',
+ *   requeued?: boolean,
  * }} p
  * @returns {string | null}
  */
-export function buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessage = '', trigger = 'manual' }) {
+export function buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessage = '', trigger = 'manual', requeued = false }) {
   const label = `#${issue.number}${issue.title ? ` — ${issue.title}` : ''}`;
   const attention = (problem) => `⚠️ ${label}: ${problem} — needs a look.`;
 
@@ -80,7 +82,11 @@ export function buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessa
       limited === 'agent' ? `⏸ ${label}: the agent hit its usage limit.` : `⏸ ${label}: the autofix pass hit the usage limit.`,
       wip?.ok ? `Its leftover work is committed as WIP \`${wip.sha}\` on its branch.` : '',
       post?.prResult?.ok ? `PR: ${post.prResult.url}.` : '',
-      trigger === 'cron' ? 'The cron resumes the issue after the reset.' : 'Run the issue again after the reset to resume it.',
+      requeued
+        ? REQUEUED_NOTE
+        : trigger === 'cron'
+          ? 'The cron resumes the issue after the reset.'
+          : 'Run the issue again after the reset to resume it.',
     ]
       .filter(Boolean)
       .join(' ');
@@ -265,12 +271,14 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
      *   logPath: string,
      *   runAgent: import('./postRun.js').RunAgent,
      *   trigger?: 'cron' | 'manual',
+     *   requeued?: boolean,
      * }} p
+     *   `requeued`: the usage limit stopped the agent before it started, and the runner re-queued the request.
      * @returns {Promise<{ result: IssueRunResult, message: string, silent: boolean, mergeNetworkError: boolean, post: import('./postRun.js').PostRunResult }>}
      *   `silent` marks a run with nothing to report (the agent changed nothing), which cron can skip.
      *   `mergeNetworkError` marks an approved PR whose merge failed only on a network error.
      */
-    async finish({ repo, prompt, issue, agent, preAgentHeadSha, logPath, runAgent, trigger = 'manual' }) {
+    async finish({ repo, prompt, issue, agent, preAgentHeadSha, logPath, runAgent, trigger = 'manual', requeued = false }) {
       const agentOk = agent.outcome === 'success';
       /** @type {import('./postRun.js').PostRunResult} */
       let post;
@@ -286,7 +294,7 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
       const report = [post.note, postErrMessage && `Post-run pipeline failed: ${postErrMessage}`].filter(Boolean).join('\n\n');
       if (report) await appendFile(logPath, `\n\n--- post-run report ---\n${report}\n`).catch(() => {});
 
-      let message = buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessage, trigger });
+      let message = buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessage, trigger, requeued });
       const silent = message == null;
       if (silent) {
         message =

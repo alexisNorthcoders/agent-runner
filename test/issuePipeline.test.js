@@ -464,6 +464,23 @@ describe('issue pipeline: the usage limit', () => {
     assert.match(fin.message, /^⏸ #7 — Fix it: the agent hit its usage limit\. Run the issue again after the reset to resume it\.\nLog: /);
   });
 
+  it('a re-queued manual run says it is back at the head of the queue', async () => {
+    const { repo } = await cloneWithOrigin();
+    const p = pipeline(issueOnly);
+    const prep = await p.prepare({ issueNumber: 7, alias: 'a', workspaceRoot: repo });
+    const fin = await p.finish({
+      repo,
+      prompt: prep.prompt,
+      issue: prep.issue,
+      agent: { outcome: 'limited', exitCode: 1, stderr: '' },
+      preAgentHeadSha: prep.preAgentHeadSha,
+      logPath: join(repo, '..', 'unused.log'),
+      runAgent: async () => assert.fail('no autofix'),
+      requeued: true,
+    });
+    assert.match(fin.message, /^⏸ #7 — Fix it: the agent hit its usage limit\. It is back at the head of the queue, and runs again once the limit resets\.\nLog: /);
+  });
+
   it('an autofix that hit the limit: WIP-commits its leftovers unpushed, no merge, and the run is limited', async () => {
     const { origin, repo } = await cloneWithOrigin();
     const PR = 'https://github.com/o/r/pull/5';

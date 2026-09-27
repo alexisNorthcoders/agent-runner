@@ -11,6 +11,7 @@ import { describeUsageLimitPause } from './usageLimitPause.js';
 import { pidAlive } from './pidAlive.js';
 import { createWorkspaceInference } from './workspaceInference.js';
 import { formatDuration, renderHistoryText, renderStatusText } from './statusFormat.js';
+import { REQUEUED_NOTE } from './runQueue.js';
 
 /**
  * The runner: turns a `claude…` command into at most one agent run at a time and reports every
@@ -21,6 +22,8 @@ import { formatDuration, renderHistoryText, renderStatusText } from './statusFor
 
 const MAX_OUTBOX_TEXT = 30_000;
 const STDERR_TAIL = 800;
+/** A manual request the usage limit stopped within this many turns hadn't started, so it's re-queued. */
+const MAX_UNSTARTED_TURNS = 1;
 
 /** Timestamp-based run id, safe in file names. */
 export const timestampRunId = () => new Date().toISOString().replace(/[:.]/g, '-');
@@ -96,11 +99,13 @@ export function formatJobResult(rec, r, durationMs) {
  *   passLogPath?: string,
  *   logFrom?: number,
  *   limitNotice?: string,
+ *   requeued?: boolean,
  * }} ActiveRun
  *   `passLogPath` is the log the latest follow-up (autofix) pass writes; the run's own log is
  *   `record.logPath`. `logFrom` is where this run's output starts in a log other runs append to
  *   (a scheduled job's `logFile`). `limitNotice` is `owner`'s message about a usage limit the run
- *   hit, sent with its report.
+ *   hit, sent with its report. `requeued` says the usage limit stopped it before it started, so its
+ *   request is back at the head of the queue.
  */
 
 /**
@@ -239,17 +244,28 @@ export function createRunner({
    * The agent hit its usage limit: hold new runs until it resets (never shortening a longer pause)
    * and keep `owner`'s one notice on the run, to send with its report. A later pass (the autofix)
    * hitting it again only rewrites the notice if it pushed the pause further, so it stays one message
-   * naming the pause in force.
+   * naming the pause in force. `retry` (a manual request's first pass) goes back to the head of the
+   * queue if the limit stopped it before it did any real work, so it runs by itself after the pause.
    * @param {ActiveRun} a
    * @param {import('./agentBackend/index.js').AgentResult} result
+   * @param {import('./runQueue.js').QueuedRun} [retry]
    */
-  async function hitUsageLimit(a, result) {
+  async function hitUsageLimit(a, result, retry) {
     if (result.outcome !== 'limited' || !result.limit) return;
     try {
       const { pause: p, extended } = await usageLimit.extend(result.limit);
-      if (!p || (a.limitNotice && !extended)) return;
+      // no pause, no re-queue: it would only start and hit the limit again
+      if (!p) return;
+      if (retry && (result.usage.turns ?? 0) <= MAX_UNSTARTED_TURNS) {
+        await queue.unshift({ ...retry, queuedAt: new Date(now()).toISOString() }).then(
+          () => void (a.requeued = true),
+          (err) => logger.error(`run ${a.record.runId}: could not re-queue the request:`, err?.message || err)
+        );
+      }
+      if (a.limitNotice && !extended) return;
       const n = await queue.length().catch(() => 0);
-      a.limitNotice = `⏸ Usage limit hit: pausing agent runs ${describeUsageLimitPause(p, now())}. ${n} request${n === 1 ? '' : 's'} queued.`;
+      const again = retry && a.requeued ? ` Re-queued "${retry.label}" at the head of the queue.` : '';
+      a.limitNotice = `⏸ Usage limit hit: pausing agent runs ${describeUsageLimitPause(p, now())}.${again} ${n} request${n === 1 ? '' : 's'} queued.`;
     } catch (err) {
       logger.error(`run ${a.record.runId}: could not set the usage-limit pause:`, err?.message || err);
     }
@@ -379,8 +395,10 @@ export function createRunner({
    * @param {Omit<import('./agentBackend/index.js').AgentStartOptions, 'logPath' | 'onProgress'>} opts
    *   `preamble` defaults to the issue-run preamble.
    * @param {(result: import('./agentBackend/index.js').AgentResult, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
+   * @param {import('./runQueue.js').QueuedRun} [retry] the request to re-queue if the usage limit
+   *   stops it before it starts (manual requests only)
    */
-  async function launch(record, opts, report) {
+  async function launch(record, opts, report, retry) {
     let run;
     try {
       run = await backend.start({ preamble, ...opts, logPath: /** @type {string} */ (record.logPath), onProgress: trackProgress(record.runId) });
@@ -398,7 +416,7 @@ export function createRunner({
       run,
       'agent',
       async (result, a) => {
-        await hitUsageLimit(a, result);
+        await hitUsageLimit(a, result, retry);
         let out;
         try {
           out = await report(result, a);
@@ -510,7 +528,12 @@ export function createRunner({
         prompt = cmd.prompt;
       }
       const onTouch = cmd.kind === 'freeform' ? inferWorkspace(record.runId) : undefined;
-      await launch(record, { prompt, preamble: await freeformPreambleNow(), cwd: workspaceRoot, ...(onTouch ? { onTouch } : {}) }, async (result) => ({ text: formatRunResult(record, result) }));
+      await launch(
+        record,
+        { prompt, preamble: await freeformPreambleNow(), cwd: workspaceRoot, ...(onTouch ? { onTouch } : {}) },
+        async (result, a) => ({ text: `${formatRunResult(record, result)}${a.requeued ? `\n${REQUEUED_NOTE}` : ''}` }),
+        queuedRun(cmd, replyTo)
+      );
       return { reply: `Started run ${record.runId}${source} in ${workspaceRoot}.\nLog: ${record.logPath}`, started: true };
     } catch (err) {
       await lock.release(record.runId).catch(() => {});
@@ -614,6 +637,8 @@ export function createRunner({
 
     /** @type {IssueRunOutcome | null} */
     let outcome = null;
+    // the cron retries on its own after the reset
+    const retry = trigger === 'manual' ? queuedRun({ kind: 'issue', issueNumber, alias, extraInstructions }, replyTo) : undefined;
     try {
       await launch(record, { prompt: prep.prompt, implement: true, cwd: ws.root }, async (agent, a) => {
         const fin = await issues.finish({
@@ -625,6 +650,7 @@ export function createRunner({
           logPath: record.logPath,
           runAgent: followUpAgent(a),
           trigger,
+          requeued: Boolean(a.requeued),
         });
         outcome = { result: fin.result, mergeNetworkError: fin.mergeNetworkError };
         const followUps = a.followUps ?? [];
@@ -653,7 +679,7 @@ export function createRunner({
             costUsd: costs.length ? costs.reduce((x, y) => x + y, 0) : null,
           },
         };
-      });
+      }, retry);
     } catch (err) {
       return { reply: `Could not start the agent: ${err?.message || err}`, done: null };
     }
@@ -712,6 +738,13 @@ export function createRunner({
           : `issue ${cmd.alias ? `${cmd.alias}#` : '#'}${cmd.issueNumber}`;
 
   /**
+   * @param {import('./runQueue.js').QueuedRun['cmd']} cmd
+   * @param {string} replyTo
+   * @returns {import('./runQueue.js').QueuedRun}
+   */
+  const queuedRun = (cmd, replyTo) => ({ id: randomUUID(), cmd, replyTo, label: labelFor(cmd), queuedAt: new Date(now()).toISOString() });
+
+  /**
    * A run request (from a user, or a due scheduled job): start it now if nothing is ahead of it,
    * else queue it. `accepted` is false only when the queue was full.
    * @param {import('./runQueue.js').QueuedRun['cmd']} cmd
@@ -723,8 +756,9 @@ export function createRunner({
       const r = await startCommand(cmd, replyTo);
       if (!r.refused) return { reply: r.reply, accepted: true };
     }
-    const label = labelFor(cmd);
-    const pos = await queue.push({ id: randomUUID(), cmd, replyTo, label, queuedAt: new Date(now()).toISOString() });
+    const item = queuedRun(cmd, replyTo);
+    const { label } = item;
+    const pos = await queue.push(item);
     if (pos == null) return { reply: `The queue is full (${queue.maxLength} waiting). Try again later, or send claude:queue clear.`, accepted: false };
     let ahead = '';
     const paused = await pausedReason();
