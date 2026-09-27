@@ -33,7 +33,7 @@ const CART_COLS = 6;
 export const CART_CAPACITY = CART_ROWS * CART_COLS;
 
 const SIDE = 150;
-const NAMES = { reception: 'RECEPTION', bullpen: 'MUNDER DIFFLIN', boss: "BOSS'S OFFICE", annex: 'ANNEX', library: 'LIBRARY' };
+const NAMES = { reception: 'RECEPTION', bullpen: 'HEADLESS INC.', boss: "BOSS'S OFFICE", annex: 'ANNEX', library: 'LIBRARY' };
 
 /** @param {RoomId} id @param {number} x @param {number} y @param {number} w @param {number} h @returns {Room} */
 const room = (id, x, y, w, h) => ({ id, name: NAMES[id], rect: { x, y, w, h } });
