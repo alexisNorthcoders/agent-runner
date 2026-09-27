@@ -44,9 +44,10 @@ export function createUsageLimitPause({ store, key = USAGE_LIMIT_KEY, now = Date
      */
     async extend({ resetsAt, note, timeZone }) {
       const cur = await get();
-      const ms = Date.parse(resetsAt) - now();
-      if (!(ms > 0) || (cur && Date.parse(cur.until) >= Date.parse(resetsAt))) return { pause: cur, extended: false };
-      const p = { until: new Date(Date.parse(resetsAt)).toISOString(), note, timeZone, since: new Date(now()).toISOString() };
+      const end = Date.parse(resetsAt);
+      const ms = end - now();
+      if (!(ms > 0) || (cur && Date.parse(cur.until) >= end)) return { pause: cur, extended: false };
+      const p = { until: new Date(end).toISOString(), note, timeZone, since: new Date(now()).toISOString() };
       await store.setWithTtl(key, JSON.stringify(p), Math.ceil(ms / 1000));
       return { pause: p, extended: true };
     },
