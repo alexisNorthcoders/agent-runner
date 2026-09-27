@@ -370,7 +370,9 @@ can't connect (or has been silent for 75s), reconnecting by itself every 3s.
 The office floor is drawn on a `<canvas>` next to the panel: an open-plan bullpen with one cubicle
 per allowlisted workspace (then one per scheduled-job room that isn't one), the Review room (the
 boss's office) and the Joplin room on the left, and the Queue room (by the front door) and the
-Freeform room on the right. It shows the office-level state:
+Freeform room on the right. In the wide layout a tiled corridor runs down each side of the bullpen,
+an aisle runs in front of each row of cubicles from corridor to corridor, and each side room has a
+doorway onto its corridor. It shows the office-level state:
 
 - **Runner down:** the whole office is dark, apart from the EXIT sign.
 - **General pause** (`claude:pause`): a "BACK IN 5" sign on the front door.
@@ -390,8 +392,10 @@ Pauses clear on the page as soon as they run out, without waiting for the next s
 A live run plays out on the floor:
 
 - **Delivery:** the mail carrier takes the run from the Queue room to its room: an interoffice envelope
-  for a cron run, or the Queue room's phone rings first for a manual (WhatsApp) one. A page opened
-  mid-run doesn't replay it.
+  for a cron run, or the Queue room's phone rings first for a manual (WhatsApp) one. In the wide
+  layout they walk out of the Queue room's doorway and along the corridors and aisles to the desk
+  (into a cubicle by its open front, into the Freeform or Joplin room by its doorway), and back,
+  at a steady pace, so a far desk takes longer. A page opened mid-run doesn't replay it.
 - **Rooms:** an issue run is worked in its workspace's cubicle, a freeform run in the Freeform
   room, a Joplin run in the Joplin room, and a scheduled job at its own desk in the room its config
   names. When a freeform run's workspace is inferred (below), its worker picks up their papers and
@@ -447,13 +451,14 @@ Each cubicle's sign shows its repo's alias. The cubicles' order comes from
 
 Listed aliases come first, in that order. Allowlisted aliases it doesn't list follow, and listed
 aliases that aren't allowlisted are ignored. An entry can give a `name` to show on the sign instead
-of the alias. About 12 characters fit a sign at every size; a longer one is cut short on the
-narrowest wide layout.
+of the alias. About 10 characters fit a sign at every size; a longer one is cut short on the
+narrowest wide layouts.
 
 The code is split so the rules are testable and the art is replaceable: `scene.js` is the pure
 scene reducer (snapshot + previous scene → scene, tested: room placement, phases, pile growth,
-when each animation starts, and each room's last outcome), `layout.js` places the rooms, cubicles
-and desks and hit-tests clicks (tested), `sprites.js` draws every sprite procedurally (swap it for
+when each animation starts, and each room's last outcome), `layout.js` places the rooms, corridors, aisles, cubicles
+and desks, builds the walk graph and hit-tests clicks (tested), `walkers.js` works out who walks the floor
+and where at a given time, routing over the walk graph (tested), `sprites.js` draws every sprite procedurally (swap it for
 sprite sheets later), and `officeView.js` draws a scene on a layout with the sprites, tweening the animations from the
 times the scene gives.
 

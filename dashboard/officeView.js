@@ -45,7 +45,8 @@ function drawJoplinRoom(ctx, layout) {
   s.bookshelf(ctx, r.x + 6, r.y + 3, Math.min(60, r.w - 70));
   s.bookshelf(ctx, r.x + 6, r.y + WALL + 4, 40);
   s.table(ctx, layout.desks.joplin.x, layout.desks.joplin.y);
-  s.plant(ctx, r.x + r.w - 14, r.y + r.h - 16);
+  // front left, clear of the doorway
+  s.plant(ctx, r.x + 6, r.y + r.h - 16);
 }
 
 /** @param {Ctx} ctx @param {Layout} layout */
@@ -83,7 +84,7 @@ function drawRun(ctx, layout, scene, t, { carrier, worker: p }) {
     const bounds = roomAt(layout, run.place).rect;
     if (run.bubble) s.speechBubble(ctx, w.x + 5, w.y - 1, run.bubble, Math.min(120, bounds.w - 4), bounds);
   }
-  if (carrier.pose === 'walking') s.walkingCarrier(ctx, carrier.x, carrier.y, frame, carrier.carrying);
+  if (carrier.pose === 'walking') s.walkingCarrier(ctx, carrier.x, carrier.y, frame, carrier.carrying, carrier.facing);
 }
 
 /** The scheduled job whose desk `place` is, by name. @param {import('./scene.js').Place} p */
@@ -242,7 +243,10 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   s.room(ctx, rooms.joplin.rect, rooms.joplin.name, 'wood', WALL);
   s.room(ctx, rooms.freeform.rect, rooms.freeform.name, 'carpet', WALL);
   s.room(ctx, rooms.queueRoom.rect, rooms.queueRoom.name, 'tile', WALL);
-  s.room(ctx, rooms.bullpen.rect, rooms.bullpen.name, 'carpet', WALL);
+  // wide, the bullpen opens straight onto the corridors, and the side rooms onto them by their doorways
+  s.room(ctx, rooms.bullpen.rect, rooms.bullpen.name, 'carpet', WALL, { open: layout.corridors.length > 0 });
+  for (const c of layout.corridors) s.corridor(ctx, c, WALL);
+  for (const d of Object.values(layout.doorways)) s.doorway(ctx, d);
   drawBoss(ctx, layout);
   drawJoplinRoom(ctx, layout);
   drawFreeformRoom(ctx, layout);
