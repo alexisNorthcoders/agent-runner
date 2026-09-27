@@ -5,7 +5,7 @@ import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, for
 import { cartSlots, clickFilter, deskAt, fitScene, folderSlots, inTraySlots, inside, layoutOffice, placeName, placeRect, stickyNote, workerRect } from './layout.js';
 import { applyLogEvent } from './logPane.js';
 import { animating, drawOffice } from './officeView.js';
-import { reduceScene, samePlace } from './scene.js';
+import { lastLine, reduceScene, samePlace } from './scene.js';
 
 const FEED_URL = 'feed';
 const RECONNECT_MS = 3000;
@@ -67,7 +67,7 @@ const dl = (pairs) => h('dl', null, ...pairs.flatMap(([k, v]) => [h('dt', null, 
 const workspaceOf = (r) => r.workspaceAlias ?? r.inferredWorkspace ?? null;
 
 /** The latest line of `runId`'s live log with anything on it, if the pane holds its log. @param {string} runId */
-const lastLogLine = (runId) => (pane.runId === runId ? ([...pane.lines].reverse().find((l) => l.trim()) ?? null) : null);
+const lastLogLine = (runId) => (pane.runId === runId ? lastLine(pane.lines) : null);
 
 /** When a scheduled job is next due, from `t`. @param {{ nextDueAt: string | number | null }} j @param {number} t */
 function nextDue(j, t) {

@@ -32,7 +32,7 @@ const TUMBLE_EVERY_MS = 9000;
 const TUMBLE_MS = 3000;
 /** Resting states that keep moving: Zzz, stars, the tumbleweed. */
 const ANIMATED_STATES = new Set(['asleep', 'dizzy', 'shrug']);
-/** Resting states that draw the worker themselves, or send them home. */
+/** Resting states in which drawOutcomes draws the worker at their desk (or sends them home). */
 const WORKER_STATES = new Set(['injured', 'asleep', 'dizzy', 'shrug', 'home']);
 
 /** @param {Ctx} ctx @param {Layout} layout */

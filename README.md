@@ -260,7 +260,7 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
     "runId": "…", "kind": "issue", "trigger": "cron",   // trigger: "cron" | "manual" | "schedule"
     "label": "issue bot#7 \"Fix it\"", "workspaceAlias": "bot", "issueNumber": 7,
     "inferredWorkspace": null,         // a freeform run's workspace, once inferred (see below)
-    "room": null,                      // a scheduled job's room, else null
+    "room": null, "jobName": null,     // a scheduled job's room and name, else null
     "health": "running",               // running | orphaned | stale
     "phase": "agent",                  // agent | post-run | job, null if not run by this process
     "model": "claude-opus-5-5", "turns": 12, "outputTokens": 900, "contextTokens": 136635,
@@ -280,10 +280,10 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
   },
   "lock": { "runId": "…", "kind": "issue", "trigger": "cron", "label": "…",
             "workspaceAlias": "bot", "inferredWorkspace": null, "issueNumber": 7,
-            "room": null, "startedAt": "…" },  // or null
+            "room": null, "jobName": null, "startedAt": "…" },  // or null
   "history": [                         // the last 7 days, newest first
     { "runId": "…", "kind": "issue", "trigger": "cron", "label": "…", "workspaceAlias": "bot",
-      "inferredWorkspace": null, "issueNumber": 7, "startedAt": "…", "endedAt": "…", "durationMs": 60000,
+      "inferredWorkspace": null, "issueNumber": 7, "room": null, "jobName": null, "startedAt": "…", "endedAt": "…", "durationMs": 60000,
       "outcome": "success", "result": "merged", "prUrl": "https://github.com/…/pull/9",
       "model": "…", "turns": 3, "costUsd": 1.2, "tokens": 1700000 }
       // outcome: success | failed | timeout | stopped | spawn_error | interrupted (by a restart)
@@ -305,7 +305,11 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
         "readyForHuman": [ /* same shape as runnable */ ],
         "needsTriage": 2, "needsInfo": 0 }
     ]
-  }
+  },
+  "jobs": [                            // the scheduled jobs' config, in config order ([] if unreadable)
+    { "name": "cleanup_agent", "room": "Research & Archives", "at": "02:00",
+      "nextDueAt": "…" }               // when it next joins the queue
+  ]
 }
 ```
 
@@ -323,7 +327,7 @@ can't connect (or has been silent for 75s), reconnecting by itself every 3s.
 ### The office scene
 
 The office floor is drawn on a `<canvas>` next to the panel: an open-plan bullpen with one cubicle
-per allowlisted workspace, the boss's office and the Library on the left, and Reception (by the
+per allowlisted workspace (then one per scheduled-job room that isn't one), the boss's office and the Library on the left, and Reception (by the
 front door) and the Annex on the right. It shows the office-level state:
 
 - **Runner down:** the whole office is dark, apart from the EXIT sign.
@@ -347,9 +351,16 @@ A live run plays out on the floor:
   for a cron run, or the Reception phone rings first for a manual (WhatsApp) one. A page opened
   mid-run doesn't replay it.
 - **Rooms:** an issue run is worked in its workspace's cubicle, a freeform run in the Annex, a Joplin
-  run in the Library. (Scheduled jobs get their rooms in #26.) When a freeform run's workspace is
-  inferred (below), its worker picks up their papers and walks from the Annex to that cubicle, and
-  its outcome shows there when it ends.
+  run in the Library, and a scheduled job at its own desk in the room its config names. When a
+  freeform run's workspace is inferred (below), its worker picks up their papers and walks from the
+  Annex to that cubicle, and its outcome shows there when it ends.
+- **Scheduled jobs:** each job's `room` label gets a cubicle (a label matching a workspace's alias or
+  department sign is that workspace's cubicle), with a desk per job and its own worker: a janitor
+  with a mop for a `cleanup` job, an analyst with a chart easel for an `insight` or `report` one, else
+  a clerk in a green visor. A due job is delivered by envelope, and waits on the mail cart like any
+  request. A job has no turns or tokens: its pile grows with elapsed time, and its speech bubble is
+  the latest line of its output (from the live log). The Now tab shows its elapsed time and tails its
+  masked output, and the Office tab lists each job's next due time.
 - **Agent phase:** the worker types, the paper pile on the desk grows with turns and elapsed time
   (to a cap), and a speech bubble shows the last activity, shortened (hover the worker for all of it).
 - **Post-run** (issue runs): the boss walks over and reads over the worker's shoulder during the
@@ -362,9 +373,9 @@ restart (for rooms with a run in the feed's 7 days):
 
 | Outcome | Scene |
 |---|---|
-| Merged (and a freeform or Joplin run that succeeded) | A big stamp, and the papers go to the out tray. A run under 5 minutes gets just a quick stamp |
+| Merged (and a freeform, Joplin or job run that succeeded) | A big stamp, and the papers go to the out tray. A run under 5 minutes gets just a quick stamp |
 | PR open, or pushed without a PR | A folder on the boss's desk, labelled with the room |
-| Failed, or couldn't start | An injured worker (bandage, ice pack) |
+| Failed (a job's non-zero exit too), or couldn't start | An injured worker (bandage, ice pack) |
 | Timed out | Asleep at the desk, Zzz |
 | Stopped (`claude:stop`, the autofix pass's too) | The worker has gone home, and that room is dark |
 | Interrupted by a restart | A drunk, dizzy worker |

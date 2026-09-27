@@ -60,7 +60,7 @@ _Avoid_: map, canvas (for the concept)
 The open-plan middle of the office, where the **Cubicles** are.
 
 **Cubicle**:
-A **Workspace**'s desk in the office bullpen, one per allowlisted alias, where its issue runs are worked, and freeform runs whose **Inferred workspace** it is.
+A **Workspace**'s desk in the office bullpen, one per allowlisted alias, where its issue runs are worked, and freeform runs whose **Inferred workspace** it is. A **Scheduled job**'s room label that isn't a workspace's alias or **Department sign** gets a cubicle of its own; each job has its own desk in its room's cubicle.
 
 **Department sign**:
 The name on a **Cubicle**. It comes from the dashboard config (`dashboard/office.json`), which also sets the cubicles' order; an alias the config doesn't name shows the alias.
@@ -75,7 +75,7 @@ The sign on the front door during the owner's general **Pause**. A paused **Work
 The corner office, where the boss sits. During an issue run's post-run the boss walks to the **Worker**'s desk and reads over their shoulder (the review), and stays through the autofix.
 
 **Worker**:
-The figure at a desk working the active **Run**: typing in the `agent` phase, still while the boss reads during post-run, scribbling during the autofix. Beside them are their **Paper pile** and a speech bubble with the run's last activity.
+The figure at a desk working the active **Run**: typing in the `agent` phase, still while the boss reads during post-run, scribbling during the autofix. Beside them are their **Paper pile** and a speech bubble with the run's last activity (a **Scheduled job**'s latest output line). Each **Scheduled job** has its own worker at its desk: a janitor (cleanup), an analyst (insight, report) or a clerk.
 
 **Paper pile**:
 The sheets on the **Worker**'s desk: one per few turns and per few minutes, to a cap, and never shrinking during a run.

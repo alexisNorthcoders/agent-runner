@@ -156,7 +156,7 @@ function withJobRooms(workspaces, jobs) {
 }
 
 /** The last line of `lines` with anything on it. @param {string[]} lines */
-const lastLine = (lines) => [...lines].reverse().find((l) => l.trim()) ?? null;
+export const lastLine = (lines) => [...lines].reverse().find((l) => l.trim()) ?? null;
 
 /** A pause the snapshot lists, unless it has run out since. @param {{ until: string } | null | undefined} p @param {number} now */
 const holding = (p, now) => !!p && !(Date.parse(p.until) <= now);
