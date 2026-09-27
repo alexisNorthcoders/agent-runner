@@ -76,7 +76,7 @@ describe('workers and clicks on the floor', () => {
     const named = [{ alias: 'bot', name: 'Customer Svc' }];
     assert.equal(placeName(l, named, { room: 'cubicle', alias: 'bot' }), 'Customer Svc');
     assert.equal(placeName(l, named, { room: 'cubicle', alias: 'gone' }), 'gone');
-    assert.equal(placeName(l, named, { room: 'annex' }), 'ANNEX');
+    assert.equal(placeName(l, named, { room: 'annex' }), 'FREEFORM');
   });
 
   it('filters to a cubicle (or its worker) on click, and clears on a second click or on empty floor', () => {

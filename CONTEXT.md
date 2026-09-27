@@ -63,7 +63,7 @@ The open-plan middle of the office, where the **Cubicles** are.
 A **Workspace**'s desk in the office bullpen, one per allowlisted alias, where its issue runs are worked, and freeform runs whose **Inferred workspace** it is. A **Scheduled job**'s room label that isn't a workspace's alias or **Department sign** gets a cubicle of its own; each job has its own desk in its room's cubicle.
 
 **Department sign**:
-The name on a **Cubicle**. It comes from the dashboard config (`dashboard/office.json`), which also sets the cubicles' order; an alias the config doesn't name shows the alias.
+The name on a **Cubicle**: its **Workspace**'s alias, unless the dashboard config (`dashboard/office.json`), which also sets the cubicles' order, gives it another name.
 
 **Lights off**:
 The **Scene** while the runner is down (the **Office feed** can't connect): the whole office dark, with only the EXIT sign lit.

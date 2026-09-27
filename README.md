@@ -437,15 +437,17 @@ whole number with smoothing off, so the pixels stay crisp. On a wide screen it t
 the width with the panel on the right; under 900px the panel goes below it, and under 560px the
 rooms stack vertically (Reception first).
 
-Cubicle names and order come from [`dashboard/office.json`](dashboard/office.json):
+Each cubicle's sign shows its repo's alias. The cubicles' order comes from
+[`dashboard/office.json`](dashboard/office.json):
 
 ```json
-{ "cubicles": [{ "alias": "agent-runner", "name": "IT" }, { "alias": "bot", "name": "Customer Svc" }] }
+{ "cubicles": [{ "alias": "agent-runner" }, { "alias": "bot" }] }
 ```
 
-Listed aliases come first, in that order. Allowlisted aliases it doesn't list follow, named by
-their alias, and listed aliases that aren't allowlisted are ignored. Keep names short: about 12
-characters fit a sign at every size.
+Listed aliases come first, in that order. Allowlisted aliases it doesn't list follow, and listed
+aliases that aren't allowlisted are ignored. An entry can give a `name` to show on the sign instead
+of the alias. About 12 characters fit a sign at every size; a longer one is cut short on the
+narrowest wide layout.
 
 The code is split so the rules are testable and the art is replaceable: `scene.js` is the pure
 scene reducer (snapshot + previous scene → scene, tested: room placement, phases, pile growth,
