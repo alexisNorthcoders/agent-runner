@@ -25,7 +25,7 @@
  *   desks: { review: Rect, freeform: Rect, joplin: Rect },
  * }} Layout
  *   `desk`: the front desk. `desks`: the other rooms' desks (the Joplin room's reading table).
- *   `corridors`: wide, the hallways either side of the bullpen, left then right (their back wall
+ *   `corridors`: wide, the Corridors either side of the bullpen, left then right (their back wall
  *   included). `aisles`: wide, one in front of each row of cubicles, from corridor to corridor.
  *   `doorways`: wide, the gap in each side room's wall onto its corridor. None of them when narrow.
  */
@@ -241,17 +241,17 @@ export function walkGraph(layout, cubicles) {
   const approaches = new Map();
   // walkers keep to the middle of a corridor and the front of an aisle
   const lanes = layout.corridors.map((c) => c.x + Math.floor((c.w - 9) / 2));
-  /** @param {Rect} a */
-  const aisleLane = (a) => a.y + a.h - 3;
+  /** Where walkers' feet go across an aisle or through a doorway: near its front. @param {Rect} r */
+  const lane = (r) => r.y + r.h - 3;
   // the stops along each corridor (y) and each aisle (x), joined up in order at the end
-  const corridorStops = lanes.map(() => new Set(layout.aisles.map(aisleLane)));
+  const corridorStops = lanes.map(() => new Set(layout.aisles.map(lane)));
   const aisleStops = layout.aisles.map(() => new Set(lanes));
 
   /** Out of a side room from `p`: to the doorway's lane, and through it to the corridor. @param {SideRoomId} id @param {Point} p */
   const leave = (id, p) => {
     const d = layout.doorways[id];
     if (!d) return link(p, front);
-    const y = d.y + d.h - 3;
+    const y = lane(d);
     const i = lanes.reduce((best, x, j) => (Math.abs(x - d.x) < Math.abs(lanes[best] - d.x) ? j : best), 0);
     corridorStops[i].add(y);
     link(p, { x: p.x, y });
@@ -273,7 +273,7 @@ export function walkGraph(layout, cubicles) {
       approaches.set(placeKey({ room: 'cubicle', alias: c.alias, job: owners[k] ?? undefined }), p);
       if (aisle < 0) return link(p, front);
       aisleStops[aisle].add(p.x);
-      link(p, { x: p.x, y: aisleLane(layout.aisles[aisle]) });
+      link(p, { x: p.x, y: lane(layout.aisles[aisle]) });
     });
   });
   /** @param {Set<number>} stops @param {(v: number) => Point} at */
@@ -282,7 +282,7 @@ export function walkGraph(layout, cubicles) {
     for (let i = 1; i < sorted.length; i++) link(at(sorted[i - 1]), at(sorted[i]));
   };
   corridorStops.forEach((stops, i) => chain(stops, (y) => ({ x: lanes[i], y })));
-  aisleStops.forEach((stops, i) => chain(stops, (x) => ({ x, y: aisleLane(layout.aisles[i]) })));
+  aisleStops.forEach((stops, i) => chain(stops, (x) => ({ x, y: lane(layout.aisles[i]) })));
   return { edges, front, approaches };
 }
 

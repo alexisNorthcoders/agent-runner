@@ -151,7 +151,7 @@ export function room(ctx, r, name, floor, wallH, o = {}) {
   text(ctx, plate, px + 3, r.y + 6, PALETTE.signBg);
 }
 
-/** A corridor: a tiled hallway, with the back wall at its end. @param {Ctx} ctx @param {Rect} r @param {number} wallH */
+/** A Corridor: tiled, with the back wall at its end. @param {Ctx} ctx @param {Rect} r @param {number} wallH */
 export function corridor(ctx, r, wallH) {
   floorAndWall(ctx, r, 'tile', wallH);
   ctx.fillStyle = PALETTE.woodDark;
