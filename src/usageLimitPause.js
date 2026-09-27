@@ -54,9 +54,10 @@ export function createUsageLimitPause({ store, key = USAGE_LIMIT_KEY, now = Date
     },
     /** End the pause early (`claude:resume`). @returns {Promise<boolean>} whether a live pause was cleared */
     async clear() {
-      const had = Boolean(await get());
+      // an expired key goes with its TTL; deleting only a live one keeps the office feed quiet
+      if (!(await get())) return false;
       await store.del(key);
-      return had;
+      return true;
     },
   };
 }

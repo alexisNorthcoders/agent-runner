@@ -64,7 +64,8 @@ show the pause (`Paused: usage limit hit, until 07:02 (resets 7am Europe/London)
 office snapshot's `pauses.limit` and the dashboard's Now and Office tabs.
 
 To end it early (e.g. after a plan upgrade), send `claude:resume` with no alias or run `npm run
-agent:resume`: they clear it along with any pauses by hand, and queued requests start. If the limit
+agent:resume`: they clear it along with any pauses by hand, and queued requests start (after
+`agent:resume`, on the runner's next queue check, within 15s). If the limit
 hasn't really lifted, the next run hits it again and sets a new pause.
 
 An issue run the limit cuts short stops there. When the agent's own pass hits it, post-run commits
