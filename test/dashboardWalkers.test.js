@@ -205,6 +205,20 @@ describe('office walkers: the carrier walks the corridors and aisles', () => {
     assert.ok(route.some((p) => Math.abs(p.x - c.x) + Math.abs(p.y - c.y) <= 1), `${JSON.stringify(c)} on the new route`);
     assert.ok(!solid(l)(c));
   });
+
+  it('seats the worker exactly when the carrier arrives, on the route of the layout at t', () => {
+    // the office is resized mid-walk: arrival is the new route's, for the carrier and the worker alike
+    const sc = delivering({ room: 'cubicle', alias: 'a' });
+    const l = wide(many.length, 720);
+    const arrive = arrival(sc, look(l));
+    assert.ok(arrive > arrival(sc, look(wide(many.length, 560))), 'the new route is longer');
+    const [before, now, handing] = [arrive - 1, arrive, arrive + HAND_MS / 2].map((t) => look(l)(sc, t));
+    assert.equal(before.worker, null);
+    assert.equal(before.carrier.carrying, 'envelope');
+    assert.ok(now.worker);
+    assert.deepEqual([now.carrier.x, now.carrier.y], [handing.carrier.x, handing.carrier.y], 'at the hand-over point');
+    assert.ok(Math.abs(before.carrier.x - now.carrier.x) + Math.abs(before.carrier.y - now.carrier.y) <= 1, 'arriving, not jumping');
+  });
 });
 
 describe('office walkers: the boss', () => {

@@ -150,7 +150,9 @@ function carrier(layout, desk, trip, scene, t) {
  * The active run's worker at `t`: not on the floor until the mail carrier arrives (in post-run
  * they have been at the desk all along, whenever the page saw the run start), then at their desk,
  * or walking their papers over to a new desk (a freeform run leaving the Freeform room for its
- * cubicle) once the carrier has handed the run over.
+ * cubicle) once the carrier has handed the run over. `trip` is the carrier's own, worked out from
+ * the layout at `t`, so the worker sits down the moment the carrier reaches the hand-over point,
+ * even when the route changed mid-walk.
  * @param {Layout} layout @param {Scene['cubicles']} cubicles @param {Rect | null} desk the run's desk
  * @param {Delivery | null} trip the run's delivery @param {Scene} scene @param {number} t
  * @returns {Worker | null}

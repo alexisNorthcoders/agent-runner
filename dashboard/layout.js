@@ -308,11 +308,12 @@ export function layoutOffice(count, mode, width) {
       { x: SIDE, y: 0, w: CORRIDOR, h: H },
       { x: W - SIDE - CORRIDOR, y: 0, w: CORRIDOR, h: H },
     ];
-    // rows of cubicles, each with its aisle in front, from just under the back wall
+    // rows of cubicles, each with its aisle in front, from just under the back wall: full height
+    // while they fit (up to 3 rows), else shared out so the last aisle still ends at the front
     const top = b.y + WALL + 2;
     const cols = 4;
     const rows = Math.max(1, Math.ceil(count / cols));
-    const cubeH = Math.min(CUBE_H, Math.floor((b.h - (top - b.y)) / rows) - AISLE);
+    const cubeH = Math.max(0, Math.min(CUBE_H, Math.floor((b.y + b.h - top) / rows) - AISLE));
     const cubicles = grid(count, { x: b.x + 6, y: top, w: b.w - 12, h: 0 }, cols, cubeH, AISLE);
     const aisles = Array.from({ length: rows }, (_, i) => ({ x: b.x, y: top + i * (cubeH + AISLE) + cubeH, w: b.w, h: AISLE }));
     /** @param {Rect} r @param {'left' | 'right'} side the wall facing the bullpen */

@@ -241,6 +241,19 @@ describe('corridors, aisles and doorways (wide)', () => {
     }
   });
 
+  it('keeps every cubicle row and aisle inside the bullpen, however many rows', () => {
+    for (const width of widths) {
+      for (let count = 1; count <= 40; count++) {
+        const l = layoutOffice(count, 'wide', width);
+        const b = l.rooms.bullpen.rect;
+        for (const r of [...l.cubicles, ...l.aisles]) assert.ok(within(r, b), `${width} ${count}: ${JSON.stringify(r)}`);
+        l.aisles.forEach((a, i) => {
+          assert.equal(l.cubicles.filter((c) => c.y + c.h === a.y).length, Math.min(4, count - i * 4), `${width} ${count}: row ${i} has its aisle`);
+        });
+      }
+    }
+  });
+
   it('clears the cubicle filter on a click in a corridor or an aisle', () => {
     const l = layoutOffice(6, 'wide', 640);
     const cubicles = ['a', 'b', 'c', 'd', 'e', 'f'].map((alias) => ({ alias }));
