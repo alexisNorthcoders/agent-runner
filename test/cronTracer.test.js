@@ -289,7 +289,7 @@ describe('cron tick: progress', () => {
     assert.deepEqual(h.ran(), ['bot#7']);
   });
 
-  for (const result of ['no_changes', 'failed', 'timeout', null]) {
+  for (const result of ['no_changes', 'failed', 'timeout', 'limited', null]) {
     it(`a ${result ?? 'missing'} result is not progress, so the next tick retries the issue`, async () => {
       const h = harness({ issues: { [REPO]: [ready(32)] }, result });
       assert.deepEqual(
@@ -297,7 +297,7 @@ describe('cron tick: progress', () => {
         result ? { kind: 'ran', repo: REPO, issue: 32, result } : { kind: 'ran', repo: REPO, issue: 32, result: 'no_progress', note: 'no result' }
       );
       assert.deepEqual(await h.state.lastStarted(), new Map());
-      // failed and timed-out runs report themselves; the runner keeps an empty one silent
+      // failed, timed-out and limited runs report themselves; the runner keeps an empty one silent
       assert.deepEqual(
         h.sent.map((m) => m.text),
         result === 'no_changes' ? [`Cron (bot): ${REPO}#32 made no changes, so it doesn't count as progress. The next tick retries it.`] : []
@@ -424,6 +424,16 @@ describe('cron tick: open agent PRs', () => {
       await h.tracer.tick();
       assert.deepEqual(h.ran(), ['bot#5', 'bot#5'], 'the PR is worked again through the shared pipeline, which retries the merge');
       assert.equal(h.sent.filter((m) => m.text.includes('parking')).length, 0);
+    });
+
+    it('a run cut short by the usage limit: saves no PR attempt, so the issue is worked again after the reset', async () => {
+      const h = mergeFailed({ result: 'limited', mergeNetworkError: false });
+      assert.deepEqual(await h.tracer.tick(), { kind: 'ran', repo: REPO, issue: 5, result: 'limited' });
+      assert.deepEqual(await h.state.prAttempts(), new Map(), 'the PR is not set aside');
+      assert.deepEqual(await h.state.lastStarted(), new Map());
+      assert.deepEqual(h.sent, [], "the run's own report is the one message");
+      await h.tracer.tick();
+      assert.deepEqual(h.ran(), ['bot#5', 'bot#5']);
     });
 
     it('for a real reason: saves the PR attempt and sets the PR aside, as before', async () => {

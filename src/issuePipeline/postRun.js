@@ -41,7 +41,9 @@ import { buildPostCloseChangesEmail } from './mailer.js';
  *   commit?: import('./gitWorkspace.js').CommitResult,
  *   pushResult?: { ok: boolean, error?: string },
  *   agentOutcome?: string,
+ *   wip?: import('./gitWorkspace.js').CommitResult,
  * }} AutofixResult
+ *   `wip` is the leftover work of an autofix the usage limit cut short, committed but not pushed.
  *
  * @typedef {(p: { prompt: string, label: string }) => Promise<Pick<import('../agentBackend/index.js').AgentResult, 'outcome' | 'exitCode' | 'text' | 'stderr'>>} RunAgent
  *   Runs a follow-up agent pass in the repo (the autofix). Never rejects.
@@ -117,6 +119,19 @@ export function buildPrBody(issueNumber, workBranch, userPrompt, trigger = 'manu
  */
 export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {} }) {
   /**
+   * A pass that didn't finish: commit its leftover work as WIP on the issue branch, so the tree is
+   * clean and the next run resumes it. Null when there was nothing to commit or the commit failed.
+   * @param {string} repo @param {number} issueNumber @param {string} what
+   */
+  async function commitLeftovers(repo, issueNumber, what) {
+    if (!(await git.statusPorcelain(repo).catch(() => ''))) return null;
+    const wip = await git.commitWip(repo, issueNumber);
+    if (wip.ok) return wip;
+    log(`${what}: WIP commit failed`, wip.error || wip.reason);
+    return null;
+  }
+
+  /**
    * Exactly one agent pass after REQUEST_CHANGES, then commit + push on the same branch.
    * @param {{ repo: string, issueNumber: number, prUrl: string, bodyMarkdown: string, prompt: string, runAgent: RunAgent }} p
    * @returns {Promise<AutofixResult>}
@@ -140,6 +155,10 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
               : agent.outcome === 'limited'
                 ? 'Autofix hit the usage limit.'
                 : `Autofix exited with code ${agent.exitCode ?? 'n/a'}.`;
+      if (agent.outcome === 'limited') {
+        const wip = await commitLeftovers(repo, issueNumber, 'autofix limited');
+        if (wip) return { ok: false, mergeBlocked: true, detail: `${detail} Its leftover work is committed as WIP \`${wip.sha}\` (not pushed).`, agentOutcome, wip };
+      }
       return { ok: false, mergeBlocked: true, detail, agentOutcome };
     }
 
@@ -239,17 +258,14 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
 
     if (!agentOk) {
       // leave the tree clean on the issue branch so the next run resumes instead of refusing
-      if (await git.statusPorcelain(repo).catch(() => '')) {
-        const wip = await git.commitWip(repo, issueNumber);
-        if (wip.ok) {
-          return {
-            ran: true,
-            note: `The agent did not finish but left uncommitted work, so it was committed as a WIP snapshot (\`${wip.sha}\`) on this branch for the next run to resume. No push or PR yet.`,
-            skipReason: 'agent_not_ok_wip_committed',
-            wip,
-          };
-        }
-        log('agent not ok: WIP commit failed', wip.error || wip.reason);
+      const wip = await commitLeftovers(repo, issueNumber, 'agent not ok');
+      if (wip) {
+        return {
+          ran: true,
+          note: `The agent did not finish but left uncommitted work, so it was committed as a WIP snapshot (\`${wip.sha}\`) on this branch for the next run to resume. No push or PR yet.`,
+          skipReason: 'agent_not_ok_wip_committed',
+          wip,
+        };
       }
       return { ran: false, note: '', skipReason: 'agent_not_ok' };
     }

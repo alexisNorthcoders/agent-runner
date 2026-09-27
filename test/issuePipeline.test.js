@@ -419,3 +419,95 @@ describe('issue pipeline: finish', () => {
     assert.match(fin.message, /^⚠️ #7 — Fix it: auto-merge was not enabled \(.*i\/o timeout\) — needs a look\.$/s);
   });
 });
+
+describe('issue pipeline: the usage limit', () => {
+  it('an agent that hit the limit: WIP-commits its leftovers, no review, one report saying the cron resumes it after the reset', async () => {
+    const { repo } = await cloneWithOrigin();
+    const p = pipeline(issueOnly, { OPENAI_API_KEY: 'k' }, { fetchFn: async () => assert.fail('no review') });
+    const prep = await p.prepare({ issueNumber: 7, alias: 'a', workspaceRoot: repo });
+    await writeFile(join(repo, 'wip.txt'), 'partial\n');
+    const logPath = join(repo, '..', `${Date.now()}-limited.log`);
+    const fin = await p.finish({
+      repo,
+      prompt: prep.prompt,
+      issue: prep.issue,
+      agent: { outcome: 'limited', exitCode: 1, stderr: '' },
+      preAgentHeadSha: prep.preAgentHeadSha,
+      logPath,
+      runAgent: async () => assert.fail('no autofix'),
+      trigger: 'cron',
+    });
+    assert.equal(fin.result, 'limited');
+    assert.equal(fin.silent, false);
+    assert.match(
+      fin.message,
+      new RegExp(`^⏸ #7 — Fix it: the agent hit its usage limit\\. Its leftover work is committed as WIP \`[0-9a-f]+\` on its branch\\. The cron resumes the issue after the reset\\.\\nLog: ${logPath}$`)
+    );
+    assert.equal(await git(repo, ['status', '--porcelain']), '');
+    assert.match(await git(repo, ['log', '-1', '--format=%s']), /WIP/);
+  });
+
+  it('a manual run says to run the issue again after the reset', async () => {
+    const { repo } = await cloneWithOrigin();
+    const p = pipeline(issueOnly);
+    const prep = await p.prepare({ issueNumber: 7, alias: 'a', workspaceRoot: repo });
+    const fin = await p.finish({
+      repo,
+      prompt: prep.prompt,
+      issue: prep.issue,
+      agent: { outcome: 'limited', exitCode: 1, stderr: '' },
+      preAgentHeadSha: prep.preAgentHeadSha,
+      logPath: join(repo, '..', 'unused.log'),
+      runAgent: async () => assert.fail('no autofix'),
+    });
+    assert.equal(fin.result, 'limited');
+    assert.match(fin.message, /^⏸ #7 — Fix it: the agent hit its usage limit\. Run the issue again after the reset to resume it\.\nLog: /);
+  });
+
+  it('an autofix that hit the limit: WIP-commits its leftovers unpushed, no merge, and the run is limited', async () => {
+    const { origin, repo } = await cloneWithOrigin();
+    const PR = 'https://github.com/o/r/pull/5';
+    /** @type {string[]} */
+    const comments = [];
+    const gh = async (args) => {
+      const [a, b] = args;
+      if (a === 'issue' && b === 'view') return ISSUE_JSON;
+      if (a === 'pr' && b === 'list') return '[]';
+      if (a === 'pr' && b === 'create') return `${PR}\n`;
+      if (a === 'pr' && b === 'comment') {
+        comments.push(await readFile(args[args.indexOf('--body-file') + 1], 'utf8'));
+        return '';
+      }
+      throw new Error(`unexpected gh ${args.join(' ')}`);
+    };
+    const fetchFn = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ choices: [{ message: { content: 'VERDICT: REQUEST_CHANGES\n\n- handle the edge case' } }], usage: { total_tokens: 10 } }),
+    });
+    const p = pipeline(gh, { OPENAI_API_KEY: 'k' }, { fetchFn });
+    const prep = await p.prepare({ issueNumber: 7, alias: 'a', workspaceRoot: repo });
+    await writeFile(join(repo, 'fix.txt'), 'fixed\n');
+    const fin = await p.finish({
+      repo,
+      prompt: prep.prompt,
+      issue: prep.issue,
+      agent: { outcome: 'success', exitCode: 0, stderr: '' },
+      preAgentHeadSha: prep.preAgentHeadSha,
+      logPath: join(repo, '..', `${Date.now()}-autofix-limited.log`),
+      runAgent: async () => {
+        await writeFile(join(repo, 'fix.txt'), 'fixed\nhalf an edge case\n');
+        return { outcome: 'limited', exitCode: 1, text: '', stderr: '' };
+      },
+      trigger: 'cron',
+    });
+    assert.equal(fin.result, 'limited');
+    assert.match(fin.message, /^⏸ #7 — Fix it: the autofix pass hit the usage limit\. Its leftover work is committed as WIP `[0-9a-f]+` on its branch\. PR: https:\/\/github\.com\/o\/r\/pull\/5\. The cron resumes the issue after the reset\.\nLog: /);
+    assert.equal(fin.post.prAutoMergeResult, null);
+    assert.equal(await git(repo, ['status', '--porcelain']), '');
+    assert.match(await git(repo, ['log', '-1', '--format=%s']), /WIP/);
+    const branch = await git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']);
+    assert.equal(await git(origin, ['rev-parse', branch]), await git(repo, ['rev-parse', 'HEAD~1']), 'the WIP commit stays local');
+    assert.match(comments.at(-1) ?? '', /Autofix hit the usage limit/);
+  });
+});

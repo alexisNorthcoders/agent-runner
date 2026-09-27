@@ -1176,25 +1176,32 @@ describe('runner: the usage limit', () => {
     assert.equal(history[0].outcome, 'limited');
   });
 
-  it('a run that hits the limit twice (the pass, then the autofix) tells owner once, naming the pause in force', async () => {
-    const LATER = { resetsAt: '2026-09-24T15:02:00.000Z', note: 'resets 4pm Europe/London', timeZone: 'Europe/London' };
-    for (const { second, notice } of [
-      { second: LIMIT, notice: NOTICE },
-      { second: LATER, notice: '⏸ Usage limit hit: pausing agent runs until 16:02 (resets 4pm Europe/London).' },
-    ]) {
-      const { runner, starts, finishes, usageLimit, outboxEntries } = issueSetup();
-      await runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger: 'cron' });
-      starts[0].hitLimit(LIMIT);
-      await flush();
-      const autofix = finishes[0].runAgent({ prompt: 'fix review', label: 'autofix' });
-      await flush();
-      starts[1].hitLimit(second);
-      await autofix;
-      assert.equal((await usageLimit.get())?.until, second.resetsAt);
-      finishes[0].release({ result: 'failed', message: '⚠️ #7: the agent hit its usage limit', silent: false });
-      await runner.idle();
-      assert.deepEqual(outboxEntries().map((e) => [e.replyTo, e.text]), [['owner', `${notice} 0 requests queued.\n\n⚠️ #7: the agent hit its usage limit`]]);
-    }
+  it('an autofix pass never starts while the usage-limit pause is set, and the run ends limited', async () => {
+    const { runner, starts, finishes, usageLimit, outboxEntries, history } = issueSetup();
+    await runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger: 'cron' });
+    starts[0].finish('success');
+    await flush();
+    await usageLimit.extend(LIMIT);
+    assert.equal((await finishes[0].runAgent({ prompt: 'fix review', label: 'autofix' })).outcome, 'limited');
+    assert.equal(starts.length, 1, 'no autofix agent was started');
+    finishes[0].release({ result: 'limited', message: '⏸ #7 — Fix it: the autofix pass hit the usage limit.', silent: false });
+    await runner.idle();
+    assert.deepEqual(outboxEntries().map((e) => [e.replyTo, e.text]), [['owner', '⏸ #7 — Fix it: the autofix pass hit the usage limit.']]);
+    assert.equal(history[0].outcome, 'limited');
+    assert.deepEqual(history[0].followUps, []);
+  });
+
+  it('after the pass hits the limit, no autofix starts, and owner still hears once', async () => {
+    const { runner, starts, finishes, usageLimit, outboxEntries } = issueSetup();
+    await runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger: 'cron' });
+    starts[0].hitLimit(LIMIT);
+    await flush();
+    assert.equal((await finishes[0].runAgent({ prompt: 'fix review', label: 'autofix' })).outcome, 'limited');
+    assert.equal(starts.length, 1);
+    assert.equal((await usageLimit.get())?.until, LIMIT.resetsAt);
+    finishes[0].release({ result: 'limited', message: '⏸ #7: the agent hit its usage limit.', silent: false });
+    await runner.idle();
+    assert.deepEqual(outboxEntries().map((e) => [e.replyTo, e.text]), [['owner', `${NOTICE} 0 requests queued.\n\n⏸ #7: the agent hit its usage limit.`]]);
   });
 
   it('a second hit with an earlier reset does not shorten the pause', async () => {
