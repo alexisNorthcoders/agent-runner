@@ -14,7 +14,7 @@ import { STAMP_MS, TRAY_MS, lerp, walkers } from './walkers.js';
 /** @typedef {import('./layout.js').Rect} Rect */
 /** @typedef {import('./layout.js').Layout} Layout */
 /** @typedef {import('./scene.js').Scene} Scene */
-/** @typedef {import('./walkers.js').Walker} Walker */
+/** @typedef {ReturnType<typeof walkers>} Walkers */
 
 /** Animation frames: walking and typing, and the autofix's frantic scribbling. */
 const FRAME_MS = 150;
@@ -62,20 +62,16 @@ function drawFreeformRoom(ctx, layout) {
  * The active run: the phone ringing, the worker at their desk (typing, still, or scribbling) with
  * their pile and speech bubble, or walking over to a new desk with the pile, and the mail carrier
  * out delivering it.
- * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {number} t @param {Walker[]} walking
+ * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {number} t @param {Walkers} walking
  */
-function drawRun(ctx, layout, scene, t, walking) {
+function drawRun(ctx, layout, scene, t, { carrier, worker: p }) {
   const run = scene.run;
   const desk = run && deskAt(layout, scene.cubicles, run.place);
   if (!run || !desk) return;
   const frame = Math.floor(t / FRAME_MS);
-  for (const p of walking) {
-    if (p.who === 'carrier' && p.pose === 'standing' && p.carrying === 'phone') s.phoneRinging(ctx, layout.desk, frame);
-    if (p.who !== 'worker') continue;
-    if (p.pose === 'walking') {
-      s.walkingWorker(ctx, p.x, p.y, frame, p.pile);
-      continue;
-    }
+  if (carrier.pose === 'standing' && carrier.carrying === 'phone') s.phoneRinging(ctx, layout.desk, frame);
+  if (p?.pose === 'walking') s.walkingWorker(ctx, p.x, p.y, frame, p.pile);
+  else if (p) {
     const w = workerRect(desk);
     const typing = run.work === 'typing';
     const scribbling = run.work === 'scribbling';
@@ -87,7 +83,7 @@ function drawRun(ctx, layout, scene, t, walking) {
     const bounds = roomAt(layout, run.place).rect;
     if (run.bubble) s.speechBubble(ctx, w.x + 5, w.y - 1, run.bubble, Math.min(120, bounds.w - 4), bounds);
   }
-  for (const p of walking) if (p.who === 'carrier' && p.pose === 'walking') s.walkingCarrier(ctx, p.x, p.y, frame, p.carrying);
+  if (carrier.pose === 'walking') s.walkingCarrier(ctx, carrier.x, carrier.y, frame, carrier.carrying);
 }
 
 /** The scheduled job whose desk `place` is, by name. @param {import('./scene.js').Place} p */
@@ -108,11 +104,12 @@ function jobAt(scene, place) {
  * Each scheduled job's worker at their desk while their job isn't running, unless their room's last
  * outcome has them (injured, asleep, dizzy, shrugging, or gone home). A running job's worker stays
  * put until the mail carrier arrives with it (drawRun takes over from then).
- * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {Walker[]} walking
+ * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {Walkers} walking
  */
 function drawJobWorkers(ctx, layout, scene, walking) {
   const run = scene.run;
-  const arrived = run && walking.some((p) => p.who === 'worker');
+  // the run's worker is on the floor once the mail carrier has arrived
+  const arrived = run && !!walking.worker;
   for (const c of scene.cubicles) {
     for (const j of c.jobs) {
       /** @type {import('./scene.js').Place} */
@@ -222,15 +219,12 @@ function drawPending(ctx, r, c) {
 
 /**
  * The boss: at their desk, walking over to the worker, reading over their shoulder, or walking back.
- * @param {Ctx} ctx @param {number} t @param {Walker[]} walking
+ * @param {Ctx} ctx @param {number} t @param {Walkers['boss']} p
  */
-function drawBossFigure(ctx, t, walking) {
-  for (const p of walking) {
-    if (p.who !== 'boss') continue;
-    if (p.pose === 'walking') s.boss(ctx, p.x, p.y, { step: Math.floor(t / FRAME_MS) });
-    else if (p.pose === 'standing') s.boss(ctx, p.x, p.y);
-    else s.boss(ctx, p.x, p.y, { seated: true });
-  }
+function drawBossFigure(ctx, t, p) {
+  if (p.pose === 'walking') s.boss(ctx, p.x, p.y, { step: Math.floor(t / FRAME_MS) });
+  else if (p.pose === 'standing') s.boss(ctx, p.x, p.y);
+  else s.boss(ctx, p.x, p.y, { seated: true });
 }
 
 /**
@@ -242,7 +236,7 @@ function drawBossFigure(ctx, t, walking) {
  */
 export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   const { rooms } = layout;
-  const walking = walkers(layout, scene.cubicles, scene, t).walkers;
+  const walking = walkers(layout, scene.cubicles, scene, t);
   ctx.clearRect(0, 0, layout.width, layout.height);
   s.room(ctx, rooms.review.rect, rooms.review.name, 'wood', WALL);
   s.room(ctx, rooms.joplin.rect, rooms.joplin.name, 'wood', WALL);
@@ -267,7 +261,7 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   s.frontDoor(ctx, layout.door);
   if (scene.backInFive) s.backInFive(ctx, layout.door);
   if (scene.queueRoom.countdownMs != null) s.countdownClock(ctx, layout.clock, formatClock(scene.queueRoom.countdownMs));
-  for (const p of walking) if (p.who === 'carrier' && p.pose === 'standing') s.mailCarrier(ctx, p.x, p.y);
+  if (walking.carrier.pose === 'standing') s.mailCarrier(ctx, walking.carrier.x, walking.carrier.y);
   s.frontDesk(ctx, layout.desk);
   s.mailCart(ctx, layout.cart);
   for (const slot of cartSlots(layout, scene.queueRoom.letters)) s.letter(ctx, slot.rect, slot.pile);
@@ -275,7 +269,7 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   drawJobWorkers(ctx, layout, scene, walking);
   drawOutcomes(ctx, layout, scene, t);
   drawRun(ctx, layout, scene, t, walking);
-  drawBossFigure(ctx, t, walking);
+  drawBossFigure(ctx, t, walking.boss);
   drawFolders(ctx, layout, scene);
 
   if (scene.dark) {

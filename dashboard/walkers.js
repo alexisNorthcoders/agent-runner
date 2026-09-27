@@ -33,6 +33,8 @@ const ANIMATED_STATES = new Set(['asleep', 'dizzy', 'shrug']);
 /** @param {number} a @param {number} b @param {number} f 0..1 */
 export const lerp = (a, b, f) => Math.round(a + (b - a) * Math.max(0, Math.min(1, f)));
 
+/** Where the mail carrier stands behind the front desk (top of their cap). @param {Layout} layout */
+const carrierHome = (layout) => ({ x: layout.desk.x + 30, y: layout.desk.y - 16 });
 /** Where the mail carrier stands to set off, in front of the front desk (feet). @param {Layout} layout */
 const carrierStart = (layout) => ({ x: layout.desk.x + 30, y: layout.desk.y + layout.desk.h + 14 });
 /** Where the carrier hands a run over, in front of the worker's desk (feet). @param {Rect} desk */
@@ -62,8 +64,9 @@ function deliveryTimes(run) {
  */
 function carrier(layout, desk, scene, t) {
   const run = scene.run;
-  const home = { who: /** @type {const} */ ('carrier'), x: layout.desk.x + 30, y: layout.desk.y - 16, pose: /** @type {const} */ ('standing') };
-  // by post-run the delivery is long over, whenever the page saw the run start
+  const home = { who: /** @type {const} */ ('carrier'), ...carrierHome(layout), pose: /** @type {const} */ ('standing') };
+  // by post-run the delivery is long over, whenever the page saw the run start. A run whose desk
+  // the layout doesn't have isn't delivered.
   if (!run || run.postRun || !desk) return { ...home, carrying: null };
   const { leave, arrive, back } = deliveryTimes(run);
   if (t < leave) return { ...home, carrying: 'phone' };
@@ -135,13 +138,13 @@ function boss(layout, cubicles, scene, t) {
  * @param {Scene['cubicles']} cubicles the scene's, in the layout's order
  * @param {Scene} scene
  * @param {number} t now on the scene's clock
- * @returns {{ walkers: Walker[], animating: boolean }}
+ * @returns {{ carrier: Carrier, boss: Boss, worker: Worker | null, animating: boolean }} `worker`:
+ *   null until the mail carrier arrives with the run, or with no run.
  */
 export function walkers(layout, cubicles, scene, t) {
   const desk = scene.run && deskAt(layout, cubicles, scene.run.place);
-  const w = worker(layout, cubicles, desk, scene, t);
   const animating =
     !scene.dark &&
     (!!scene.run || t - scene.boss.since < WALK_MS || scene.outcomes.some((o) => ANIMATED_STATES.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
-  return { walkers: [carrier(layout, desk, scene, t), boss(layout, cubicles, scene, t), ...(w ? [w] : [])], animating };
+  return { carrier: carrier(layout, desk, scene, t), boss: boss(layout, cubicles, scene, t), worker: worker(layout, cubicles, desk, scene, t), animating };
 }
