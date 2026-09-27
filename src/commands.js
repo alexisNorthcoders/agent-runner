@@ -29,7 +29,7 @@ claude:stop  kill the active run (queued requests still run)
 claude:queue  list the requests waiting for the agent
 claude:queue clear  drop every waiting request
 claude:pause [<alias>] [2h] [reason]  stop new agent runs (everything, or only issue runs in <alias>) for a while (default 2h)
-claude:resume [<alias>]  end a pause early (no alias: every pause)
+claude:resume [<alias>]  end a pause early (no alias: every pause, the usage limit's too)
 claude:restart  safely restart agent-runner (refused while a run is active)
 claude:status  active run, pause, last cron tick and recent runs
 claude:history [n]  the last n finished runs with cost and tokens`;

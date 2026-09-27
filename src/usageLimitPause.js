@@ -5,7 +5,8 @@
  *
  * One Redis key whose TTL ends with the pause, so it expires on its own; its end time is inside too,
  * and a pause past it reads as absent. Setting it only ever extends it. The read and write aren't
- * atomic, which is fine: only the runner process sets it.
+ * atomic, which is fine: only the runner process sets it. The owner can end it early with
+ * `claude:resume` (no alias), e.g. after a plan upgrade.
  *
  * @typedef {{ until: string, note: string | null, timeZone: string | null, since: string }} UsageLimitPause
  *   `note` and `timeZone` are how the agent put the reset (e.g. `resets 7am Europe/London`), when known.
@@ -50,6 +51,12 @@ export function createUsageLimitPause({ store, key = USAGE_LIMIT_KEY, now = Date
       const p = { until: new Date(end).toISOString(), note, timeZone, since: new Date(now()).toISOString() };
       await store.setWithTtl(key, JSON.stringify(p), Math.ceil(ms / 1000));
       return { pause: p, extended: true };
+    },
+    /** End the pause early (`claude:resume`). @returns {Promise<boolean>} whether a live pause was cleared */
+    async clear() {
+      const had = Boolean(await get());
+      await store.del(key);
+      return had;
     },
   };
 }

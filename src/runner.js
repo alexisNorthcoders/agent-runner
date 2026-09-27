@@ -863,9 +863,9 @@ export function createRunner({
         case 'queue':
           return { reply: await queueCommand(cmd.clear) };
         case 'pause':
-          return { reply: (await applyPauseCommand({ manualPause, workspaces, cmd, now })).reply };
+          return { reply: (await applyPauseCommand({ manualPause, usageLimit, workspaces, cmd, now })).reply };
         case 'resume': {
-          const { reply } = await applyPauseCommand({ manualPause, workspaces, cmd, now });
+          const { reply } = await applyPauseCommand({ manualPause, usageLimit, workspaces, cmd, now });
           drainQueue();
           return { reply };
         }
