@@ -399,11 +399,11 @@ function hovered() {
   if (run && desk && inside(workerRect(desk), x, y)) return `${run.label ?? run.runId}${run.activity ? `: ${run.activity}` : ''}`;
   const job = jobWorkerAt(x, y);
   if (job) return `Scheduled job ${job.name} (${job.worker}), daily at ${job.at} UTC\nNext due ${nextDue(job, now())}`;
-  const slot = cartSlots(layout, scene.reception.letters).find((sl) => inside(sl.rect, x, y));
+  const slot = cartSlots(layout, scene.queueRoom.letters).find((sl) => inside(sl.rect, x, y));
   if (slot) return slot.label;
   const pending = pendingAt(x, y);
   if (pending) return pending;
-  if (scene.reception.countdownMs != null && inside(layout.clock, x, y)) return `Next cron tick in ${formatDuration(scene.reception.countdownMs)}`;
+  if (scene.queueRoom.countdownMs != null && inside(layout.clock, x, y)) return `Next cron tick in ${formatDuration(scene.queueRoom.countdownMs)}`;
   const i = layout.cubicles.findIndex((r) => inside(r, x, y));
   const c = scene.cubicles[i];
   if (c) {

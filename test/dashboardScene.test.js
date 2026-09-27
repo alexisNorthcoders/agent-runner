@@ -86,7 +86,7 @@ describe('office scene: office states', () => {
     assert.equal(after.dark, true);
     assert.equal(after.backInFive, false);
     assert.ok(after.cubicles.every((c) => !c.doNotDisturb));
-    assert.equal(after.reception.countdownMs, null);
+    assert.equal(after.queueRoom.countdownMs, null);
   });
 
   it('is dark with an empty floor when the runner was never seen', () => {
@@ -112,21 +112,21 @@ describe('office scene: office states', () => {
   });
 });
 
-describe('office scene: reception', () => {
+describe('office scene: queue room', () => {
   const cron = (over = {}) => ({ alive: true, pid: 1, intervalMs: 600_000, lastTickStartedAt: iso(-60_000), lastTickEndedAt: iso(-50_000), outcome: null, nextTickAt: iso(540_000), ...over });
 
   it("counts down to the feed's next cron tick", () => {
-    assert.equal(reduceScene(snap({ cron: cron() }), null, up).reception.countdownMs, 540_000);
-    assert.equal(reduceScene(snap({ cron: cron() }), null, { ...up, now: NOW + 40_000 }).reception.countdownMs, 500_000);
+    assert.equal(reduceScene(snap({ cron: cron() }), null, up).queueRoom.countdownMs, 540_000);
+    assert.equal(reduceScene(snap({ cron: cron() }), null, { ...up, now: NOW + 40_000 }).queueRoom.countdownMs, 500_000);
   });
 
   it('holds at zero once the tick is due', () => {
-    assert.equal(reduceScene(snap({ cron: cron({ nextTickAt: iso(-5_000) }) }), null, up).reception.countdownMs, 0);
+    assert.equal(reduceScene(snap({ cron: cron({ nextTickAt: iso(-5_000) }) }), null, up).queueRoom.countdownMs, 0);
   });
 
   it('hides the countdown when the cron is off, dead or has no next tick', () => {
     for (const c of [null, cron({ alive: false, nextTickAt: null }), cron({ nextTickAt: null })]) {
-      assert.equal(reduceScene(snap({ cron: c }), null, up).reception.countdownMs, null, JSON.stringify(c));
+      assert.equal(reduceScene(snap({ cron: c }), null, up).queueRoom.countdownMs, null, JSON.stringify(c));
     }
   });
 
@@ -135,11 +135,11 @@ describe('office scene: reception', () => {
       { id: 'q1', kind: 'freeform', label: 'say hi', queuedAt: iso(-2000) },
       { id: 'q2', kind: 'issue', label: 'issue bot#7', queuedAt: iso(-1000) },
     ];
-    assert.deepEqual(reduceScene(snap({ queue }), null, up).reception.letters, [
+    assert.deepEqual(reduceScene(snap({ queue }), null, up).queueRoom.letters, [
       { id: 'q1', label: 'say hi' },
       { id: 'q2', label: 'issue bot#7' },
     ]);
-    assert.deepEqual(reduceScene(snap(), null, up).reception.letters, []);
+    assert.deepEqual(reduceScene(snap(), null, up).queueRoom.letters, []);
   });
 });
 
@@ -185,8 +185,8 @@ describe('office scene: a run starting', () => {
     const cases = [
       [{ kind: 'issue', trigger: 'cron', workspaceAlias: 'chess-trainer' }, { room: 'cubicle', alias: 'chess-trainer' }, 'envelope'],
       [{ kind: 'issue', trigger: 'manual', workspaceAlias: 'dots' }, { room: 'cubicle', alias: 'dots' }, 'phone'],
-      [{ kind: 'freeform', trigger: 'manual', workspaceAlias: null, issueNumber: null }, { room: 'annex' }, 'phone'],
-      [{ kind: 'joplin', trigger: 'manual', workspaceAlias: null, issueNumber: null }, { room: 'library' }, 'phone'],
+      [{ kind: 'freeform', trigger: 'manual', workspaceAlias: null, issueNumber: null }, { room: 'freeform' }, 'phone'],
+      [{ kind: 'joplin', trigger: 'manual', workspaceAlias: null, issueNumber: null }, { room: 'joplin' }, 'phone'],
     ];
     for (const [over, place, by] of cases) {
       const scene = reduceScene(running(over), null, up);
@@ -200,8 +200,8 @@ describe('office scene: a run starting', () => {
     assert.equal(scene.run?.delivery.at, NOW - 600_000);
   });
 
-  it('sends an issue run for a workspace without a cubicle to the Annex', () => {
-    assert.deepEqual(reduceScene(running({ workspaceAlias: 'gone' }), null, up).run?.place, { room: 'annex' });
+  it('sends an issue run for a workspace without a cubicle to the Freeform room', () => {
+    assert.deepEqual(reduceScene(running({ workspaceAlias: 'gone' }), null, up).run?.place, { room: 'freeform' });
   });
 
   it('has no worker while idle', () => {
@@ -219,24 +219,24 @@ describe('office scene: a run starting', () => {
 describe('office scene: a freeform run finding its workspace', () => {
   const freeform = (over = {}) => running({ kind: 'freeform', workspaceAlias: null, issueNumber: null, inferredWorkspace: null, ...over });
 
-  it('starts in the Annex, then picks up their papers and walks to the cubicle once it is inferred', () => {
+  it('starts in the Freeform room, then picks up their papers and walks to the cubicle once it is inferred', () => {
     const [before, after, later] = play([
       [freeform({ turns: 10 }), NOW],
       [freeform({ turns: 12, inferredWorkspace: 'bot' }), NOW + 5_000],
       [freeform({ turns: 15, inferredWorkspace: 'bot' }), NOW + 9_000],
     ]);
-    assert.deepEqual(before.run?.place, { room: 'annex' });
+    assert.deepEqual(before.run?.place, { room: 'freeform' });
     assert.equal(before.run?.moved, null);
     assert.deepEqual(after.run?.place, { room: 'cubicle', alias: 'bot' });
-    assert.deepEqual(after.run?.moved, { from: { room: 'annex' }, since: NOW + 5_000 });
+    assert.deepEqual(after.run?.moved, { from: { room: 'freeform' }, since: NOW + 5_000 });
     // the walk keeps its start, and the pile comes along
     assert.deepEqual(later.run?.moved, after.run?.moved);
     assert.equal(after.run?.pile, before.run?.pile);
   });
 
-  it('stays in the Annex while no workspace is inferred, or its workspace has no cubicle', () => {
-    assert.deepEqual(reduceScene(freeform(), null, up).run?.place, { room: 'annex' });
-    assert.deepEqual(reduceScene(freeform({ inferredWorkspace: 'gone' }), null, up).run?.place, { room: 'annex' });
+  it('stays in the Freeform room while no workspace is inferred, or its workspace has no cubicle', () => {
+    assert.deepEqual(reduceScene(freeform(), null, up).run?.place, { room: 'freeform' });
+    assert.deepEqual(reduceScene(freeform({ inferredWorkspace: 'gone' }), null, up).run?.place, { room: 'freeform' });
   });
 
   it("sits straight at the cubicle when the page opens after the move (no walk it didn't see)", () => {
@@ -431,8 +431,8 @@ describe('office scene: outcomes', () => {
       scene.outcomes.map((o) => [o.place, o.runId, o.state]),
       [
         [{ room: 'cubicle', alias: 'bot' }, 'b2', 'shrug'],
-        [{ room: 'annex' }, 'f1', 'asleep'],
-        [{ room: 'library' }, 'j1', 'home'],
+        [{ room: 'freeform' }, 'f1', 'asleep'],
+        [{ room: 'joplin' }, 'j1', 'home'],
       ]
     );
   });
@@ -485,9 +485,9 @@ describe('office scene: outcomes', () => {
     assert.equal(dark.outcomes.length, 1);
   });
 
-  it('puts an issue run whose workspace has no cubicle in the Annex', () => {
+  it('puts an issue run whose workspace has no cubicle in the Freeform room', () => {
     const [o] = reduceScene(snap({ history: [row({ workspaceAlias: 'gone' })] }), null, up).outcomes;
-    assert.deepEqual(o.place, { room: 'annex' });
+    assert.deepEqual(o.place, { room: 'freeform' });
   });
 });
 
@@ -614,7 +614,7 @@ describe('office scene: scheduled jobs', () => {
 
   it('puts a queued job on the mail cart as a letter', () => {
     const queue = [{ id: 'q1', kind: 'job', label: 'scheduled job report_agent', queuedAt: iso(-1000) }];
-    assert.deepEqual(reduceScene(jobSnap({ queue }), null, up).reception.letters, [{ id: 'q1', label: 'scheduled job report_agent' }]);
+    assert.deepEqual(reduceScene(jobSnap({ queue }), null, up).queueRoom.letters, [{ id: 'q1', label: 'scheduled job report_agent' }]);
   });
 
   it('grows the pile with elapsed time alone (a job has no turns)', () => {
@@ -636,9 +636,9 @@ describe('office scene: scheduled jobs', () => {
     assert.equal(reduceScene(runningJob(), null, up).run?.bubble, null);
   });
 
-  it('puts a job whose config is gone in the Annex', () => {
+  it('puts a job whose config is gone in the Freeform room', () => {
     const scene = reduceScene(runningJob({ jobName: 'retired', room: 'Nowhere' }), null, up);
-    assert.deepEqual(scene.run?.place, { room: 'annex' });
+    assert.deepEqual(scene.run?.place, { room: 'freeform' });
     assert.equal(scene.run?.worker, 'clerk');
   });
 

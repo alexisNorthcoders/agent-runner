@@ -35,9 +35,9 @@
  * @typedef {{ id: string, label: string }} SceneLetter
  *   A queued request, as a letter on the mail cart.
  *
- * @typedef {{ room: 'cubicle', alias: string, job?: string } | { room: 'annex' | 'library' }} Place
+ * @typedef {{ room: 'cubicle', alias: string, job?: string } | { room: 'freeform' | 'joplin' }} Place
  *   Where a worker sits: a cubicle (at the desk of its scheduled job `job`, else the workspace's
- *   own), the Annex or the Library.
+ *   own), the Freeform room or the Joplin room.
  *
  * @typedef {{
  *   runId: string,
@@ -63,7 +63,7 @@
  *   autofix. The snapshot can't tell the review from the commit and PR before it, so the whole of
  *   post-run counts as the review. A page opened mid-autofix can't tell it from the first pass.
  *   `moved`: the worker picked up their papers and walked here from `from` (a freeform run leaving
- *   the Annex for the cubicle it turned out to work in), at `since` on the snapshot's clock. Null
+ *   the Freeform room for the cubicle it turned out to work in), at `since` on the snapshot's clock. Null
  *   when they haven't moved, or the page opened after they did.
  *
  * @typedef {{ at: Place | null, from: Place | null, since: number }} SceneBoss
@@ -95,7 +95,7 @@
  *   dark: boolean,
  *   backInFive: boolean,
  *   cubicles: SceneCubicle[],
- *   reception: { countdownMs: number | null, letters: SceneLetter[] },
+ *   queueRoom: { countdownMs: number | null, letters: SceneLetter[] },
  *   run: SceneRun | null,
  *   boss: SceneBoss,
  *   outcomes: SceneOutcome[],
@@ -112,7 +112,7 @@
  */
 
 /** @type {Scene} */
-const EMPTY = { dark: false, backInFive: false, cubicles: [], reception: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [], parked: [] };
+const EMPTY = { dark: false, backInFive: false, cubicles: [], queueRoom: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [], parked: [] };
 
 /** The most sheets a desk's pile holds. */
 export const PILE_MAX = 16;
@@ -190,8 +190,8 @@ function shorten(s, n) {
 
 /**
  * The room a run is worked in: its workspace's cubicle for an issue run, and for a freeform run
- * once its workspace is inferred, its job's desk in its room for a scheduled job, the Library for
- * a Joplin run, else the Annex (a freeform run that hasn't found a workspace, or any run whose
+ * once its workspace is inferred, its job's desk in its room for a scheduled job, the Joplin room for
+ * a Joplin run, else the Freeform room (a freeform run that hasn't found a workspace, or any run whose
  * workspace or job has no cubicle).
  * @param {{ kind: string | null, workspaceAlias: string | null, inferredWorkspace?: string | null, jobName?: string | null }} r
  *   a run, in flight or finished
@@ -202,12 +202,12 @@ function placeOf(r, cubicles) {
   if (r.kind === 'job') {
     const job = r.jobName;
     const c = job ? cubicles.find((x) => x.jobs.some((j) => j.name === job)) : null;
-    return c && job ? { room: 'cubicle', alias: c.alias, job } : { room: 'annex' };
+    return c && job ? { room: 'cubicle', alias: c.alias, job } : { room: 'freeform' };
   }
-  if (r.kind === 'joplin') return { room: 'library' };
+  if (r.kind === 'joplin') return { room: 'joplin' };
   const alias = r.kind === 'issue' ? r.workspaceAlias : r.kind === 'freeform' ? r.inferredWorkspace : null;
   if (alias && cubicles.some((c) => c.alias === alias)) return { room: 'cubicle', alias };
-  return { room: 'annex' };
+  return { room: 'freeform' };
 }
 
 /** Each resting state, in words for the hover. @type {Record<RestingState, string>} */
@@ -340,12 +340,12 @@ function reduceBoss(run, prev, now) {
  * @returns {Scene}
  */
 export function reduceScene(snap, prev, { up, now, config, log }) {
-  if (!snap) return { ...(prev ?? EMPTY), dark: !up, reception: { ...(prev ?? EMPTY).reception, countdownMs: null } };
+  if (!snap) return { ...(prev ?? EMPTY), dark: !up, queueRoom: { ...(prev ?? EMPTY).queueRoom, countdownMs: null } };
   // down: the floor as the last snapshot saw it, with the lights off and nothing ticking. Built
   // from the snapshot, so pauses still run out while the runner is away.
   if (!up) {
     const lit = reduceScene(snap, prev, { up: true, now, config, log });
-    return { ...lit, dark: true, reception: { ...lit.reception, countdownMs: null } };
+    return { ...lit, dark: true, queueRoom: { ...lit.queueRoom, countdownMs: null } };
   }
   const paused = new Set(snap.pauses.workspaces.filter((p) => holding(p, now)).map((p) => p.alias));
   const next = snap.cron?.alive && snap.cron.nextTickAt ? Date.parse(snap.cron.nextTickAt) : NaN;
@@ -370,7 +370,7 @@ export function reduceScene(snap, prev, { up, now, config, log }) {
     dark: false,
     backInFive: holding(snap.pauses.general, now),
     cubicles,
-    reception: {
+    queueRoom: {
       countdownMs: Number.isFinite(next) ? Math.max(0, next - now) : null,
       letters: snap.queue.map((q) => ({ id: q.id, label: q.label })),
     },

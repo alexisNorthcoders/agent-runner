@@ -297,7 +297,7 @@ export function doNotDisturb(ctx, r) {
   text(ctx, 'DISTURB', x - 15.5, y + 10, PALETTE.white, { center: true });
 }
 
-// --- reception ---
+// --- queue room ---
 
 /** The front door, on the back wall. @param {Ctx} ctx @param {Rect} r */
 export function frontDoor(ctx, r) {
@@ -337,7 +337,7 @@ export function countdownClock(ctx, r, label) {
   text(ctx, fitText(label, r.w - 4), r.x + r.w / 2, r.y + 4, PALETTE.led, { center: true });
 }
 
-/** The mail carrier, seated behind the reception desk (head at `y`). @param {Ctx} ctx @param {number} x @param {number} y */
+/** The mail carrier, seated behind the front desk (head at `y`). @param {Ctx} ctx @param {number} x @param {number} y */
 export function mailCarrier(ctx, x, y) {
   // cap
   ctx.fillStyle = PALETTE.uniform;
@@ -358,8 +358,8 @@ export function mailCarrier(ctx, x, y) {
   ctx.fillRect(x + 8, y + 14, 2, 2);
 }
 
-/** The reception desk, a long counter. @param {Ctx} ctx @param {Rect} r */
-export function receptionDesk(ctx, r) {
+/** The front desk, a long counter. @param {Ctx} ctx @param {Rect} r */
+export function frontDesk(ctx, r) {
   ctx.fillStyle = PALETTE.wood;
   ctx.fillRect(r.x, r.y, r.w, 5);
   ctx.fillStyle = PALETTE.woodDark;
@@ -471,7 +471,7 @@ export function worker(ctx, r, hands) {
 
 /**
  * A worker on foot, carrying their papers (`pile` sheets, a few at most) in both hands: a freeform
- * run moving from the Annex to its cubicle. (x, y) is the top of the head, as in `worker`, and
+ * run moving from the Freeform room to its cubicle. (x, y) is the top of the head, as in `worker`, and
  * `step` moves the legs.
  * @param {Ctx} ctx @param {number} x @param {number} y @param {number} step @param {number} pile
  */
@@ -569,7 +569,7 @@ export function speechBubble(ctx, x, y, label, maxW, bounds) {
   text(ctx, str, bx + 2, by + 2, PALETTE.ink);
 }
 
-/** The reception phone ringing: lines flashing around it. @param {Ctx} ctx @param {Rect} r the reception desk @param {number} frame */
+/** The front-desk phone ringing: lines flashing around it. @param {Ctx} ctx @param {Rect} r the front desk @param {number} frame */
 export function phoneRinging(ctx, r, frame) {
   if (frame % 2) return;
   const x = r.x + 5;

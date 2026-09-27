@@ -24,8 +24,8 @@ describe('office layout', () => {
         for (let i = 0; i < rooms.length; i++) for (let j = i + 1; j < rooms.length; j++) assert.ok(!overlap(rooms[i], rooms[j]));
         assert.equal(l.cubicles.length, count);
         for (const c of l.cubicles) assert.ok(within(c, l.rooms.bullpen.rect), `cubicle ${JSON.stringify(c)}`);
-        for (const part of [l.door, l.clock, l.desk, l.cart]) assert.ok(within(part, l.rooms.reception.rect));
-        for (const id of /** @type {const} */ (['boss', 'annex', 'library'])) {
+        for (const part of [l.door, l.clock, l.desk, l.cart]) assert.ok(within(part, l.rooms.queueRoom.rect));
+        for (const id of /** @type {const} */ (['review', 'freeform', 'joplin'])) {
           assert.ok(within(l.desks[id], l.rooms[id].rect), `${id} desk`);
           assert.ok(within(workerRect(l.desks[id]), l.rooms[id].rect), `${id} worker`);
         }
@@ -37,7 +37,7 @@ describe('office layout', () => {
   it('stacks the rooms full width when narrow', () => {
     const l = layoutOffice(9, 'narrow', 300);
     for (const r of Object.values(l.rooms)) assert.deepEqual([r.rect.x, r.rect.w], [0, 300]);
-    assert.equal(l.rooms.reception.rect.y, 0);
+    assert.equal(l.rooms.queueRoom.rect.y, 0);
   });
 
   it('puts one slot per letter on the mail cart, piling the overflow in the last one', () => {
@@ -58,17 +58,17 @@ describe('workers and clicks on the floor', () => {
   const cubicles = [{ alias: 'bot' }, { alias: 'dots' }, { alias: 'chess' }];
   const centre = (r) => [r.x + r.w / 2, r.y + r.h / 2];
 
-  it("finds a worker's desk: a cubicle's, the Annex's or the Library's", () => {
+  it("finds a worker's desk: a cubicle's, the Freeform room's or the Joplin room's", () => {
     assert.deepEqual(deskAt(l, cubicles, { room: 'cubicle', alias: 'dots' }), cubicleDesk(l.cubicles[1]));
-    assert.deepEqual(deskAt(l, cubicles, { room: 'annex' }), l.desks.annex);
-    assert.deepEqual(deskAt(l, cubicles, { room: 'library' }), l.desks.library);
+    assert.deepEqual(deskAt(l, cubicles, { room: 'freeform' }), l.desks.freeform);
+    assert.deepEqual(deskAt(l, cubicles, { room: 'joplin' }), l.desks.joplin);
     assert.equal(deskAt(l, cubicles, { room: 'cubicle', alias: 'gone' }), null);
   });
 
   it("finds a place's area, for its last run's scene and hover: its cubicle, or its room", () => {
     assert.deepEqual(placeRect(l, cubicles, { room: 'cubicle', alias: 'chess' }), l.cubicles[2]);
-    assert.deepEqual(placeRect(l, cubicles, { room: 'annex' }), l.rooms.annex.rect);
-    assert.deepEqual(placeRect(l, cubicles, { room: 'library' }), l.rooms.library.rect);
+    assert.deepEqual(placeRect(l, cubicles, { room: 'freeform' }), l.rooms.freeform.rect);
+    assert.deepEqual(placeRect(l, cubicles, { room: 'joplin' }), l.rooms.joplin.rect);
     assert.equal(placeRect(l, cubicles, { room: 'cubicle', alias: 'gone' }), null);
   });
 
@@ -76,7 +76,7 @@ describe('workers and clicks on the floor', () => {
     const named = [{ alias: 'bot', name: 'Customer Svc' }];
     assert.equal(placeName(l, named, { room: 'cubicle', alias: 'bot' }), 'Customer Svc');
     assert.equal(placeName(l, named, { room: 'cubicle', alias: 'gone' }), 'gone');
-    assert.equal(placeName(l, named, { room: 'annex' }), 'FREEFORM');
+    assert.equal(placeName(l, named, { room: 'freeform' }), 'FREEFORM');
   });
 
   it('filters to a cubicle (or its worker) on click, and clears on a second click or on empty floor', () => {
@@ -85,7 +85,7 @@ describe('workers and clicks on the floor', () => {
     assert.equal(clickFilter(l, cubicles, x, y, 'dots'), null);
     const w = workerRect(cubicleDesk(l.cubicles[1]));
     assert.equal(clickFilter(l, cubicles, w.x + 1, w.y + 1, 'bot'), 'dots');
-    const [ax, ay] = centre(l.rooms.annex.rect);
+    const [ax, ay] = centre(l.rooms.freeform.rect);
     assert.equal(clickFilter(l, cubicles, ax, ay, 'dots'), null);
   });
 });
@@ -193,6 +193,6 @@ describe('fitting the scene to the screen', () => {
     const many = folderSlots(l, cubicles, [open], [parked(1), parked(2), parked(3), parked(4)]);
     assert.equal(many.length, FOLDERS_MAX);
     assert.deepEqual([many.at(-1)?.tab, many.at(-1)?.pile, many.at(-1)?.parked], ['+2', 2, true]);
-    for (const f of many) assert.ok(within(f.rect, l.rooms.boss.rect));
+    for (const f of many) assert.ok(within(f.rect, l.rooms.review.rect));
   });
 });

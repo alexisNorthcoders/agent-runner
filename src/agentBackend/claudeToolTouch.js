@@ -8,7 +8,7 @@ import { isAbsolute, resolve } from 'path';
  *
  * The Bash tool keeps its working directory between calls, so the reader follows `cd` from one
  * command to the next. It reads the command as words, not as a shell would: a path it misses only
- * means the run is placed a little later, or stays in the Annex.
+ * means the run is placed a little later, or stays in the Freeform room.
  */
 
 const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);

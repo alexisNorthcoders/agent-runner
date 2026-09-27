@@ -1,10 +1,10 @@
 // Where everything on the office floor sits, in the scene's internal pixels. Wide: the bullpen in
-// the middle, the boss's office and the Library on the left, Reception and the Annex on the right.
-// Narrow: the rooms stacked, Reception first. No DOM here, so it can be tested in Node.
+// the middle, the Review room and the Joplin room on the left, the Queue room and the Freeform room on the right.
+// Narrow: the rooms stacked, the Queue room first. No DOM here, so it can be tested in Node.
 
 /**
  * @typedef {{ x: number, y: number, w: number, h: number }} Rect
- * @typedef {'reception' | 'bullpen' | 'boss' | 'annex' | 'library'} RoomId
+ * @typedef {'queueRoom' | 'bullpen' | 'review' | 'freeform' | 'joplin'} RoomId
  * @typedef {{ id: RoomId, name: string, rect: Rect }} Room
  * @typedef {{
  *   width: number,
@@ -15,9 +15,9 @@
  *   clock: Rect,
  *   desk: Rect,
  *   cart: Rect,
- *   desks: { boss: Rect, annex: Rect, library: Rect },
+ *   desks: { review: Rect, freeform: Rect, joplin: Rect },
  * }} Layout
- *   `desk`: the reception desk. `desks`: the other rooms' desks (the Library's reading table).
+ *   `desk`: the front desk. `desks`: the other rooms' desks (the Joplin room's reading table).
  */
 
 /** The height of a room's back wall, above its floor. */
@@ -33,7 +33,7 @@ const CART_COLS = 6;
 export const CART_CAPACITY = CART_ROWS * CART_COLS;
 
 const SIDE = 150;
-const NAMES = { reception: 'QUEUE', bullpen: 'HEADLESS INC.', boss: 'REVIEW', annex: 'FREEFORM', library: 'JOPLIN' };
+const NAMES = { queueRoom: 'QUEUE', bullpen: 'HEADLESS INC.', review: 'REVIEW', freeform: 'FREEFORM', joplin: 'JOPLIN' };
 
 /** @param {RoomId} id @param {number} x @param {number} y @param {number} w @param {number} h @returns {Room} */
 const room = (id, x, y, w, h) => ({ id, name: NAMES[id], rect: { x, y, w, h } });
@@ -52,8 +52,8 @@ function grid(count, area, cols, maxH) {
   return Array.from({ length: count }, (_, i) => ({ x: area.x + (i % c) * w, y: area.y + Math.floor(i / c) * h, w, h }));
 }
 
-/** @param {Rect} r the Reception room */
-function receptionParts(r) {
+/** @param {Rect} r the Queue room */
+function queueRoomParts(r) {
   return {
     door: { x: r.x + 10, y: r.y + 2, w: 20, h: WALL - 2 },
     clock: { x: r.x + 38, y: r.y + 6, w: 44, h: 13 },
@@ -64,13 +64,13 @@ function receptionParts(r) {
 
 /** @param {Record<RoomId, Room>} rooms */
 function roomDesks(rooms) {
-  const b = rooms.boss.rect;
-  const a = rooms.annex.rect;
-  const l = rooms.library.rect;
+  const b = rooms.review.rect;
+  const a = rooms.freeform.rect;
+  const l = rooms.joplin.rect;
   return {
-    boss: { x: b.x + Math.floor(b.w / 2) - 28, y: b.y + WALL + 30, w: 56, h: 16 },
-    annex: { x: a.x + 20, y: a.y + WALL + 30, w: 40, h: 13 },
-    library: { x: l.x + Math.floor(l.w / 2) - 10, y: l.y + WALL + 34, w: 40, h: 12 },
+    review: { x: b.x + Math.floor(b.w / 2) - 28, y: b.y + WALL + 30, w: 56, h: 16 },
+    freeform: { x: a.x + 20, y: a.y + WALL + 30, w: 40, h: 13 },
+    joplin: { x: l.x + Math.floor(l.w / 2) - 10, y: l.y + WALL + 34, w: 40, h: 12 },
   };
 }
 
@@ -193,15 +193,15 @@ export function layoutOffice(count, mode, width) {
     const W = Math.max(WIDE_WIDTH.min, Math.min(WIDE_WIDTH.max, Math.floor(width)));
     const H = WIDE_HEIGHT;
     const rooms = {
-      boss: room('boss', 0, 0, SIDE, 160),
-      library: room('library', 0, 160, SIDE, H - 160),
+      review: room('review', 0, 0, SIDE, 160),
+      joplin: room('joplin', 0, 160, SIDE, H - 160),
       bullpen: room('bullpen', SIDE, 0, W - 2 * SIDE, H),
-      reception: room('reception', W - SIDE, 0, SIDE, 190),
-      annex: room('annex', W - SIDE, 190, SIDE, H - 190),
+      queueRoom: room('queueRoom', W - SIDE, 0, SIDE, 190),
+      freeform: room('freeform', W - SIDE, 190, SIDE, H - 190),
     };
     const b = rooms.bullpen.rect;
     const cubicles = grid(count, { x: b.x + 6, y: b.y + WALL + 6, w: b.w - 12, h: b.h - WALL - 12 }, 4, 100);
-    return { width: W, height: H, rooms, cubicles, ...receptionParts(rooms.reception.rect), desks: roomDesks(rooms) };
+    return { width: W, height: H, rooms, cubicles, ...queueRoomParts(rooms.queueRoom.rect), desks: roomDesks(rooms) };
   }
   const W = Math.max(NARROW_WIDTH.min, Math.min(NARROW_WIDTH.max, Math.floor(width)));
   const cols = W >= 300 ? 3 : 2;
@@ -215,15 +215,15 @@ export function layoutOffice(count, mode, width) {
     return r;
   };
   const rooms = {
-    reception: stack('reception', 150),
+    queueRoom: stack('queueRoom', 150),
     bullpen: stack('bullpen', WALL + 12 + Math.max(1, rows) * cubeH),
-    boss: stack('boss', 110),
-    annex: stack('annex', 110),
-    library: stack('library', 110),
+    review: stack('review', 110),
+    freeform: stack('freeform', 110),
+    joplin: stack('joplin', 110),
   };
   const b = rooms.bullpen.rect;
   const cubicles = grid(count, { x: b.x + 6, y: b.y + WALL + 6, w: b.w - 12, h: rows * cubeH }, cols, cubeH);
-  return { width: W, height: y, rooms, cubicles, ...receptionParts(rooms.reception.rect), desks: roomDesks(rooms) };
+  return { width: W, height: y, rooms, cubicles, ...queueRoomParts(rooms.queueRoom.rect), desks: roomDesks(rooms) };
 }
 
 /**
@@ -305,7 +305,7 @@ export const FOLDERS_MAX = 4;
  * @returns {Array<{ rect: Rect, tab: string, tip: string, parked: boolean, pile: number }>}
  */
 export function folderSlots(layout, cubicles, outcomes, parked) {
-  const d = layout.desks.boss;
+  const d = layout.desks.review;
   const items = [
     ...outcomes
       .filter((o) => o.state === 'folder')

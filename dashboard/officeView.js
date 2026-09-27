@@ -37,8 +37,8 @@ const WORKER_STATES = new Set(['injured', 'asleep', 'dizzy', 'shrug', 'home']);
 
 /** @param {Ctx} ctx @param {Layout} layout */
 function drawBoss(ctx, layout) {
-  const r = layout.rooms.boss.rect;
-  const d = layout.desks.boss;
+  const r = layout.rooms.review.rect;
+  const d = layout.desks.review;
   s.wallWindow(ctx, r.x + 12, r.y + 6, 36);
   s.bossDesk(ctx, d.x, d.y);
   s.plant(ctx, r.x + 6, r.y + WALL + 4);
@@ -46,18 +46,18 @@ function drawBoss(ctx, layout) {
 }
 
 /** @param {Ctx} ctx @param {Layout} layout */
-function drawLibrary(ctx, layout) {
-  const r = layout.rooms.library.rect;
+function drawJoplinRoom(ctx, layout) {
+  const r = layout.rooms.joplin.rect;
   s.bookshelf(ctx, r.x + 6, r.y + 3, Math.min(60, r.w - 70));
   s.bookshelf(ctx, r.x + 6, r.y + WALL + 4, 40);
-  s.table(ctx, layout.desks.library.x, layout.desks.library.y);
+  s.table(ctx, layout.desks.joplin.x, layout.desks.joplin.y);
   s.plant(ctx, r.x + r.w - 14, r.y + r.h - 16);
 }
 
 /** @param {Ctx} ctx @param {Layout} layout */
-function drawAnnex(ctx, layout) {
-  const r = layout.rooms.annex.rect;
-  const d = layout.desks.annex;
+function drawFreeformRoom(ctx, layout) {
+  const r = layout.rooms.freeform.rect;
+  const d = layout.desks.freeform;
   s.wallWindow(ctx, r.x + 8, r.y + 6, 30);
   s.desk(ctx, d.x, d.y, d.w);
   s.cabinets(ctx, r.x + r.w - 36, r.y + WALL + 2, 3);
@@ -67,12 +67,12 @@ function drawAnnex(ctx, layout) {
 /** @param {number} a @param {number} b @param {number} f 0..1 */
 const lerp = (a, b, f) => Math.round(a + (b - a) * Math.max(0, Math.min(1, f)));
 
-/** Where the mail carrier stands to set off, in front of the reception desk (feet). @param {Layout} layout */
+/** Where the mail carrier stands to set off, in front of the front desk (feet). @param {Layout} layout */
 const carrierStart = (layout) => ({ x: layout.desk.x + 30, y: layout.desk.y + layout.desk.h + 14 });
 /** Where the carrier hands a run over, in front of the worker's desk (feet). @param {Rect} desk */
 const handOver = (desk) => ({ x: desk.x + Math.floor(desk.w / 2) + 4, y: desk.y + desk.h + 16 });
 /** The boss's head, standing behind their chair and by a worker's shoulder. @param {Layout} layout */
-const bossHome = (layout) => ({ x: layout.desks.boss.x + 23, y: layout.desks.boss.y - 20 });
+const bossHome = (layout) => ({ x: layout.desks.review.x + 23, y: layout.desks.review.y - 20 });
 /** @param {Rect} desk */
 const bossBeside = (desk) => {
   const w = workerRect(desk);
@@ -81,7 +81,7 @@ const bossBeside = (desk) => {
 
 /**
  * The run's timeline, from its delivery: when the mail carrier arrives with it (the worker is at
- * the desk from then on) and is back at Reception.
+ * the desk from then on) and is back in the Queue room.
  * @param {NonNullable<Scene['run']>} run
  */
 function deliveryTimes(run) {
@@ -97,7 +97,7 @@ export const animating = (scene, t) =>
   !scene.dark &&
   (!!scene.run || t - scene.boss.since < WALK_MS || scene.outcomes.some((o) => ANIMATED_STATES.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
 
-/** Whether the mail carrier is out delivering at `t`, away from the reception desk. @param {Scene} scene @param {number} t */
+/** Whether the mail carrier is out delivering at `t`, away from the front desk. @param {Scene} scene @param {number} t */
 function carrierOut(scene, t) {
   // by post-run the delivery is long over, whenever the page saw the run start
   if (!scene.run || scene.run.postRun) return false;
@@ -107,7 +107,7 @@ function carrierOut(scene, t) {
 
 /**
  * Where the worker is at `t` while they walk their papers over to a new desk (a freeform run
- * leaving the Annex for its cubicle), as the top of their head. Null when they aren't walking.
+ * leaving the Freeform room for its cubicle), as the top of their head. Null when they aren't walking.
  * The walk starts once the mail carrier has handed the run over.
  * @param {Layout} layout @param {Scene} scene @param {number} t
  * @returns {{ x: number, y: number } | null}
@@ -326,14 +326,14 @@ function drawBossFigure(ctx, layout, scene, t) {
 export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   const { rooms } = layout;
   ctx.clearRect(0, 0, layout.width, layout.height);
-  s.room(ctx, rooms.boss.rect, rooms.boss.name, 'wood', WALL);
-  s.room(ctx, rooms.library.rect, rooms.library.name, 'wood', WALL);
-  s.room(ctx, rooms.annex.rect, rooms.annex.name, 'carpet', WALL);
-  s.room(ctx, rooms.reception.rect, rooms.reception.name, 'tile', WALL);
+  s.room(ctx, rooms.review.rect, rooms.review.name, 'wood', WALL);
+  s.room(ctx, rooms.joplin.rect, rooms.joplin.name, 'wood', WALL);
+  s.room(ctx, rooms.freeform.rect, rooms.freeform.name, 'carpet', WALL);
+  s.room(ctx, rooms.queueRoom.rect, rooms.queueRoom.name, 'tile', WALL);
   s.room(ctx, rooms.bullpen.rect, rooms.bullpen.name, 'carpet', WALL);
   drawBoss(ctx, layout);
-  drawLibrary(ctx, layout);
-  drawAnnex(ctx, layout);
+  drawJoplinRoom(ctx, layout);
+  drawFreeformRoom(ctx, layout);
 
   const b = rooms.bullpen.rect;
   s.wallWindow(ctx, b.x + 10, b.y + 6, 40);
@@ -348,12 +348,12 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
 
   s.frontDoor(ctx, layout.door);
   if (scene.backInFive) s.backInFive(ctx, layout.door);
-  if (scene.reception.countdownMs != null) s.countdownClock(ctx, layout.clock, formatClock(scene.reception.countdownMs));
+  if (scene.queueRoom.countdownMs != null) s.countdownClock(ctx, layout.clock, formatClock(scene.queueRoom.countdownMs));
   if (!carrierOut(scene, t)) s.mailCarrier(ctx, layout.desk.x + 30, layout.desk.y - 16);
-  s.receptionDesk(ctx, layout.desk);
+  s.frontDesk(ctx, layout.desk);
   s.mailCart(ctx, layout.cart);
-  for (const slot of cartSlots(layout, scene.reception.letters)) s.letter(ctx, slot.rect, slot.pile);
-  s.plant(ctx, rooms.reception.rect.x + rooms.reception.rect.w - 14, rooms.reception.rect.y + WALL + 4);
+  for (const slot of cartSlots(layout, scene.queueRoom.letters)) s.letter(ctx, slot.rect, slot.pile);
+  s.plant(ctx, rooms.queueRoom.rect.x + rooms.queueRoom.rect.w - 14, rooms.queueRoom.rect.y + WALL + 4);
   drawJobWorkers(ctx, layout, scene, t);
   drawOutcomes(ctx, layout, scene, t);
   drawRun(ctx, layout, scene, t);
