@@ -1,6 +1,7 @@
 /**
  * FIFO of run requests that arrived while the agent was busy (or the runner paused), in Redis so it
- * survives a restart. The runner starts them one at a time, oldest first, as each run finishes.
+ * survives a restart. The runner starts them one at a time, oldest first, as each run finishes. A
+ * manual request the usage limit stopped before it started goes back to the front.
  *
  * @typedef {{
  *   id: string,
@@ -16,6 +17,9 @@
 
 export const QUEUE_KEY = 'agent-runner:queue';
 export const MAX_QUEUE_LENGTH = 20;
+
+/** A report's line for a request the usage limit stopped before it started, re-queued at the front. */
+export const REQUEUED_NOTE = 'It is back at the head of the queue, and runs again once the limit resets.';
 
 /** @param {string} raw @returns {QueuedRun | null} */
 function parse(raw) {
@@ -53,11 +57,15 @@ export function createRunQueue({ store, key = QUEUE_KEY, maxLength = MAX_QUEUE_L
         if (item) return item;
       }
     },
-    /** Put an item back at the front (it was taken but couldn't start). @param {QueuedRun} item */
+    /**
+     * Put an item at the front: it was taken but couldn't start, or the usage limit stopped its run
+     * before it started. No length check, as it had a place already.
+     * @param {QueuedRun} item
+     */
     async unshift(item) {
       await store.listPushFront(key, JSON.stringify(item));
     },
-    /** @returns {Promise<QueuedRun[]>} oldest first */
+    /** @returns {Promise<QueuedRun[]>} front first */
     async list() {
       return (await store.listAll(key)).map(parse).filter((x) => x !== null);
     },

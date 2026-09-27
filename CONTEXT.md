@@ -30,7 +30,7 @@ _Avoid_: target repo, detected workspace
 Where the executing run is: `agent` (an agent pass, the first one or the autofix), `post-run` (commit, PR, review, merge), or `job` (a **Scheduled job**'s command).
 
 **Queue**:
-Run requests waiting for the agent, oldest first.
+Run requests waiting for the agent, oldest first, except a manual request the usage limit stopped before it started (0–1 turns), which goes back to the front.
 
 **Pause**:
 A hold on new runs: the safe-restart pause flag, the owner's general pause, the owner's pause of one workspace, or the usage-limit pause (set when the agent hits its usage limit, until it resets).

@@ -69,6 +69,14 @@ starts while the pause holds. The run's result is `limited` and its one report s
 its branch. The cron resumes the issue after the reset.` A limited cron run isn't progress and
 records no PR attempt, so the cron works the issue again after the reset.
 
+A manual request (freeform, Joplin or issue) the limit stopped before it did any real work (its
+first pass ended `limited` within 1 turn) goes back to the **head** of the queue, so it runs by
+itself when the pause ends. `owner`'s message says so (`… Re-queued "fix the tests" at the head of
+the queue. 1 request queued.`), and so does the run's report (in place of "run the issue again"). A
+request the limit stopped mid-run (more than 1 turn, or in its autofix) is only reported, never
+re-run: an issue run resumes from its WIP branch when sent again. Cron runs are never queued (the
+cron retries on its own), and scheduled jobs aren't agent runs.
+
 ## Freeform runs' workspace
 
 A freeform run's **inferred workspace** is the allowlisted workspace its first edit or command
