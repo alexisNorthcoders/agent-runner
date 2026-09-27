@@ -75,6 +75,7 @@ export function describeCronOutcome(o) {
         failed: 'failed',
         timeout: 'timed out',
         no_changes: 'made no changes',
+        limited: 'hit the usage limit',
         merge_retry: 'merge retried next tick',
       };
       const label = labels[o.result ?? ''] ?? o.result;

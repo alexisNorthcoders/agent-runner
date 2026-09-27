@@ -430,6 +430,8 @@ export function createRunner({
       const logPath = join(logsDir, `${a.record.runId}-${label}.log`);
       if (a.stopRequested) return { outcome: 'stopped', exitCode: null, text: '', stderr: '' };
       a.followUps ??= [];
+      // no spending past the usage limit: the pass would only hit it again
+      if (await usageLimit.get().catch(() => null)) return { outcome: 'limited', exitCode: null, text: '', stderr: 'the usage-limit pause is set' };
       try {
         const run = await backend.start({ prompt, preamble, cwd: a.record.workspaceRoot, logPath, onProgress: trackProgress(a.record.runId) });
         a.run = run;
@@ -631,9 +633,9 @@ export function createRunner({
           // cron stays quiet about runs that changed nothing
           text: trigger === 'cron' && fin.silent ? null : fin.message,
           history: {
-            // a claude:stop or the usage limit that cut the autofix short ends the run that way,
-            // whatever the first pass did
-            ...(followUps.some((f) => f.outcome === 'stopped') ? { outcome: 'stopped' } : followUps.some((f) => f.outcome === 'limited') ? { outcome: 'limited' } : {}),
+            // a claude:stop or the usage limit that cut the autofix short (or kept it from starting)
+            // ends the run that way, whatever the first pass did
+            ...(followUps.some((f) => f.outcome === 'stopped') ? { outcome: 'stopped' } : fin.result === 'limited' || followUps.some((f) => f.outcome === 'limited') ? { outcome: 'limited' } : {}),
             trigger,
             issueNumber,
             issueRepo: prep.issue.repo,

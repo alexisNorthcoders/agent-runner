@@ -14,7 +14,8 @@ import { createPostRun } from './postRun.js';
  * process in between.
  *
  * @typedef {{ number: number, repo: string, title: string }} IssueRef
- * @typedef {'merged' | 'pr_open' | 'pushed' | 'no_changes' | 'timeout' | 'failed'} IssueRunResult
+ * @typedef {'merged' | 'pr_open' | 'pushed' | 'no_changes' | 'timeout' | 'limited' | 'failed'} IssueRunResult
+ *   `limited`: the agent (the first pass or the autofix) hit its usage limit, so the run stopped short.
  * @typedef {Pick<import('../agentBackend/index.js').AgentResult, 'outcome' | 'exitCode' | 'stderr'>} AgentOutcomeLike
  */
 
@@ -38,29 +39,52 @@ function agentFailureReason(r) {
       return 'timed out';
     case 'stopped':
       return 'was stopped by claude:stop';
-    case 'limited':
-      return 'hit its usage limit';
     default:
       return `exited with code ${r?.exitCode ?? 'n/a'}`;
   }
 }
 
 /**
+ * Which pass of an issue run hit the usage limit: the agent's own, or the autofix. Null if neither.
+ * @param {AgentOutcomeLike | undefined} agent @param {import('./postRun.js').PostRunResult | null} post
+ * @returns {'agent' | 'autofix' | null}
+ */
+function limitedPass(agent, post) {
+  if (agent?.outcome === 'limited') return 'agent';
+  return post?.postReviewAutofix?.agentOutcome === 'limited' ? 'autofix' : null;
+}
+
+/**
  * Short message for a finished issue run: one `✅` line on success, a short `⚠️` naming the
- * problem, or null when there is nothing to report (post-run off, or the agent changed nothing).
- * The full narrative (`post.note`) goes to the run log instead.
+ * problem, a `⏸` for a run the usage limit cut short, or null when there is nothing to report
+ * (post-run off, or the agent changed nothing). The full narrative (`post.note`) goes to the run
+ * log instead.
  * @param {{
  *   issue: { number: number, title?: string },
  *   agentOk: boolean,
  *   agent?: AgentOutcomeLike,
  *   post: import('./postRun.js').PostRunResult | null,
  *   postErrMessage?: string,
+ *   trigger?: 'cron' | 'manual',
  * }} p
  * @returns {string | null}
  */
-export function buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessage = '' }) {
+export function buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessage = '', trigger = 'manual' }) {
   const label = `#${issue.number}${issue.title ? ` — ${issue.title}` : ''}`;
   const attention = (problem) => `⚠️ ${label}: ${problem} — needs a look.`;
+
+  const limited = limitedPass(agent, post);
+  if (limited) {
+    const wip = limited === 'agent' ? post?.wip : post?.postReviewAutofix?.wip;
+    return [
+      limited === 'agent' ? `⏸ ${label}: the agent hit its usage limit.` : `⏸ ${label}: the autofix pass hit the usage limit.`,
+      wip?.ok ? `Its leftover work is committed as WIP \`${wip.sha}\` on its branch.` : '',
+      post?.prResult?.ok ? `PR: ${post.prResult.url}.` : '',
+      trigger === 'cron' ? 'The cron resumes the issue after the reset.' : 'Run the issue again after the reset to resume it.',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
 
   if (!agentOk) {
     const wip = post?.wip?.ok ? ` Its leftover work is committed as WIP \`${post.wip.sha}\`; run the issue again to resume.` : '';
@@ -101,6 +125,7 @@ export function buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessa
  * @returns {IssueRunResult}
  */
 export function classifyIssueRunResult({ agentOk, agent, post, postErrMessage = '' }) {
+  if (limitedPass(agent, post)) return 'limited';
   if (agent?.outcome === 'timeout') return 'timeout';
   if (!agentOk || postErrMessage || !post) return 'failed';
   if (['branch_prep_failed', 'empty_diff', 'post_run_threw'].includes(post.skipReason ?? '')) return 'failed';
@@ -261,7 +286,7 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
       const report = [post.note, postErrMessage && `Post-run pipeline failed: ${postErrMessage}`].filter(Boolean).join('\n\n');
       if (report) await appendFile(logPath, `\n\n--- post-run report ---\n${report}\n`).catch(() => {});
 
-      let message = buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessage });
+      let message = buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessage, trigger });
       const silent = message == null;
       if (silent) {
         message =
@@ -269,7 +294,7 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
             ? `ℹ️ #${issue.number}: the agent finished; post-run is off (CLAUDE_POST_RUN=0), so nothing was committed.`
             : `ℹ️ #${issue.number}${issue.title ? ` — ${issue.title}` : ''}: the agent made no changes.`;
       }
-      if (result === 'failed' || result === 'timeout') message += `\nLog: ${logPath}`;
+      if (result === 'failed' || result === 'timeout' || result === 'limited') message += `\nLog: ${logPath}`;
       return { result, message, silent, mergeNetworkError: mergeFailedOnNetwork(post), post };
     },
 

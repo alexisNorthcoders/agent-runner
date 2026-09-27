@@ -402,6 +402,7 @@ describe('office scene: outcomes', () => {
       [{ outcome: 'spawn_error', result: 'failed' }, 'injured'],
       [{ outcome: 'stopped', result: 'failed' }, 'home'],
       [{ outcome: 'limited', result: 'failed' }, 'asleep'],
+      [{ outcome: 'limited', result: 'limited' }, 'asleep'],
       [{ outcome: 'interrupted', result: null }, 'dizzy'],
       // freeform, Joplin and scheduled jobs have no pipeline result
       [{ outcome: 'success', result: null }, 'stamped'],

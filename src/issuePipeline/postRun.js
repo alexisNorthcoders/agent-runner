@@ -41,7 +41,9 @@ import { buildPostCloseChangesEmail } from './mailer.js';
  *   commit?: import('./gitWorkspace.js').CommitResult,
  *   pushResult?: { ok: boolean, error?: string },
  *   agentOutcome?: string,
+ *   wip?: import('./gitWorkspace.js').CommitResult,
  * }} AutofixResult
+ *   `wip` is the leftover work of an autofix the usage limit cut short, committed but not pushed.
  *
  * @typedef {(p: { prompt: string, label: string }) => Promise<Pick<import('../agentBackend/index.js').AgentResult, 'outcome' | 'exitCode' | 'text' | 'stderr'>>} RunAgent
  *   Runs a follow-up agent pass in the repo (the autofix). Never rejects.
@@ -140,6 +142,12 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
               : agent.outcome === 'limited'
                 ? 'Autofix hit the usage limit.'
                 : `Autofix exited with code ${agent.exitCode ?? 'n/a'}.`;
+      if (agent.outcome === 'limited') {
+        // as for a first pass cut short: leave the tree clean on the branch for the next run to resume
+        const wip = (await git.statusPorcelain(repo).catch(() => '')) ? await git.commitWip(repo, issueNumber) : null;
+        if (wip && !wip.ok) log('autofix limited: WIP commit failed', wip.error || wip.reason);
+        if (wip?.ok) return { ok: false, mergeBlocked: true, detail: `${detail} Its leftover work is committed as WIP \`${wip.sha}\` (not pushed).`, agentOutcome, wip };
+      }
       return { ok: false, mergeBlocked: true, detail, agentOutcome };
     }
 

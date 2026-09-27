@@ -61,6 +61,14 @@ runs until 07:02 (resets 7am Europe/London). 2 requests queued.` (a run reportin
 the cron's, has its report in the same message). When the pause ends the queue and the cron pick up
 silently. The run's history row has `outcome: limited`, and `claude:status` shows the pause.
 
+An issue run the limit cuts short stops there. When the agent's own pass hits it, post-run commits
+the leftover work as WIP on the issue branch and skips the review and the autofix; when the autofix
+pass hits it, its leftover work is committed as WIP (not pushed) and nothing merges. No autofix pass
+starts while the pause holds. The run's result is `limited` and its one report says so, e.g.
+`⏸ #7 — Fix it: the agent hit its usage limit. Its leftover work is committed as WIP \`abc1234\` on
+its branch. The cron resumes the issue after the reset.` A limited cron run isn't progress and
+records no PR attempt, so the cron works the issue again after the reset.
+
 ## Freeform runs' workspace
 
 A freeform run's **inferred workspace** is the allowlisted workspace its first edit or command
@@ -302,7 +310,7 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
       "outcome": "success", "result": "merged", "prUrl": "https://github.com/…/pull/9",
       "model": "…", "turns": 3, "costUsd": 1.2, "tokens": 1700000 }
       // outcome: success | failed | timeout | stopped | spawn_error | limited (usage limit) | interrupted (by a restart)
-      // result (issue runs): merged | pr_open | pushed | no_changes | timeout | failed, else null
+      // result (issue runs): merged | pr_open | pushed | no_changes | timeout | limited | failed, else null
       // tokens: input + output + cache
   ],
   "spend": { "today": { "runs": 1, "costUsd": 2.33, "tokens": 2900000 },   // since local midnight

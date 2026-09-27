@@ -16,7 +16,9 @@ import { errorMessageFromUnknown } from './issuePipeline/index.js';
  * - An issue with an open agent PR is worked once per PR state (head commit + base tip). While the
  *   state is unchanged the issue is parked, and the owner is told once. The exception is a PR that
  *   passed review but whose merge failed only on a network error: no attempt is recorded, and it is
- *   not progress, so the next tick works it again and post-run retries the merge.
+ *   not progress, so the next tick works it again and post-run retries the merge. A run the usage
+ *   limit cut short (result `limited`) records no attempt either, so the issue is worked again
+ *   after the reset.
  * - An issue that GitHub's native dependencies report as blocked is skipped.
  * - The usage-limit pause (an agent hit its usage limit) skips the tick until it resets.
  * - The owner's general pause skips the tick; a workspace they paused by hand is skipped, and the
@@ -218,11 +220,13 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
       await tell(`Cron (${alias}): could not start #${issue.number} in ${repo}: ${truncate(started.reply)}`);
       return outcome;
     }
-    let mergeNetworkError = false;
+    // either way the PR's state isn't the verdict on it: the merge is retried, or the run was cut short
+    let keepPrEligible = false;
     try {
       const run = await started.done;
       const result = run?.result;
-      mergeNetworkError = Boolean(run?.mergeNetworkError);
+      const mergeNetworkError = Boolean(run?.mergeNetworkError);
+      keepPrEligible = mergeNetworkError || result === 'limited';
       if (mergeNetworkError) {
         outcome.result = 'merge_retry';
         outcome.note = 'merge hit a network error';
@@ -233,7 +237,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
         await state.setLastStarted(repo, issue.number);
         outcome.result = 'progress';
       } else {
-        // failed, timeout and no_changes stay distinct in the tick state; none of them is progress
+        // failed, timeout, limited and no_changes stay distinct in the tick state; none of them is progress
         outcome.result = result || 'no_progress';
         if (!result) outcome.note = 'no result';
         // a failed or timed-out run has already reported to owner, but an empty one is silent
@@ -247,7 +251,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
       outcome.note = truncate(e, 200);
       await tell(`Cron (${alias}): the run for ${repo}#${issue.number} failed: ${truncate(e)}`);
     } finally {
-      if (!mergeNetworkError) await recordPrState(repo, issue.number);
+      if (!keepPrEligible) await recordPrState(repo, issue.number);
     }
     return outcome;
   }
