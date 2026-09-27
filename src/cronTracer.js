@@ -220,13 +220,13 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
       await tell(`Cron (${alias}): could not start #${issue.number} in ${repo}: ${truncate(started.reply)}`);
       return outcome;
     }
-    // either way the PR's state isn't the verdict on it: the merge is retried, or the run was cut short
-    let keepPrEligible = false;
+    // no PR attempt when the PR's state isn't a verdict on it: the merge is retried, or the run was cut short
+    let skipPrAttempt = false;
     try {
       const run = await started.done;
       const result = run?.result;
       const mergeNetworkError = Boolean(run?.mergeNetworkError);
-      keepPrEligible = mergeNetworkError || result === 'limited';
+      skipPrAttempt = mergeNetworkError || result === 'limited';
       if (mergeNetworkError) {
         outcome.result = 'merge_retry';
         outcome.note = 'merge hit a network error';
@@ -251,7 +251,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
       outcome.note = truncate(e, 200);
       await tell(`Cron (${alias}): the run for ${repo}#${issue.number} failed: ${truncate(e)}`);
     } finally {
-      if (!keepPrEligible) await recordPrState(repo, issue.number);
+      if (!skipPrAttempt) await recordPrState(repo, issue.number);
     }
     return outcome;
   }

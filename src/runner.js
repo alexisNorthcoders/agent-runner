@@ -629,13 +629,18 @@ export function createRunner({
         outcome = { result: fin.result, mergeNetworkError: fin.mergeNetworkError };
         const followUps = a.followUps ?? [];
         const costs = [agent.usage.costUsd, ...followUps.map((f) => f.costUsd)].filter((c) => c != null);
+        // a claude:stop or the usage limit that cut the autofix short (or kept it from starting)
+        // ends the run that way, whatever the first pass did
+        const cutShort = followUps.some((f) => f.outcome === 'stopped')
+          ? 'stopped'
+          : fin.result === 'limited' || followUps.some((f) => f.outcome === 'limited')
+            ? 'limited'
+            : null;
         return {
           // cron stays quiet about runs that changed nothing
           text: trigger === 'cron' && fin.silent ? null : fin.message,
           history: {
-            // a claude:stop or the usage limit that cut the autofix short (or kept it from starting)
-            // ends the run that way, whatever the first pass did
-            ...(followUps.some((f) => f.outcome === 'stopped') ? { outcome: 'stopped' } : fin.result === 'limited' || followUps.some((f) => f.outcome === 'limited') ? { outcome: 'limited' } : {}),
+            ...(cutShort ? { outcome: cutShort } : {}),
             trigger,
             issueNumber,
             issueRepo: prep.issue.repo,
