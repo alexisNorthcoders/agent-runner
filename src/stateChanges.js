@@ -64,6 +64,7 @@ export function notifyingStore(store, notify) {
   return {
     ...store,
     set: wrap(store.set),
+    setWithTtl: wrap(store.setWithTtl),
     setIfAbsent: wrap(store.setIfAbsent, applied),
     replaceIfPresent: wrap(store.replaceIfPresent, applied),
     deleteIfField: wrap(store.deleteIfField, applied),

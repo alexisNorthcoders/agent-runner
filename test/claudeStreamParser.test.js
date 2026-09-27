@@ -54,6 +54,15 @@ describe('claudeStreamParser', () => {
     assert.deepEqual(s.result.tokens, { input: 11, output: 21, cacheRead: 30, cacheCreate: 40 });
   });
 
+  it('remembers a rejected rate-limit event and its reset epoch', () => {
+    const acc = createStreamAccumulator();
+    assert.equal(acc.snapshot().rejectedResetsAt, null);
+    acc.push(line({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', resetsAt: 1 } }));
+    assert.equal(acc.snapshot().rejectedResetsAt, null);
+    acc.push(line({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: 1789517400, rateLimitType: 'five_hour' } }));
+    assert.equal(acc.snapshot().rejectedResetsAt, 1789517400);
+  });
+
   it('reassembles lines split across chunks, including multi-byte characters', () => {
     const acc = createStreamAccumulator();
     const buf = Buffer.from(line({ type: 'assistant', message: { id: 'm', content: [{ type: 'text', text: 'héllo' }] } }));

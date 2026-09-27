@@ -6,6 +6,7 @@ import { finished } from 'stream/promises';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { createStreamAccumulator } from './claudeStreamParser.js';
+import { isUsageLimitText, usageLimitFrom } from './claudeUsageLimit.js';
 import { augmentedPathEnv } from '../processPath.js';
 
 /**
@@ -117,6 +118,7 @@ export async function repoSettingsModel(cwd) {
  *   timeoutMs: number,
  *   spawnFn?: typeof spawn,
  *   killProcess?: (child: import('child_process').ChildProcess, signal: NodeJS.Signals) => void,
+ *   now?: () => number,
  * }} p
  * @returns {import('./index.js').AgentBackend}
  */
@@ -128,6 +130,7 @@ export function createClaudeBackend({
   timeoutMs,
   spawnFn = spawn,
   killProcess = killProcessGroup,
+  now = Date.now,
 }) {
   return {
     name: 'claude',
@@ -187,6 +190,11 @@ export function createClaudeBackend({
           if (killTimer) clearTimeout(killTimer);
           logLines(stream.flush());
           const snap = stream.snapshot();
+          const text = snap.result?.text || snap.assistantText;
+          // the run failed on the usage-limit message (the CLI may still exit 0 with an error result),
+          // or a rate-limit event rejected it
+          const failed = exitCode !== 0 || Boolean(snap.result?.isError);
+          const hitLimit = failed && (isUsageLimitText(text) || snap.rejectedResetsAt != null);
           /** @type {import('./index.js').AgentOutcome} */
           const outcome = spawnError
             ? 'spawn_error'
@@ -194,16 +202,19 @@ export function createClaudeBackend({
               ? 'stopped'
               : timedOut
                 ? 'timeout'
-                : exitCode === 0
-                  ? 'success'
-                  : 'failed';
+                : hitLimit
+                  ? 'limited'
+                  : exitCode === 0
+                    ? 'success'
+                    : 'failed';
           log.end(`\n--- process end outcome=${outcome} exit=${exitCode ?? 'n/a'} ---\n`);
           const result = {
             outcome,
             exitCode,
-            text: snap.result?.text || snap.assistantText,
+            text,
             stderr: spawnError ?? stderr,
             logPath,
+            ...(outcome === 'limited' ? { limit: usageLimitFrom({ text, resetsAtEpoch: snap.rejectedResetsAt, now: now() }) } : {}),
             usage: {
               model: snap.model,
               sessionId: snap.sessionId,

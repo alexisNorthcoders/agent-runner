@@ -5,7 +5,12 @@ import { createClaudeBackend } from './claude.js';
  * agent-specific details (CLI flags, output parsing, skills) stay inside the implementation.
  * Claude Code is the only implementation.
  *
- * @typedef {'success' | 'failed' | 'timeout' | 'stopped' | 'spawn_error'} AgentOutcome
+ * @typedef {'success' | 'failed' | 'timeout' | 'stopped' | 'spawn_error' | 'limited'} AgentOutcome
+ *   `limited`: the agent hit its usage limit, and `AgentResult.limit` says when it resets.
+ *
+ * @typedef {{ resetsAt: string, note: string | null, timeZone: string | null }} AgentUsageLimit
+ *   `resetsAt` (ISO) is when runs may start again, a small buffer past the reset. `note` is how the
+ *   agent put it (e.g. `resets 7am Europe/London`) and `timeZone` the zone it named, when known.
  *
  * @typedef {{
  *   model: string | null,
@@ -21,6 +26,7 @@ import { createClaudeBackend } from './claude.js';
  *   text: string,
  *   stderr: string,
  *   logPath: string,
+ *   limit?: AgentUsageLimit,
  *   usage: {
  *     model: string | null,
  *     sessionId: string | null,

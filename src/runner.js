@@ -7,6 +7,7 @@ import { OWNER } from './outbox.js';
 import { DEFAULT_JOB_TIMEOUT_MINUTES } from './scheduledJobs.js';
 import { decideSafeRestart } from './safeRestart.js';
 import { describeRun, UNKNOWN_RUN_ID } from './runLock.js';
+import { describeUsageLimitPause } from './usageLimitPause.js';
 import { pidAlive } from './pidAlive.js';
 import { createWorkspaceInference } from './workspaceInference.js';
 import { formatDuration, renderHistoryText, renderStatusText } from './statusFormat.js';
@@ -49,6 +50,8 @@ export function formatRunResult(rec, r) {
       return `${name} was stopped by claude:stop.\n${logLine}`;
     case 'timeout':
       return `${name} timed out and was killed.\n${logLine}`;
+    case 'limited':
+      return `${name} stopped: the agent hit its usage limit.\n${logLine}`;
     case 'spawn_error':
       return `${name} could not start the agent.${tail}`;
     default:
@@ -92,10 +95,12 @@ export function formatJobResult(rec, r, durationMs) {
  *   followUps?: Array<{ label: string, outcome: string, logPath: string, costUsd: number | null, turns: number }>,
  *   passLogPath?: string,
  *   logFrom?: number,
+ *   limitNotice?: string,
  * }} ActiveRun
  *   `passLogPath` is the log the latest follow-up (autofix) pass writes; the run's own log is
  *   `record.logPath`. `logFrom` is where this run's output starts in a log other runs append to
- *   (a scheduled job's `logFile`).
+ *   (a scheduled job's `logFile`). `limitNotice` is `owner`'s message about a usage limit the run
+ *   hit, sent with its report.
  */
 
 /**
@@ -109,6 +114,7 @@ export function formatJobResult(rec, r, durationMs) {
  *   lock: ReturnType<typeof import('./runLock.js').createRunLock>,
  *   pause: ReturnType<typeof import('./pauseFlag.js').createPauseFlag>,
  *   manualPause: ReturnType<typeof import('./manualPause.js').createManualPause>,
+ *   usageLimit: ReturnType<typeof import('./usageLimitPause.js').createUsageLimitPause>,
  *   queue: ReturnType<typeof import('./runQueue.js').createRunQueue>,
  *   outbox: ReturnType<typeof import('./outbox.js').createOutbox>,
  *   backend: import('./agentBackend/index.js').AgentBackend,
@@ -143,6 +149,7 @@ export function createRunner({
   lock,
   pause,
   manualPause,
+  usageLimit,
   queue,
   outbox,
   backend,
@@ -215,14 +222,35 @@ export function createRunner({
   };
 
   /**
-   * Why no run may start now: the safe-restart pause or the owner's general pause. Null when neither is set.
+   * Why no run may start now: the safe-restart pause, the owner's general pause or the usage-limit
+   * pause. Null when none is set.
    * @returns {Promise<string | null>}
    */
   async function pausedReason() {
     const restarting = await pause.get();
     if (restarting) return restarting.reason;
     const byHand = await manualPause.general();
-    return byHand ? `paused by hand: ${describeManualPause(byHand, now())}` : null;
+    if (byHand) return `paused by hand: ${describeManualPause(byHand, now())}`;
+    const limited = await usageLimit.get();
+    return limited ? `usage limit hit, ${describeUsageLimitPause({ ...limited, note: null }, now())}` : null;
+  }
+
+  /**
+   * The agent hit its usage limit: hold new runs until it resets (never shortening a longer pause)
+   * and keep `owner`'s one notice on the run, to send with its report.
+   * @param {ActiveRun} a
+   * @param {import('./agentBackend/index.js').AgentResult} result
+   */
+  async function hitUsageLimit(a, result) {
+    if (result.outcome !== 'limited' || !result.limit) return;
+    try {
+      const { pause: p } = await usageLimit.extend(result.limit);
+      if (!p) return;
+      const n = await queue.length().catch(() => 0);
+      a.limitNotice = `⏸ Usage limit hit: pausing agent runs ${describeUsageLimitPause(p, now())}. ${n} request${n === 1 ? '' : 's'} queued.`;
+    } catch (err) {
+      logger.error(`run ${a.record.runId}: could not set the usage-limit pause:`, err?.message || err);
+    }
   }
 
   /**
@@ -359,14 +387,30 @@ export function createRunner({
       throw err;
     }
     /** @param {import('./agentBackend/index.js').AgentResult} result */
-    const agentHistory = (result) => ({ backend: backend.name, logPath: result.logPath, ...result.usage });
+    const agentHistory = (result) => ({ backend: backend.name, logPath: result.logPath, ...result.usage, ...(result.limit ? { limit: result.limit } : {}) });
+    /** @param {string} text */
+    const toOwner = (text) =>
+      outbox.send({ replyTo: OWNER, runId: record.runId, text }).catch((err) => logger.error(`run ${record.runId}: outbox write failed:`, err?.message || err));
     return supervise(
       record,
       run,
       'agent',
       async (result, a) => {
-        const out = await report(result, a);
-        return { text: out.text, history: { ...agentHistory(result), ...out.history } };
+        await hitUsageLimit(a, result);
+        let out;
+        try {
+          out = await report(result, a);
+        } catch (err) {
+          if (a.limitNotice) await toOwner(a.limitNotice);
+          throw err;
+        }
+        let text = out.text;
+        if (a.limitNotice) {
+          // owner hears once: the run's report joins the notice when it goes to owner too
+          if (record.replyTo === OWNER) text = text ? `${a.limitNotice}\n\n${text}` : a.limitNotice;
+          else await toOwner(a.limitNotice);
+        }
+        return { text, history: { ...agentHistory(result), ...out.history } };
       },
       (result) => ({ text: formatRunResult(record, result), history: agentHistory(result) })
     );
@@ -396,6 +440,7 @@ export function createRunner({
         await lock.update(a.record).catch(() => {});
         const result = await run.done;
         setPhase(a, 'post-run');
+        await hitUsageLimit(a, result);
         a.followUps.push({ label, outcome: result.outcome, logPath, costUsd: result.usage.costUsd, turns: result.usage.turns });
         return result;
       } catch (err) {
@@ -584,8 +629,9 @@ export function createRunner({
           // cron stays quiet about runs that changed nothing
           text: trigger === 'cron' && fin.silent ? null : fin.message,
           history: {
-            // a claude:stop that cut the autofix short stops the run, whatever the first pass did
-            ...(followUps.some((f) => f.outcome === 'stopped') ? { outcome: 'stopped' } : {}),
+            // a claude:stop or the usage limit that cut the autofix short ends the run that way,
+            // whatever the first pass did
+            ...(followUps.some((f) => f.outcome === 'stopped') ? { outcome: 'stopped' } : followUps.some((f) => f.outcome === 'limited') ? { outcome: 'limited' } : {}),
             trigger,
             issueNumber,
             issueRepo: prep.issue.repo,
@@ -664,19 +710,17 @@ export function createRunner({
    * @returns {Promise<{ reply: string, accepted: boolean }>}
    */
   async function submit(cmd, replyTo) {
-    let why = 'busy';
     if ((await queue.length()) === 0) {
       const r = await startCommand(cmd, replyTo);
       if (!r.refused) return { reply: r.reply, accepted: true };
-      why = r.refused;
     }
     const label = labelFor(cmd);
     const pos = await queue.push({ id: randomUUID(), cmd, replyTo, label, queuedAt: new Date(now()).toISOString() });
     if (pos == null) return { reply: `The queue is full (${queue.maxLength} waiting). Try again later, or send claude:queue clear.`, accepted: false };
     let ahead = '';
-    if (why === 'paused') {
-      const p = await pausedReason();
-      ahead = ` agent-runner is paused${p ? ` (${p})` : ''}.`;
+    const paused = await pausedReason();
+    if (paused) {
+      ahead = ` agent-runner is paused (${paused}).`;
     } else {
       const cur = await lock.current();
       if (cur) ahead = ` ${capitalize(describeRun(cur))} is in progress.`;

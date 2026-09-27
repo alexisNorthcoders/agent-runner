@@ -7,6 +7,7 @@ import { createClient } from 'redis';
  * @typedef {{
  *   get: (key: string) => Promise<string | null>,
  *   set: (key: string, value: string) => Promise<void>,
+ *   setWithTtl: (key: string, value: string, ttlSeconds: number) => Promise<void>,
  *   setIfAbsent: (key: string, value: string, ttlSeconds: number) => Promise<boolean>,
  *   replaceIfPresent: (key: string, value: string) => Promise<boolean>,
  *   deleteIfField: (key: string, field: string, expected: string) => Promise<boolean>,
@@ -42,6 +43,9 @@ export function createRedisStore(client) {
     get: (key) => client.get(key),
     async set(key, value) {
       await client.set(key, value);
+    },
+    async setWithTtl(key, value, ttlSeconds) {
+      await client.set(key, value, { EX: ttlSeconds });
     },
     async setIfAbsent(key, value, ttlSeconds) {
       return (await client.set(key, value, { NX: true, EX: ttlSeconds })) === 'OK';

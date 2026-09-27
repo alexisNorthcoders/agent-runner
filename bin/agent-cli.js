@@ -19,6 +19,7 @@ import { createCronState } from '../src/cronState.js';
 import { collectStatus } from '../src/statusCollect.js';
 import { createRunQueue } from '../src/runQueue.js';
 import { applyPauseCommand, createManualPause } from '../src/manualPause.js';
+import { createUsageLimitPause } from '../src/usageLimitPause.js';
 import { parsePauseArgs } from '../src/commands.js';
 import { createWorkspaceAllowlist } from '../src/workspaces.js';
 import { ansi, plain, renderHistoryLines, renderStatus } from '../src/statusFormat.js';
@@ -82,6 +83,7 @@ function createRedisReader() {
     readCron: () => withStore((store) => createCronState({ store }).read()),
     readQueue: () => withStore((store) => createRunQueue({ store }).list()),
     readManualPauses: () => withStore((store) => createManualPause({ store }).list()),
+    readUsageLimit: () => withStore((store) => createUsageLimitPause({ store }).get()),
     /** @param {Parameters<typeof applyPauseCommand>[0]['cmd']} cmd */
     applyPause: (cmd) => withStore((store) => applyPauseCommand({ manualPause: createManualPause({ store }), workspaces: createWorkspaceAllowlist(), cmd })),
     async close() {
@@ -101,6 +103,7 @@ const collect = () =>
     readLock: redis.readLock,
     readQueue: redis.readQueue,
     readManualPauses: redis.readManualPauses,
+    readUsageLimit: redis.readUsageLimit,
   });
 
 /** @param {string[]} args */

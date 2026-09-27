@@ -224,7 +224,7 @@ const HOVER_WORDS = {
 
 /**
  * How a finished run left its room. The agent's outcome says it first when it was cut short
- * (stopped, timed out, interrupted by a restart), since an issue run then records `failed`; then
+ * (stopped, timed out or out of usage, interrupted by a restart), since an issue run then records `failed`; then
  * an issue run's pipeline result. A run with no result (freeform, Joplin, a job) that succeeded
  * gets the stamp. Anything this page doesn't know is `idle`.
  * @param {Pick<import('../src/officeSnapshot.js').OfficeHistoryEntry, 'outcome' | 'result'>} h
@@ -233,7 +233,7 @@ const HOVER_WORDS = {
 export function restingState({ outcome, result }) {
   if (outcome === 'interrupted') return 'dizzy';
   if (outcome === 'stopped') return 'home';
-  if (outcome === 'timeout' || result === 'timeout') return 'asleep';
+  if (outcome === 'timeout' || outcome === 'limited' || result === 'timeout') return 'asleep';
   if (outcome === 'failed' || outcome === 'spawn_error' || result === 'failed') return 'injured';
   if (outcome !== 'success') return 'idle';
   switch (result) {

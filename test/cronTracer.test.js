@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createCronTracer, partitionIssuesWithOpenPr, pickNextRunnableIssue } from '../src/cronTracer.js';
 import { cronAliasesFromEnv } from '../src/config.js';
 import { createManualPause } from '../src/manualPause.js';
+import { createUsageLimitPause } from '../src/usageLimitPause.js';
 import { createCronState } from '../src/cronState.js';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
@@ -92,6 +93,7 @@ function harness(o = {}) {
   const store = o.store ?? createMemoryStore();
   const state = createCronState({ store });
   const manualPause = createManualPause({ store });
+  const usageLimit = createUsageLimitPause({ store });
   let sweeps = 0;
   const repos = o.repos ?? { bot: REPO, platformer: REPO_P };
   let issues = o.issues ?? { [REPO]: [], [REPO_P]: [] };
@@ -119,6 +121,7 @@ function harness(o = {}) {
     lock: { current: async () => lockHolder },
     pause: { get: async () => paused },
     manualPause,
+    usageLimit,
     sweepStale: async () => void sweeps++,
     state,
     workspaces: {
@@ -151,6 +154,7 @@ function harness(o = {}) {
     state,
     store,
     manualPause,
+    usageLimit,
     sweeps: () => sweeps,
     runs,
     listed,
@@ -192,6 +196,14 @@ describe('cron tick: when to skip', () => {
       assert.deepEqual(h.sent, []);
     });
   }
+
+  it('skips with outcome limited while the usage-limit pause holds', async () => {
+    const h = harness({ issues: { [REPO]: [ready(1)] } });
+    await h.usageLimit.extend({ resetsAt: new Date(Date.now() + 3600_000).toISOString(), note: null, timeZone: null });
+    assert.deepEqual(await h.tracer.tick(), { kind: 'limited' });
+    assert.deepEqual(h.listed, []);
+    assert.deepEqual(h.sent, []);
+  });
 
   it('skips quietly while the owner has paused everything by hand', async () => {
     const h = harness({ issues: { [REPO]: [ready(1)] } });

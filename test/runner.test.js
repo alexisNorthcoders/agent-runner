@@ -6,6 +6,7 @@ import { createPauseFlag } from '../src/pauseFlag.js';
 import { createRunQueue } from '../src/runQueue.js';
 import { createManualPause } from '../src/manualPause.js';
 import { createOutbox, OUTBOX_KEY } from '../src/outbox.js';
+import { createUsageLimitPause } from '../src/usageLimitPause.js';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
 /** Controllable AgentBackend fake: each start() creates a run you settle by hand. */
@@ -30,6 +31,8 @@ function fakeBackend() {
             settle(result('stopped', 'partial'));
           },
           finish: (outcome = 'success', text = 'All done') => settle(result(outcome, text)),
+          /** @param {import('../src/agentBackend/index.js').AgentUsageLimit} limit */
+          hitLimit: (limit) => settle({ ...result('limited', "You've hit your session limit"), exitCode: 1, limit }),
         };
         starts.push(run);
         return run;
@@ -83,10 +86,12 @@ function setup(overrides = {}) {
   let clock = Date.parse('2026-09-24T12:00:00Z');
   let n = 0;
   const manualPause = createManualPause({ store, now: () => clock });
+  const usageLimit = createUsageLimitPause({ store, now: () => clock });
   const runner = createRunner({
     lock,
     pause,
     manualPause,
+    usageLimit,
     queue,
     outbox,
     backend,
@@ -119,6 +124,7 @@ function setup(overrides = {}) {
     lock,
     pause,
     manualPause,
+    usageLimit,
     queue,
     runner,
     starts,
@@ -1106,3 +1112,78 @@ describe('runner: active log of a scheduled job', () => {
   });
 });
 
+
+describe('runner: the usage limit', () => {
+  // the clock starts at 13:00 BST
+  const LIMIT = { resetsAt: '2026-09-24T14:02:00.000Z', note: 'resets 3pm Europe/London', timeZone: 'Europe/London' };
+  const NOTICE = '⏸ Usage limit hit: pausing agent runs until 15:02 (resets 3pm Europe/London).';
+
+  it('holds every new run until the reset, tells owner once, and picks up silently when it ends', async () => {
+    const { runner, starts, jobStarts, history, outboxEntries, advance } = jobSetup();
+    await runner.handleCommand({ text: 'claude one', replyTo: 'jid-1' });
+    await runner.handleCommand({ text: 'claude two', replyTo: 'jid-1' });
+    starts[0].hitLimit(LIMIT);
+    await runner.idle();
+
+    assert.equal(starts.length, 1, 'the queued request waits');
+    assert.equal(history[0].outcome, 'limited');
+    assert.deepEqual(history[0].limit, LIMIT);
+    assert.deepEqual(outboxEntries().filter((e) => e.replyTo === 'owner').map((e) => e.text), [`${NOTICE} 1 request queued.`]);
+    assert.match(outboxEntries().find((e) => e.replyTo === 'jid-1')?.text ?? '', /^Run run-1 \(one\) stopped: the agent hit its usage limit\.\nLog: /);
+
+    const r = await runner.handleCommand({ text: 'claude three', replyTo: 'jid-1' });
+    assert.match(r.reply, /^Queued \(position 2\): three\. agent-runner is paused \(usage limit hit, until 15:02\)\./);
+    assert.match((await runner.submitJob(cleanupJob)).reply, /^Queued \(position 3\)/);
+    assert.equal(jobStarts.length, 0, 'the scheduled job waits');
+    assert.equal((await runner.status()).paused, true);
+
+    const sent = outboxEntries().length;
+    advance(61 * 60_000);
+    await runner.drainQueue();
+    assert.equal(starts.length, 1, 'still paused before the reset');
+    advance(61 * 60_000);
+    await runner.drainQueue();
+    assert.deepEqual(starts.map((s) => s.opts.prompt), ['one', 'two']);
+    // no "resumed" message: only the queued request's own "started"
+    assert.deepEqual(outboxEntries().slice(sent).map((e) => [e.replyTo, e.text.split(':')[0]]), [['jid-1', 'Queued request "two"']]);
+  });
+
+  it("an issue run for owner (the cron) sends one message: the notice, then the run's report; the pause is set before post-run", async () => {
+    const { runner, starts, finishes, usageLimit, outboxEntries } = issueSetup();
+    await runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger: 'cron' });
+    starts[0].hitLimit(LIMIT);
+    await flush();
+    assert.equal((await usageLimit.get())?.until, LIMIT.resetsAt);
+    assert.equal(finishes[0].agent.outcome, 'limited');
+    finishes[0].release({ result: 'failed', message: '⚠️ #7: the agent hit its usage limit', silent: false });
+    await runner.idle();
+    assert.deepEqual(outboxEntries().map((e) => [e.replyTo, e.text]), [['owner', `${NOTICE} 0 requests queued.\n\n⚠️ #7: the agent hit its usage limit`]]);
+  });
+
+  it('an autofix pass that hits the limit pauses too, and the run ends limited', async () => {
+    const { runner, starts, finishes, usageLimit, outboxEntries, history } = issueSetup();
+    await runner.handleCommand({ text: 'claude issue:a:7', replyTo: 'jid-1' });
+    starts[0].finish('success');
+    await flush();
+    const autofix = finishes[0].runAgent({ prompt: 'fix review', label: 'autofix' });
+    await flush();
+    starts[1].hitLimit(LIMIT);
+    assert.equal((await autofix).outcome, 'limited');
+    assert.equal((await usageLimit.get())?.until, LIMIT.resetsAt);
+    finishes[0].release({ result: 'pr_open', message: '⚠️ #7 — Fix it: merge blocked by the autofix pass — needs a look.', silent: false });
+    await runner.idle();
+    assert.deepEqual(outboxEntries().map((e) => e.replyTo), ['owner', 'jid-1']);
+    assert.equal(history[0].outcome, 'limited');
+  });
+
+  it('a second hit with an earlier reset does not shorten the pause', async () => {
+    const { runner, starts, usageLimit, outboxEntries } = setup();
+    await runner.handleCommand({ text: 'claude one', replyTo: 'jid-1' });
+    // a longer pause set while the run was going
+    await usageLimit.extend({ resetsAt: '2026-09-24T16:00:00.000Z', note: null, timeZone: 'Europe/London' });
+    starts[0].hitLimit(LIMIT);
+    await runner.idle();
+    assert.equal((await usageLimit.get())?.until, '2026-09-24T16:00:00.000Z');
+    assert.equal(outboxEntries().find((e) => e.replyTo === 'owner')?.text, '⏸ Usage limit hit: pausing agent runs until 17:00. 0 requests queued.');
+  });
+});

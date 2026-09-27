@@ -33,7 +33,7 @@ Where the executing run is: `agent` (an agent pass, the first one or the autofix
 Run requests waiting for the agent, oldest first.
 
 **Pause**:
-A hold on new runs: the safe-restart pause flag, the owner's general pause, or the owner's pause of one workspace.
+A hold on new runs: the safe-restart pause flag, the owner's general pause, the owner's pause of one workspace, or the usage-limit pause (set when the agent hits its usage limit, until it resets).
 
 ### Office dashboard
 
