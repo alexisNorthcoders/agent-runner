@@ -232,7 +232,7 @@ curl -s localhost:3790/command -H 'content-type: application/json' \
 A LAN page that shows the runner live: a pixel-art office scene, and beside it the **Now**,
 **Issues**, **History** and **Office** tabs as plain text and tables (the plan is #17). The page is static files in
 `dashboard/` with no build step, served by nginx, and it gets everything from the office feed. The
-terms (Office, Cubicle, Reception, …) are in [`CONTEXT.md`](CONTEXT.md).
+terms (Office, Cubicle, Queue room, …) are in [`CONTEXT.md`](CONTEXT.md).
 
 ### Office feed
 
@@ -368,13 +368,14 @@ can't connect (or has been silent for 75s), reconnecting by itself every 3s.
 ### The office scene
 
 The office floor is drawn on a `<canvas>` next to the panel: an open-plan bullpen with one cubicle
-per allowlisted workspace (then one per scheduled-job room that isn't one), the boss's office and the Library on the left, and Reception (by the
-front door) and the Annex on the right. It shows the office-level state:
+per allowlisted workspace (then one per scheduled-job room that isn't one), the Review room (the
+boss's office) and the Joplin room on the left, and the Queue room (by the front door) and the
+Freeform room on the right. It shows the office-level state:
 
 - **Runner down:** the whole office is dark, apart from the EXIT sign.
 - **General pause** (`claude:pause`): a "BACK IN 5" sign on the front door.
 - **Workspace pause:** a "Do not disturb" sign on that cubicle.
-- **Reception:** the mail carrier at the desk, a countdown on the wall to the cron's next tick
+- **Queue room:** the mail carrier at the desk, a countdown on the wall to the cron's next tick
   (hidden when the cron isn't running), and one letter on the mail cart per queued request (hover
   a letter for its label; a full cart piles the rest into its last slot).
 - **Pending issues** (from the [issue scan](#issue-scan)): each runnable issue is a letter in its
@@ -388,13 +389,13 @@ Pauses clear on the page as soon as they run out, without waiting for the next s
 
 A live run plays out on the floor:
 
-- **Delivery:** the mail carrier takes the run from Reception to its room: an interoffice envelope
-  for a cron run, or the Reception phone rings first for a manual (WhatsApp) one. A page opened
+- **Delivery:** the mail carrier takes the run from the Queue room to its room: an interoffice envelope
+  for a cron run, or the Queue room's phone rings first for a manual (WhatsApp) one. A page opened
   mid-run doesn't replay it.
-- **Rooms:** an issue run is worked in its workspace's cubicle, a freeform run in the Annex, a Joplin
-  run in the Library, and a scheduled job at its own desk in the room its config names. When a
-  freeform run's workspace is inferred (below), its worker picks up their papers and walks from the
-  Annex to that cubicle, and its outcome shows there when it ends.
+- **Rooms:** an issue run is worked in its workspace's cubicle, a freeform run in the Freeform
+  room, a Joplin run in the Joplin room, and a scheduled job at its own desk in the room its config
+  names. When a freeform run's workspace is inferred (below), its worker picks up their papers and
+  walks from the Freeform room to that cubicle, and its outcome shows there when it ends.
 - **Scheduled jobs:** each job's `room` label gets a cubicle (a label matching a workspace's alias or
   department sign is that workspace's cubicle), with a desk per job and its own worker: a janitor
   with a mop for a `cleanup` job, an analyst with a chart easel for an `insight` or `report` one, else
@@ -422,7 +423,7 @@ restart (for rooms with a run in the feed's 7 days):
 | Interrupted by a restart | A drunk, dizzy worker |
 | No changes | A shrug, and a tumbleweed rolls by now and then |
 
-Hovering a room (a cubicle, the Annex or the Library) shows its last run's outcome, when it ended,
+Hovering a room (a cubicle, the Freeform room or the Joplin room) shows its last run's outcome, when it ended,
 and its PR. The mapping (`restingState` in `scene.js`) falls back to showing nothing for an outcome
 it doesn't know.
 
@@ -435,7 +436,7 @@ cubicle. Clicking it again, or anywhere else on the floor, clears the filter.
 The scene is drawn at a small internal resolution (360px tall, 560–720px wide) and scaled up by a
 whole number with smoothing off, so the pixels stay crisp. On a wide screen it takes about 65% of
 the width with the panel on the right; under 900px the panel goes below it, and under 560px the
-rooms stack vertically (Reception first).
+rooms stack vertically (the Queue room first).
 
 Each cubicle's sign shows its repo's alias. The cubicles' order comes from
 [`dashboard/office.json`](dashboard/office.json):

@@ -71,8 +71,9 @@ The **Scene** while the runner is down (the **Office feed** can't connect): the 
 **BACK IN 5**:
 The sign on the front door during the owner's general **Pause**. A paused **Workspace**'s **Cubicle** gets a "Do not disturb" sign instead.
 
-**Boss's office**:
-The corner office, where the boss sits. During an issue run's post-run the boss walks to the **Worker**'s desk and reads over their shoulder (the review), and stays through the autofix.
+**Review room**:
+The corner office, signed REVIEW, where the boss sits. During an issue run's post-run the boss walks to the **Worker**'s desk and reads over their shoulder (the review), and stays through the autofix.
+_Avoid_: boss's office
 
 **Worker**:
 The figure at a desk working the active **Run**: typing in the `agent` phase, still while the boss reads during post-run, scribbling during the autofix. Beside them are their **Paper pile** and a speech bubble with the run's last activity (a **Scheduled job**'s latest output line). Each **Scheduled job** has its own worker at its desk: a janitor (cleanup), an analyst (insight, report) or a clerk.
@@ -103,17 +104,20 @@ The note on a **Cubicle**'s monitor while its repo has `ready-for-human` issues.
 **Parked folder**:
 A folder with a red clip on the boss's desk for each PR the cron has parked, beside the folders of rooms whose last run left a PR open.
 
-**Reception**:
-The office's front desk, by the front door: the **Mail carrier**, the cron countdown (a clock on the wall, hidden when the cron isn't running), and the **Queue** as letters on the **Mail cart**.
+**Queue room**:
+The office's front desk, by the front door, signed QUEUE: the **Mail carrier**, the cron countdown (a clock on the wall, hidden when the cron isn't running), and the **Queue** as letters on the **Mail cart**.
+_Avoid_: reception
 
 **Mail cart**:
-The cart at **Reception** with one letter per queued request, oldest first; hovering a letter shows its label. When the cart is full, its last slot is a pile standing for the rest.
+The cart in the **Queue room** with one letter per queued request, oldest first; hovering a letter shows its label. When the cart is full, its last slot is a pile standing for the rest.
 
-**Annex**:
-The room for freeform runs, which work outside a known **Workspace**. A freeform run's **Worker** starts here and walks to a **Cubicle** once the run's **Inferred workspace** is set.
+**Freeform room**:
+The room signed FREEFORM, for freeform runs, which work outside a known **Workspace**. A freeform run's **Worker** starts here and walks to a **Cubicle** once the run's **Inferred workspace** is set.
+_Avoid_: annex
 
-**Library**:
-The room for Joplin runs, whose instructions come from a Joplin note.
+**Joplin room**:
+The room signed JOPLIN, for Joplin runs, whose instructions come from a Joplin note.
+_Avoid_: library
 
 **Mail carrier**:
 The figure who delivers each run to its room: an interoffice envelope for a cron run, a ringing phone first for a manual (WhatsApp) one.
@@ -122,8 +126,8 @@ The figure who delivers each run to its room: an interoffice envelope for a cron
 
 - The **Office feed** pushes **Office snapshots**; the **Office** only ever reads them.
 - Each allowlisted **Workspace** has one **Cubicle**; an **Issue run** is worked in its **Cubicle**.
-- A freeform **Run** is worked in the **Annex**, or in the **Cubicle** of its **Inferred workspace** once it has one; a Joplin **Run** in the **Library**, a **Scheduled job** in the room its config names.
-- The **Queue** waits at **Reception** until the **Mail carrier** delivers the next **Run**.
+- A freeform **Run** is worked in the **Freeform room**, or in the **Cubicle** of its **Inferred workspace** once it has one; a Joplin **Run** in the **Joplin room**, a **Scheduled job** in the room its config names.
+- The **Queue** waits in the **Queue room** until the **Mail carrier** delivers the next **Run**.
 
 ## Flagged ambiguities
 
