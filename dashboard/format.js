@@ -62,6 +62,8 @@ export function describeCronOutcome(o) {
       return 'skipped, an agent was already running';
     case 'paused':
       return 'skipped, agent-runner was paused';
+    case 'limited':
+      return 'skipped, waiting for the usage limit to reset';
     case 'no_eligible':
       return 'idle, no eligible issue';
     case 'ran': {

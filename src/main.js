@@ -7,6 +7,7 @@ import { createRunLock } from './runLock.js';
 import { createPauseFlag } from './pauseFlag.js';
 import { createRunQueue } from './runQueue.js';
 import { createManualPause } from './manualPause.js';
+import { createUsageLimitPause } from './usageLimitPause.js';
 import { createOutbox } from './outbox.js';
 import { createAgentBackend } from './agentBackend/index.js';
 import { createRunHistory } from './runHistory.js';
@@ -60,6 +61,7 @@ const outbox = createOutbox({ store });
 const pause = createPauseFlag({ store });
 const queue = createRunQueue({ store });
 const manualPause = createManualPause({ store });
+const usageLimit = createUsageLimitPause({ store });
 const history = createRunHistory({ dir: config.logsDir });
 const activeRuns = createActiveRuns({ dir: config.logsDir });
 const cronState = createCronState({ store });
@@ -67,12 +69,13 @@ const workspaces = createWorkspaceAllowlist();
 const issues = createIssuePipeline({ settings: config.pipeline });
 
 const statusSnapshot = () =>
-  collectStatus({ activeRuns, history, readCron: cronState.read, readPause: pause.get, readLock: lock.current, readQueue: queue.list, readManualPauses: manualPause.list });
+  collectStatus({ activeRuns, history, readCron: cronState.read, readPause: pause.get, readLock: lock.current, readQueue: queue.list, readManualPauses: manualPause.list, readUsageLimit: usageLimit.get });
 
 const runner = createRunner({
   lock,
   pause,
   manualPause,
+  usageLimit,
   queue,
   outbox,
   backend: createAgentBackend({ timeoutMs: config.agentTimeoutMs }),
@@ -145,7 +148,7 @@ try {
 }
 
 // Requests queued before a restart start now, and the timer picks the queue back up once a pause
-// (e.g. the one safe-restart holds while this process starts) is cleared.
+// (e.g. the one safe-restart holds while this process starts, or the usage-limit pause) ends.
 await runner.drainQueue();
 const queueTimer = setInterval(() => runner.drainQueue(), QUEUE_POLL_MS);
 queueTimer.unref();
@@ -166,6 +169,7 @@ const cron = createCronTracer({
   lock,
   pause,
   manualPause,
+  usageLimit,
   sweepStale: () => activeRuns.removeStale(),
   state: cronState,
   workspaces,

@@ -97,6 +97,14 @@ describe('renderStatusText (WhatsApp)', () => {
     assert.match(renderStatusText(snapshot({ paused: 'unknown' })), /^Paused: unknown \(Redis unreachable\)$/m);
   });
 
+  it('shows the usage-limit pause', () => {
+    const usageLimit = { until: '2026-09-24T14:02:00.000Z', note: 'resets 3pm Europe/London', timeZone: 'Europe/London', since: ago(MIN) };
+    const text = renderStatusText(snapshot({ usageLimit }));
+    assert.match(text, /^Paused: usage limit hit, until 15:02 \(resets 3pm Europe\/London\)$/m);
+    assert.doesNotMatch(text, /^Paused: no$/m);
+    assert.match(renderStatus(snapshot({ usageLimit })), /PAUSED {2}usage limit hit, until 15:02/);
+  });
+
   it('shows the last cron tick, and says so when the cron process is gone', () => {
     const cron = { pid: 5, intervalMs: 30 * MIN, lastTickStartedAt: ago(6 * MIN), lastTickEndedAt: ago(5 * MIN), outcome: { kind: 'ran', repo: 'bot', issue: 12, result: 'progress' } };
     assert.match(renderStatusText(snapshot({ cron, cronAlive: true })), /^Cron: last tick 5m00s ago — worked bot#12, made progress$/m);

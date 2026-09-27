@@ -18,6 +18,7 @@ import { errorMessageFromUnknown } from './issuePipeline/index.js';
  *   passed review but whose merge failed only on a network error: no attempt is recorded, and it is
  *   not progress, so the next tick works it again and post-run retries the merge.
  * - An issue that GitHub's native dependencies report as blocked is skipped.
+ * - The usage-limit pause (an agent hit its usage limit) skips the tick until it resets.
  * - The owner's general pause skips the tick; a workspace they paused by hand is skipped, and the
  *   tick moves on to the next one.
  * - Each tick first deletes stale active-run files (owner and agent both gone), so status doesn't
@@ -129,6 +130,7 @@ function truncate(s, max = 1500) {
  *   lock: Pick<ReturnType<typeof import('./runLock.js').createRunLock>, 'current'>,
  *   pause: Pick<ReturnType<typeof import('./pauseFlag.js').createPauseFlag>, 'get'>,
  *   manualPause: Pick<ReturnType<typeof import('./manualPause.js').createManualPause>, 'general' | 'forWorkspace'>,
+ *   usageLimit: Pick<ReturnType<typeof import('./usageLimitPause.js').createUsageLimitPause>, 'get'>,
  *   sweepStale?: () => Promise<unknown>,
  *   state: import('./cronState.js').CronStateStore,
  *   workspaces: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
@@ -140,7 +142,7 @@ function truncate(s, max = 1500) {
  *   logger?: Pick<Console, 'info' | 'warn'>,
  * }} deps
  */
-export function createCronTracer({ startIssueRun, lock, pause, manualPause, sweepStale = async () => {}, state, workspaces, github, outbox, aliases, intervalMs, logger = console }) {
+export function createCronTracer({ startIssueRun, lock, pause, manualPause, usageLimit, sweepStale = async () => {}, state, workspaces, github, outbox, aliases, intervalMs, logger = console }) {
   let inFlight = false;
   /** @type {NodeJS.Timeout | null} */
   let timer = null;
@@ -259,6 +261,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, swee
     try {
       await sweepStale().catch((err) => logger.warn(`cron: stale active-run sweep failed: ${errorMessageFromUnknown(err)}`));
       if ((await pause.get()) || (await manualPause.general())) return { kind: 'paused' };
+      if (await usageLimit.get()) return { kind: 'limited' };
       if (await lock.current()) return { kind: 'busy' };
       phase = 'reading cron state';
       const lastByRepo = await state.lastStarted();

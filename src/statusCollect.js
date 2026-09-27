@@ -16,6 +16,7 @@ import { pidAlive } from './pidAlive.js';
  *   history: import('./runHistory.js').HistoryEntry[],
  *   queue?: import('./runQueue.js').QueuedRun[],
  *   manualPauses?: import('./manualPause.js').ManualPause[],
+ *   usageLimit?: import('./usageLimitPause.js').UsageLimitPause | null,
  *   lock?: import('./runLock.js').RunRecord | null,
  * }} StatusSnapshot
  *   `history` covers the last 7 days, newest first. `lock` is the lock holder (null when free or
@@ -50,6 +51,7 @@ function timeBoxed(read, fallback, ms) {
  *   readLock?: () => Promise<import('./runLock.js').RunRecord | null>,
  *   readQueue?: () => Promise<import('./runQueue.js').QueuedRun[]>,
  *   readManualPauses?: () => Promise<import('./manualPause.js').ManualPause[]>,
+ *   readUsageLimit?: () => Promise<import('./usageLimitPause.js').UsageLimitPause | null>,
  *   isAlive?: (pid: number) => boolean,
  *   now?: () => number,
  *   pauseTimeoutMs?: number,
@@ -64,12 +66,13 @@ export async function collectStatus({
   readLock = async () => null,
   readQueue = async () => [],
   readManualPauses = async () => [],
+  readUsageLimit = async () => null,
   isAlive = pidAlive,
   now = Date.now,
   pauseTimeoutMs = PAUSE_LOOKUP_TIMEOUT_MS,
 }) {
   const t = now();
-  const [active, cron, recent, paused, lock, queue, manualPauses] = await Promise.all([
+  const [active, cron, recent, paused, lock, queue, manualPauses, usageLimit] = await Promise.all([
     activeRuns.list(),
     timeBoxed(readCron, null, pauseTimeoutMs),
     history.read({ sinceMs: t - WEEK_MS }),
@@ -77,6 +80,7 @@ export async function collectStatus({
     timeBoxed(readLock, null, pauseTimeoutMs),
     timeBoxed(readQueue, [], pauseTimeoutMs),
     timeBoxed(readManualPauses, [], pauseTimeoutMs),
+    timeBoxed(readUsageLimit, null, pauseTimeoutMs),
   ]);
   if (lock && !active.some((r) => r.runId === lock.runId)) {
     const health = isAlive(lock.ownerPid) ? 'running' : isAlive(lock.agentPid) ? 'orphaned' : 'stale';
@@ -91,6 +95,7 @@ export async function collectStatus({
     history: recent,
     queue,
     manualPauses,
+    usageLimit,
     lock,
   };
 }

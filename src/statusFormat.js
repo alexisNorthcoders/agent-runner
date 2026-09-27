@@ -6,6 +6,7 @@
  */
 
 import { describeManualPause } from './manualPause.js';
+import { describeUsageLimitPause } from './usageLimitPause.js';
 /** @typedef {import('./statusCollect.js').StatusSnapshot} StatusSnapshot */
 
 /** The owner's pauses, e.g. `by hand: everything for 1h20m (reason); chess-trainer for 45m`, or ''. @param {StatusSnapshot} d */
@@ -13,6 +14,9 @@ function byHandText(d) {
   if (!d.manualPauses?.length) return '';
   return `by hand: ${d.manualPauses.map((p) => describeManualPause(p, d.now)).join('; ')}`;
 }
+
+/** The usage-limit pause, e.g. `usage limit hit, until 07:02 (resets 7am Europe/London)`, or ''. @param {StatusSnapshot} d */
+const usageLimitText = (d) => (d.usageLimit ? `usage limit hit, ${describeUsageLimitPause(d.usageLimit, d.now)}` : '');
 /** @typedef {import('./runHistory.js').HistoryEntry} HistoryEntry */
 /** @typedef {import('./activeRuns.js').ActiveRun} ActiveRun */
 /** @typedef {Record<'dim' | 'green' | 'red' | 'yellow' | 'bold' | 'cyan', (s: string) => string>} Colors */
@@ -109,6 +113,8 @@ function describeCronOutcome(o) {
       return 'skipped, an agent was already running';
     case 'paused':
       return 'skipped, agent-runner was paused';
+    case 'limited':
+      return 'skipped, waiting for the usage limit to reset';
     case 'no_eligible':
       return 'idle, no eligible issue';
     case 'ran': {
@@ -198,10 +204,12 @@ export function renderStatus(d, c = plain) {
   out.push('');
 
   const byHand = byHandText(d);
+  const limited = usageLimitText(d);
   if (d.paused === 'unknown') out.push(`${c.bold('PAUSED')}  ${c.dim('unknown (Redis unreachable)')}`);
   else if (d.paused) out.push(`${c.bold('PAUSED')}  ${c.yellow(`yes, ${d.paused.reason}`)}${d.paused.pausedAt ? ` (${formatAgo(since(d.now, d.paused.pausedAt))})` : ''}`);
-  else if (!byHand) out.push(`${c.bold('PAUSED')}  ${c.dim('no')}`);
+  else if (!byHand && !limited) out.push(`${c.bold('PAUSED')}  ${c.dim('no')}`);
   if (byHand) out.push(`${c.bold('PAUSED')}  ${c.yellow(byHand)}`);
+  if (limited) out.push(`${c.bold('PAUSED')}  ${c.yellow(limited)}`);
   if (d.queue?.length) out.push(`${c.bold('QUEUE')}   ${d.queue.map((q, i) => `${i + 1}. ${clip(q.label, 60)}`).join('  ')}`);
   out.push('');
 
@@ -272,10 +280,12 @@ export function renderStatusText(d) {
   }
 
   const byHand = byHandText(d);
+  const limited = usageLimitText(d);
   if (d.paused === 'unknown') out.push('Paused: unknown (Redis unreachable)');
   else if (d.paused) out.push(`Paused: yes (${d.paused.reason}${d.paused.pausedAt ? `, ${formatAgo(since(d.now, d.paused.pausedAt))}` : ''})`);
-  else if (!byHand) out.push('Paused: no');
+  else if (!byHand && !limited) out.push('Paused: no');
   if (byHand) out.push(`Paused: ${byHand}`);
+  if (limited) out.push(`Paused: ${limited}`);
   if (d.queue?.length) out.push(`Queue: ${d.queue.length} waiting (next: ${clip(d.queue[0].label, 60)})`);
 
   if (!d.cron) out.push('Cron: not started (no ticks recorded)');

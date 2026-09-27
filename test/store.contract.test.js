@@ -53,6 +53,13 @@ function contract(setup) {
     assert.equal(await store.get(k('e')), 'two');
   });
 
+  it('setWithTtl writes a value, replacing any old one', async () => {
+    const { store } = setup();
+    await store.setWithTtl(k('t'), 'one', 60);
+    await store.setWithTtl(k('t'), 'two', 60);
+    assert.equal(await store.get(k('t')), 'two');
+  });
+
   it('hashSet and hashGetAll keep one value per field', async () => {
     const { store } = setup();
     assert.deepEqual(await store.hashGetAll(k('h')), {});

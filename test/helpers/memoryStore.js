@@ -42,6 +42,10 @@ export function createMemoryStore() {
       check();
       kv.set(key, value);
     },
+    async setWithTtl(key, value) {
+      check();
+      kv.set(key, value);
+    },
     async setIfAbsent(key, value) {
       check();
       if (kv.has(key)) return false;

@@ -172,6 +172,76 @@ describe('claude AgentBackend', () => {
     assert.equal(r.outcome, 'spawn_error');
     assert.match(r.stderr, /CLAUDE_AGENT_BIN/);
   });
+
+  // Run logs keep only parsed lines, so the fixtures are rebuilt from real limited runs: the text
+  // and turns from logs/agent-runs/2026-09-26T05-07-24-746Z.log, the rejected event's fields from a
+  // limited session's transcript (`quotaLimits: { status: 'rejected', resetsAt }`).
+  describe('the usage limit (fixtures rebuilt from real limited runs)', () => {
+    /** @param {string} name @param {number} exitCode */
+    async function runFixture(name, exitCode, now) {
+      const run = await backend({ now: () => now }).start({ prompt: 'P', cwd: '/w', logPath: join(dir, 'l.log') });
+      child.stdout.write(await readFile(new URL(`./fixtures/${name}`, import.meta.url)));
+      await tick();
+      child.emit('close', exitCode, null);
+      return run.done;
+    }
+
+    it('ends with outcome limited and the reset time read from the text', async () => {
+      const r = await runFixture('usage-limit-text.ndjson', 1, Date.parse('2026-09-26T05:07:24Z'));
+      assert.equal(r.outcome, 'limited');
+      assert.deepEqual(r.limit, { resetsAt: '2026-09-26T06:02:00.000Z', note: 'resets 7am Europe/London', timeZone: 'Europe/London' });
+      assert.match(await readFile(join(dir, 'l.log'), 'utf8'), /process end outcome=limited exit=1/);
+    });
+
+    it("takes the reset from a rejected rate-limit event's epoch", async () => {
+      const r = await runFixture('usage-limit-event.ndjson', 1, Date.parse('2026-09-16T00:08:40Z'));
+      assert.equal(r.outcome, 'limited');
+      assert.equal(r.limit?.resetsAt, '2026-09-16T00:12:00.000Z');
+      assert.equal(r.limit?.note, 'resets 1:10am Europe/London');
+    });
+
+    it('is limited even if the CLI exits 0', async () => {
+      const r = await runFixture('usage-limit-text.ndjson', 0, Date.parse('2026-09-26T05:07:24Z'));
+      assert.equal(r.outcome, 'limited');
+    });
+
+    it('a successful run whose summary quotes the message is not limited', async () => {
+      const run = await backend().start({ prompt: 'P', cwd: '/w', logPath: join(dir, 'q.log') });
+      child.stdout.write(line({ type: 'result', subtype: 'success', is_error: false, result: "You've hit your session limit is now handled." }));
+      await tick();
+      child.emit('close', 0, null);
+      assert.equal((await run.done).outcome, 'success');
+    });
+
+    it('a failure that only quotes the message, with no rate-limit signal, is not limited', async () => {
+      const run = await backend().start({ prompt: 'P', cwd: '/w', logPath: join(dir, 'g.log') });
+      child.stdout.write(line({ type: 'result', subtype: 'error_during_execution', is_error: true, result: "You've hit your session limit · resets 7am (Europe/London)" }));
+      await tick();
+      child.emit('close', 1, null);
+      const r = await run.done;
+      assert.equal(r.outcome, 'failed');
+      assert.equal(r.limit, undefined);
+    });
+
+    it('a normal failure has no limit', async () => {
+      const run = await backend().start({ prompt: 'P', cwd: '/w', logPath: join(dir, 'f.log') });
+      child.stdout.write(line({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'boom' }));
+      await tick();
+      child.emit('close', 1, null);
+      const r = await run.done;
+      assert.equal(r.outcome, 'failed');
+      assert.equal(r.limit, undefined);
+    });
+
+    it('a stopped run stays stopped', async () => {
+      const run = await backend().start({ prompt: 'P', cwd: '/w', logPath: join(dir, 's.log') });
+      child.stdout.write(await readFile(new URL('./fixtures/usage-limit-text.ndjson', import.meta.url)));
+      await tick();
+      run.stop();
+      child.emit('close', null, 'SIGTERM');
+      assert.equal((await run.done).outcome, 'stopped');
+    });
+  });
 });
 
 describe('stopOrphanClaude', () => {

@@ -50,6 +50,8 @@ function primaryModel(modelUsage) {
  *   contextTokens: number,
  *   lastActivity: string | null,
  *   rateLimits: { fiveHour: number | null, sevenDay: number | null } | null,
+ *   rejectedResetsAt: number | null,
+ *   rateLimited: boolean,
  *   assistantText: string,
  *   result: null | {
  *     text: string,
@@ -60,6 +62,9 @@ function primaryModel(modelUsage) {
  *     tokens: { input: number, output: number, cacheRead: number, cacheCreate: number },
  *   },
  * }} StreamSnapshot
+ *   `rejectedResetsAt` is the reset epoch of a rate-limit event that rejected the run (the usage
+ *   limit), when one came. `rateLimited` is whether the stream signalled the usage limit: that
+ *   rejected event, or the CLI's synthetic assistant message flagged `error: "rate_limit"`.
  */
 
 /**
@@ -79,6 +84,8 @@ export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
     contextTokens: 0,
     lastActivity: null,
     rateLimits: null,
+    rejectedResetsAt: null,
+    rateLimited: false,
     assistantText: '',
     result: null,
   };
@@ -95,7 +102,12 @@ export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
     }
 
     if (ev.type === 'rate_limit_event') {
-      const w = ev.rate_limit_info?.unifiedWindows;
+      const info = ev.rate_limit_info;
+      if (info?.status === 'rejected') {
+        state.rateLimited = true;
+        if (typeof info.resetsAt === 'number') state.rejectedResetsAt = info.resetsAt;
+      }
+      const w = info?.unifiedWindows;
       if (w) {
         state.rateLimits = {
           fiveHour: w.five_hour?.utilization ?? null,
@@ -106,6 +118,7 @@ export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
     }
 
     if (ev.type === 'assistant' && ev.message) {
+      if (ev.error === 'rate_limit') state.rateLimited = true;
       const m = ev.message;
       if (m.model) state.model = m.model;
       if (m.id && !outputByMessage.has(m.id)) state.turns += 1;

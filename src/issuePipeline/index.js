@@ -38,6 +38,8 @@ function agentFailureReason(r) {
       return 'timed out';
     case 'stopped':
       return 'was stopped by claude:stop';
+    case 'limited':
+      return 'hit its usage limit';
     default:
       return `exited with code ${r?.exitCode ?? 'n/a'}`;
   }

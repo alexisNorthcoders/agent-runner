@@ -13,7 +13,7 @@
  *   was last told about, so they hear about it once.
  *
  * @typedef {{
- *   kind: 'busy' | 'paused' | 'no_eligible' | 'ran' | 'error' | string,
+ *   kind: 'busy' | 'paused' | 'limited' | 'no_eligible' | 'ran' | 'error' | string,
  *   repo?: string,
  *   issue?: number,
  *   result?: string,

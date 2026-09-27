@@ -137,7 +137,9 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
             ? 'Autofix was stopped.'
             : agent.outcome === 'spawn_error'
               ? `Autofix could not start: ${agent.stderr}`
-              : `Autofix exited with code ${agent.exitCode ?? 'n/a'}.`;
+              : agent.outcome === 'limited'
+                ? 'Autofix hit the usage limit.'
+                : `Autofix exited with code ${agent.exitCode ?? 'n/a'}.`;
       return { ok: false, mergeBlocked: true, detail, agentOutcome };
     }
 

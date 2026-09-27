@@ -46,6 +46,21 @@ ends). The cron skips its tick while anything is queued. A due [scheduled job](#
 the same queue. Status and history
 replies are a single compact message, with no log paths or excerpts.
 
+## Usage limit
+
+When an agent run ends because the agent hit its usage limit (Claude: `You've hit your session
+limit · resets 7am (Europe/London)`), the backend reports outcome `limited` with the reset time,
+and the runner sets the **usage-limit pause** until then. The reset comes from the stream's
+rejected rate-limit event when it carries one, else from the `resets …` text (`7am`, `7:30pm`,
+`Oct 3, 7am`, in the zone named), plus 2 minutes, capped at 7 days. Text it can't read gives a 1h
+pause, so the next run acts as a probe. The pause only ever extends.
+
+While it holds, no new run starts: requests and scheduled jobs queue, and the cron skips its ticks
+(tick outcome `limited`). `owner` gets one message per hit, e.g. `⏸ Usage limit hit: pausing agent
+runs until 07:02 (resets 7am Europe/London). 2 requests queued.` (a run reporting to `owner`, like
+the cron's, has its report in the same message). When the pause ends the queue and the cron pick up
+silently. The run's history row has `outcome: limited`, and `claude:status` shows the pause.
+
 ## Freeform runs' workspace
 
 A freeform run's **inferred workspace** is the allowlisted workspace its first edit or command
@@ -286,7 +301,7 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
       "inferredWorkspace": null, "issueNumber": 7, "room": null, "jobName": null, "startedAt": "…", "endedAt": "…", "durationMs": 60000,
       "outcome": "success", "result": "merged", "prUrl": "https://github.com/…/pull/9",
       "model": "…", "turns": 3, "costUsd": 1.2, "tokens": 1700000 }
-      // outcome: success | failed | timeout | stopped | spawn_error | interrupted (by a restart)
+      // outcome: success | failed | timeout | stopped | spawn_error | limited (usage limit) | interrupted (by a restart)
       // result (issue runs): merged | pr_open | pushed | no_changes | timeout | failed, else null
       // tokens: input + output + cache
   ],
@@ -436,6 +451,7 @@ sudo nginx -t && sudo systemctl reload nginx     # open http://<pi>/office/
 | `agent-runner:lock` | string (JSON) | Single-flight lock holding the active run's record. It is TTL'd, and on startup a leftover lock is reported to `owner` as an interrupted run. |
 | `agent-runner:queue` | list (JSON) | Run requests waiting for the agent, oldest first: `{id, cmd, replyTo, label, queuedAt}`. |
 | `agent-runner:paused` | string (JSON) | Pause flag set by safe-restart. It is TTL'd, and only its setter (by token) clears it. The cron skips its ticks while it's set. |
+| `agent-runner:usage-limit` | string (JSON) | The usage-limit pause: `{until, note, timeZone, since}`, TTL'd to end with it. Set only by the runner, and only ever extended. |
 | `agent-runner:manual-pause` | hash | Pauses set by hand: `all` or a workspace alias → `{scope, reason, pausedAt, until}`. Expired fields are ignored and deleted on read. |
 | `agent-runner:cron:state` | string (JSON) | The cron's last tick (`pid`, `intervalMs`, times, outcome), for the status views. |
 | `agent-runner:cron:last-started` | hash | `owner/repo` → the last issue the cron made progress on there. |
