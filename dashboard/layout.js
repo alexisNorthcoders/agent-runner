@@ -1,16 +1,23 @@
 // Where everything on the office floor sits, in the scene's internal pixels. Wide: the bullpen in
-// the middle, the Review room and the Joplin room on the left, the Queue room and the Freeform room on the right.
-// Narrow: the rooms stacked, the Queue room first. No DOM here, so it can be tested in Node.
+// the middle, the Review room and the Joplin room on the left, the Queue room and the Freeform room
+// on the right, a corridor between each side and the bullpen, and an aisle in front of each row of
+// cubicles. Narrow: the rooms stacked, the Queue room first. Also the walk graph the walkers route
+// over. No DOM here, so it can be tested in Node.
 
 /**
  * @typedef {{ x: number, y: number, w: number, h: number }} Rect
+ * @typedef {{ x: number, y: number }} Point
  * @typedef {'queueRoom' | 'bullpen' | 'review' | 'freeform' | 'joplin'} RoomId
+ * @typedef {Exclude<RoomId, 'bullpen'>} SideRoomId
  * @typedef {{ id: RoomId, name: string, rect: Rect }} Room
  * @typedef {{
  *   width: number,
  *   height: number,
  *   rooms: Record<RoomId, Room>,
  *   cubicles: Rect[],
+ *   corridors: Rect[],
+ *   aisles: Rect[],
+ *   doorways: Partial<Record<SideRoomId, Rect>>,
  *   door: Rect,
  *   clock: Rect,
  *   desk: Rect,
@@ -18,6 +25,9 @@
  *   desks: { review: Rect, freeform: Rect, joplin: Rect },
  * }} Layout
  *   `desk`: the front desk. `desks`: the other rooms' desks (the Joplin room's reading table).
+ *   `corridors`: wide, the Corridors either side of the bullpen, left then right (their back wall
+ *   included). `aisles`: wide, one in front of each row of cubicles, from corridor to corridor.
+ *   `doorways`: wide, the gap in each side room's wall onto its corridor. None of them when narrow.
  */
 
 /** The height of a room's back wall, above its floor. */
@@ -33,23 +43,29 @@ const CART_COLS = 6;
 export const CART_CAPACITY = CART_ROWS * CART_COLS;
 
 const SIDE = 150;
+/** Wide: a corridor's width, an aisle's depth, a doorway's height, and a cubicle's full height. */
+const CORRIDOR = 14;
+const AISLE = 10;
+const DOORWAY = 16;
+const CUBE_H = 100;
 const NAMES = { queueRoom: 'QUEUE', bullpen: 'HEADLESS INC.', review: 'REVIEW', freeform: 'FREEFORM', joplin: 'JOPLIN' };
 
 /** @param {RoomId} id @param {number} x @param {number} y @param {number} w @param {number} h @returns {Room} */
 const room = (id, x, y, w, h) => ({ id, name: NAMES[id], rect: { x, y, w, h } });
 
 /**
- * A grid of cubicles filling `area`, `cols` wide.
- * @param {number} count @param {Rect} area @param {number} cols @param {number} maxH
+ * A grid of cubicles filling `area`, `cols` wide, at most `maxH` tall (fitting `area`'s height when
+ * it has one), rows `gap` apart.
+ * @param {number} count @param {Rect} area @param {number} cols @param {number} maxH @param {number} [gap]
  * @returns {Rect[]}
  */
-function grid(count, area, cols, maxH) {
+function grid(count, area, cols, maxH, gap = 0) {
   if (!count) return [];
   const c = Math.min(cols, count);
   const rows = Math.ceil(count / c);
   const w = Math.floor(area.w / c);
-  const h = Math.min(maxH, Math.floor(area.h / rows));
-  return Array.from({ length: count }, (_, i) => ({ x: area.x + (i % c) * w, y: area.y + Math.floor(i / c) * h, w, h }));
+  const h = area.h ? Math.min(maxH, Math.floor(area.h / rows)) : maxH;
+  return Array.from({ length: count }, (_, i) => ({ x: area.x + (i % c) * w, y: area.y + Math.floor(i / c) * (h + gap), w, h }));
 }
 
 /** @param {Rect} r the Queue room */
@@ -182,6 +198,94 @@ export function clickFilter(layout, cubicles, x, y, current) {
   return alias === current ? null : alias;
 }
 
+/** Where the mail carrier sets off, in front of the front desk (feet). @param {Layout} layout @returns {Point} */
+export const frontDeskStart = (layout) => ({ x: layout.desk.x + 30, y: layout.desk.y + layout.desk.h + 14 });
+
+/**
+ * Where a run is handed over, in front of its desk (feet); in a cubicle, inside its partitions.
+ * @param {Rect} desk @param {Rect} [cubicle] the desk's cubicle
+ * @returns {Point}
+ */
+export function approachPoint(desk, cubicle) {
+  const p = { x: desk.x + Math.floor(desk.w / 2) + 4, y: desk.y + desk.h + 16 };
+  if (!cubicle) return p;
+  return { x: Math.max(cubicle.x + 4, Math.min(cubicle.x + cubicle.w - 13, p.x)), y: Math.min(p.y, cubicle.y + cubicle.h - 1) };
+}
+
+/** A desk's place, as a key into the walk graph's approach points. @param {import('./scene.js').Place} p */
+export const placeKey = (p) => (p.room === 'cubicle' ? `cubicle:${p.alias}:${p.job ?? ''}` : p.room);
+
+/**
+ * @typedef {{ edges: Array<[Point, Point]>, front: Point, approaches: Map<string, Point> }} WalkGraph
+ *   Where walkers can go, as straight edges between points (where a walker's feet are, x at the
+ *   left of their sprite). `front`: in front of the front desk. `approaches`: each desk's approach
+ *   point, by `placeKey`.
+ */
+
+/**
+ * The walk graph: along the Corridors and Aisles, out of each side room through its doorway, and
+ * into each cubicle through its open front, to each desk's approach point. With no doorways or
+ * aisles (the narrow layout), every approach point is joined straight to the front desk.
+ * @param {Layout} layout @param {CubicleDesks[]} cubicles the scene's, in the layout's order
+ * @returns {WalkGraph}
+ */
+export function walkGraph(layout, cubicles) {
+  /** @type {Array<[Point, Point]>} */
+  const edges = [];
+  /** @param {Point} a @param {Point} b */
+  const link = (a, b) => {
+    if (a.x !== b.x || a.y !== b.y) edges.push([a, b]);
+  };
+  const front = frontDeskStart(layout);
+  /** @type {Map<string, Point>} */
+  const approaches = new Map();
+  // walkers keep to the middle of a corridor and the front of an aisle
+  const lanes = layout.corridors.map((c) => c.x + Math.floor((c.w - 9) / 2));
+  /** Where walkers' feet go across an aisle or through a doorway: near its front. @param {Rect} r */
+  const lane = (r) => r.y + r.h - 3;
+  // the stops along each corridor (y) and each aisle (x), joined up in order at the end
+  const corridorStops = lanes.map(() => new Set(layout.aisles.map(lane)));
+  const aisleStops = layout.aisles.map(() => new Set(lanes));
+
+  /** Out of a side room from `p`: to the doorway's lane, and through it to the corridor. @param {SideRoomId} id @param {Point} p */
+  const leave = (id, p) => {
+    const d = layout.doorways[id];
+    if (!d) return link(p, front);
+    const y = lane(d);
+    const i = lanes.reduce((best, x, j) => (Math.abs(x - d.x) < Math.abs(lanes[best] - d.x) ? j : best), 0);
+    corridorStops[i].add(y);
+    link(p, { x: p.x, y });
+    link({ x: p.x, y }, { x: lanes[i], y });
+  };
+  leave('queueRoom', front);
+  for (const id of /** @type {const} */ (['review', 'freeform', 'joplin'])) {
+    const p = approachPoint(layout.desks[id]);
+    approaches.set(id, p);
+    leave(id, p);
+  }
+  cubicles.forEach((c, i) => {
+    const r = layout.cubicles[i];
+    if (!r) return;
+    const owners = deskOwners(c);
+    const aisle = layout.aisles.findIndex((a) => a.y === r.y + r.h);
+    cubicleDesks(r, owners.length).forEach((desk, k) => {
+      const p = approachPoint(desk, r);
+      approaches.set(placeKey({ room: 'cubicle', alias: c.alias, job: owners[k] ?? undefined }), p);
+      if (aisle < 0) return link(p, front);
+      aisleStops[aisle].add(p.x);
+      link(p, { x: p.x, y: lane(layout.aisles[aisle]) });
+    });
+  });
+  /** @param {Set<number>} stops @param {(v: number) => Point} at */
+  const chain = (stops, at) => {
+    const sorted = [...stops].sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i++) link(at(sorted[i - 1]), at(sorted[i]));
+  };
+  corridorStops.forEach((stops, i) => chain(stops, (y) => ({ x: lanes[i], y })));
+  aisleStops.forEach((stops, i) => chain(stops, (x) => ({ x, y: lane(layout.aisles[i]) })));
+  return { edges, front, approaches };
+}
+
 /**
  * @param {number} count cubicles
  * @param {'wide' | 'narrow'} mode
@@ -195,13 +299,32 @@ export function layoutOffice(count, mode, width) {
     const rooms = {
       review: room('review', 0, 0, SIDE, 160),
       joplin: room('joplin', 0, 160, SIDE, H - 160),
-      bullpen: room('bullpen', SIDE, 0, W - 2 * SIDE, H),
+      bullpen: room('bullpen', SIDE + CORRIDOR, 0, W - 2 * (SIDE + CORRIDOR), H),
       queueRoom: room('queueRoom', W - SIDE, 0, SIDE, 190),
       freeform: room('freeform', W - SIDE, 190, SIDE, H - 190),
     };
     const b = rooms.bullpen.rect;
-    const cubicles = grid(count, { x: b.x + 6, y: b.y + WALL + 6, w: b.w - 12, h: b.h - WALL - 12 }, 4, 100);
-    return { width: W, height: H, rooms, cubicles, ...queueRoomParts(rooms.queueRoom.rect), desks: roomDesks(rooms) };
+    const corridors = [
+      { x: SIDE, y: 0, w: CORRIDOR, h: H },
+      { x: W - SIDE - CORRIDOR, y: 0, w: CORRIDOR, h: H },
+    ];
+    // rows of cubicles, each with its aisle in front, from just under the back wall: full height
+    // while they fit (up to 3 rows), else shared out so the last aisle still ends at the front
+    const top = b.y + WALL + 2;
+    const cols = 4;
+    const rows = Math.max(1, Math.ceil(count / cols));
+    const cubeH = Math.max(0, Math.min(CUBE_H, Math.floor((b.y + b.h - top) / rows) - AISLE));
+    const cubicles = grid(count, { x: b.x + 6, y: top, w: b.w - 12, h: 0 }, cols, cubeH, AISLE);
+    const aisles = Array.from({ length: rows }, (_, i) => ({ x: b.x, y: top + i * (cubeH + AISLE) + cubeH, w: b.w, h: AISLE }));
+    /** @param {Rect} r @param {'left' | 'right'} side the wall facing the bullpen */
+    const doorway = (r, side) => ({ x: side === 'left' ? r.x : r.x + r.w - 1, y: r.y + r.h - DOORWAY - 6, w: 1, h: DOORWAY });
+    const doorways = {
+      review: doorway(rooms.review.rect, 'right'),
+      joplin: doorway(rooms.joplin.rect, 'right'),
+      queueRoom: doorway(rooms.queueRoom.rect, 'left'),
+      freeform: doorway(rooms.freeform.rect, 'left'),
+    };
+    return { width: W, height: H, rooms, cubicles, corridors, aisles, doorways, ...queueRoomParts(rooms.queueRoom.rect), desks: roomDesks(rooms) };
   }
   const W = Math.max(NARROW_WIDTH.min, Math.min(NARROW_WIDTH.max, Math.floor(width)));
   const cols = W >= 300 ? 3 : 2;
@@ -223,7 +346,7 @@ export function layoutOffice(count, mode, width) {
   };
   const b = rooms.bullpen.rect;
   const cubicles = grid(count, { x: b.x + 6, y: b.y + WALL + 6, w: b.w - 12, h: rows * cubeH }, cols, cubeH);
-  return { width: W, height: y, rooms, cubicles, ...queueRoomParts(rooms.queueRoom.rect), desks: roomDesks(rooms) };
+  return { width: W, height: y, rooms, cubicles, corridors: [], aisles: [], doorways: {}, ...queueRoomParts(rooms.queueRoom.rect), desks: roomDesks(rooms) };
 }
 
 /**

@@ -111,10 +111,10 @@ const box = (ctx, r, color, x, y, w, h) => {
 };
 
 /**
- * A room: its back wall (`wallH` tall) with a name plate, and its floor.
- * @param {Ctx} ctx @param {Rect} r @param {string} name @param {'carpet' | 'wood' | 'tile'} floor @param {number} wallH
+ * A floor (`wallH` below the top of `r`) and the back wall above it.
+ * @param {Ctx} ctx @param {Rect} r @param {'carpet' | 'wood' | 'tile'} floor @param {number} wallH
  */
-export function room(ctx, r, name, floor, wallH) {
+function floorAndWall(ctx, r, floor, wallH) {
   const [base, line] = floor === 'wood' ? [PALETTE.woodFloor, PALETTE.woodFloorLine] : floor === 'tile' ? [PALETTE.tile, PALETTE.tileLine] : [PALETTE.carpet, PALETTE.carpetDot];
   box(ctx, r, base, 0, wallH, r.w, r.h - wallH);
   ctx.fillStyle = line;
@@ -125,18 +125,47 @@ export function room(ctx, r, name, floor, wallH) {
   } else for (let y = r.y + wallH + 2; y < r.y + r.h; y += 4) for (let x = r.x + ((y >> 2) % 2) * 2; x < r.x + r.w; x += 4) ctx.fillRect(x, y, 1, 1);
   box(ctx, r, PALETTE.wall, 0, 0, r.w, wallH);
   box(ctx, r, PALETTE.wallTrim, 0, wallH - 2, r.w, 2);
+}
+
+/**
+ * A room: its back wall (`wallH` tall) with a name plate, and its floor. `open`: no side walls
+ * (the bullpen, open to the corridors).
+ * @param {Ctx} ctx @param {Rect} r @param {string} name @param {'carpet' | 'wood' | 'tile'} floor @param {number} wallH
+ * @param {{ open?: boolean }} [o]
+ */
+export function room(ctx, r, name, floor, wallH, o = {}) {
+  floorAndWall(ctx, r, floor, wallH);
   // outline, so neighbouring rooms read as separate
   ctx.fillStyle = PALETTE.woodDark;
   ctx.fillRect(r.x, r.y, r.w, 1);
   ctx.fillRect(r.x, r.y + r.h - 1, r.w, 1);
-  ctx.fillRect(r.x, r.y, 1, r.h);
-  ctx.fillRect(r.x + r.w - 1, r.y, 1, r.h);
+  if (!o.open) {
+    ctx.fillRect(r.x, r.y, 1, r.h);
+    ctx.fillRect(r.x + r.w - 1, r.y, 1, r.h);
+  }
   const plate = fitText(name, r.w - 12);
   const pw = textWidth(plate) + 6;
   const px = r.x + r.w - pw - 4;
   ctx.fillStyle = PALETTE.signText;
   ctx.fillRect(px, r.y + 4, pw, 9);
   text(ctx, plate, px + 3, r.y + 6, PALETTE.signBg);
+}
+
+/** A Corridor: tiled, with the back wall at its end. @param {Ctx} ctx @param {Rect} r @param {number} wallH */
+export function corridor(ctx, r, wallH) {
+  floorAndWall(ctx, r, 'tile', wallH);
+  ctx.fillStyle = PALETTE.woodDark;
+  ctx.fillRect(r.x, r.y, r.w, 1);
+  ctx.fillRect(r.x, r.y + r.h - 1, r.w, 1);
+}
+
+/** A doorway in a side wall `r` (1px wide): a gap onto the corridor's tiles, with a jamb at each end. @param {Ctx} ctx @param {Rect} r */
+export function doorway(ctx, r) {
+  ctx.fillStyle = PALETTE.tile;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.fillStyle = PALETTE.woodDark;
+  ctx.fillRect(r.x - 2, r.y - 2, r.w + 4, 2);
+  ctx.fillRect(r.x - 2, r.y + r.h, r.w + 4, 2);
 }
 
 /** A window on a back wall. @param {Ctx} ctx @param {number} x @param {number} y @param {number} w */
@@ -583,10 +612,17 @@ export function phoneRinging(ctx, r, frame) {
 
 /**
  * The mail carrier on foot (feet at `y`), carrying a run: an interoffice envelope (the cron), a
- * letter (a phone call), or nothing on the way back.
+ * letter (a phone call), or nothing on the way back. Mirrored when `facing` left.
  * @param {Ctx} ctx @param {number} x @param {number} y @param {number} step @param {'envelope' | 'phone' | null} carrying
+ * @param {'left' | 'right'} [facing]
  */
-export function walkingCarrier(ctx, x, y, step, carrying) {
+export function walkingCarrier(ctx, x, y, step, carrying, facing = 'right') {
+  ctx.save();
+  if (facing === 'left') {
+    // flip about the middle of the body, so they turn on the spot
+    ctx.translate(2 * x + 9, 0);
+    ctx.scale(-1, 1);
+  }
   mailCarrier(ctx, x, y - 20);
   ctx.fillStyle = PALETTE.ink;
   ctx.fillRect(x + 2, y - 4, 2, step % 2 ? 4 : 3);
@@ -603,6 +639,7 @@ export function walkingCarrier(ctx, x, y, step, carrying) {
     ctx.fillStyle = PALETTE.envelopeEdge;
     ctx.fillRect(x + 8, y - 8, 5, 1);
   }
+  ctx.restore();
 }
 
 // --- how the last run went ---
