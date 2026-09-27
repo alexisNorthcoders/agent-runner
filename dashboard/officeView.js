@@ -1,37 +1,31 @@
 // Draws the office floor: a scene (scene.js) placed on a layout (layout.js) with the sprites
 // (sprites.js), at the layout's internal resolution. The page scales the result up by a whole
-// number. Not tested: the rules live in the reducer, and this only draws. The animations (the
-// mail carrier's delivery, the boss's walks, typing) are tweened here from the times the scene
-// gives, so the reducer only says what happens and when, as are the ends of runs (the stamp coming
-// down, the papers to the out tray) from when the run ended.
+// number. Not tested: the rules live in the reducer, and this only draws. Who walks the floor
+// (the mail carrier, the boss, a worker moving desks) and where comes from walkers.js; typing and
+// the ends of runs (the stamp coming down, the papers to the out tray) are tweened here from when
+// the run ended, so the reducer only says what happens and when.
 import { formatClock } from './format.js';
 import { WALL, cartSlots, cubicleDesks, deskAt, deskOwners, folderSlots, inTrayRect, inTraySlots, placeRect, roomAt, stickyNote, workerRect } from './layout.js';
 import { samePlace } from './scene.js';
 import * as s from './sprites.js';
+import { STAMP_MS, TRAY_MS, lerp, walkers } from './walkers.js';
 
 /** @typedef {import('./sprites.js').Ctx} Ctx */
 /** @typedef {import('./layout.js').Rect} Rect */
 /** @typedef {import('./layout.js').Layout} Layout */
 /** @typedef {import('./scene.js').Scene} Scene */
+/** @typedef {import('./walkers.js').Walker} Walker */
 
-/** How long the phone rings before the mail carrier sets off, a walk takes, and the hand-over. */
-const RING_MS = 1600;
-const WALK_MS = 2400;
-const HAND_MS = 500;
 /** Animation frames: walking and typing, and the autofix's frantic scribbling. */
 const FRAME_MS = 150;
 const SCRIBBLE_MS = 60;
-/** A finished run's stamp coming down, and its papers going to the out tray (a quick stamp is shorter). */
-const STAMP_MS = 900;
+/** A quick stamp coming down (a full one takes STAMP_MS). */
 const QUICK_STAMP_MS = 400;
-const TRAY_MS = 900;
 /** The stamped sheets in the out tray. */
 const TRAY_SHEETS = 6;
 /** A tumbleweed rolls through a quiet room this often, taking this long. */
 const TUMBLE_EVERY_MS = 9000;
 const TUMBLE_MS = 3000;
-/** Resting states that keep moving: Zzz, stars, the tumbleweed. */
-const ANIMATED_STATES = new Set(['asleep', 'dizzy', 'shrug']);
 /** Resting states in which drawOutcomes draws the worker at their desk (or sends them home). */
 const WORKER_STATES = new Set(['injured', 'asleep', 'dizzy', 'shrug', 'home']);
 
@@ -64,84 +58,24 @@ function drawFreeformRoom(ctx, layout) {
   s.waterCooler(ctx, r.x + 6, r.y + WALL + 4);
 }
 
-/** @param {number} a @param {number} b @param {number} f 0..1 */
-const lerp = (a, b, f) => Math.round(a + (b - a) * Math.max(0, Math.min(1, f)));
-
-/** Where the mail carrier stands to set off, in front of the front desk (feet). @param {Layout} layout */
-const carrierStart = (layout) => ({ x: layout.desk.x + 30, y: layout.desk.y + layout.desk.h + 14 });
-/** Where the carrier hands a run over, in front of the worker's desk (feet). @param {Rect} desk */
-const handOver = (desk) => ({ x: desk.x + Math.floor(desk.w / 2) + 4, y: desk.y + desk.h + 16 });
-/** The boss's head, standing behind their chair and by a worker's shoulder. @param {Layout} layout */
-const bossHome = (layout) => ({ x: layout.desks.review.x + 23, y: layout.desks.review.y - 20 });
-/** @param {Rect} desk */
-const bossBeside = (desk) => {
-  const w = workerRect(desk);
-  return { x: w.x + 10, y: w.y - 3 };
-};
-
 /**
- * The run's timeline, from its delivery: when the mail carrier arrives with it (the worker is at
- * the desk from then on) and is back in the Queue room.
- * @param {NonNullable<Scene['run']>} run
+ * The active run: the phone ringing, the worker at their desk (typing, still, or scribbling) with
+ * their pile and speech bubble, or walking over to a new desk with the pile, and the mail carrier
+ * out delivering it.
+ * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {number} t @param {Walker[]} walking
  */
-function deliveryTimes(run) {
-  const leave = run.delivery.at + (run.delivery.by === 'phone' ? RING_MS : 0);
-  return { leave, arrive: leave + WALK_MS, back: leave + 2 * WALK_MS + HAND_MS };
-}
-
-/**
- * Whether anything on the floor moves at time `t`, so the page knows to keep drawing frames.
- * @param {Scene} scene @param {number} t
- */
-export const animating = (scene, t) =>
-  !scene.dark &&
-  (!!scene.run || t - scene.boss.since < WALK_MS || scene.outcomes.some((o) => ANIMATED_STATES.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
-
-/** Whether the mail carrier is out delivering at `t`, away from the front desk. @param {Scene} scene @param {number} t */
-function carrierOut(scene, t) {
-  // by post-run the delivery is long over, whenever the page saw the run start
-  if (!scene.run || scene.run.postRun) return false;
-  const { leave, back } = deliveryTimes(scene.run);
-  return t >= leave && t < back;
-}
-
-/**
- * Where the worker is at `t` while they walk their papers over to a new desk (a freeform run
- * leaving the Freeform room for its cubicle), as the top of their head. Null when they aren't walking.
- * The walk starts once the mail carrier has handed the run over.
- * @param {Layout} layout @param {Scene} scene @param {number} t
- * @returns {{ x: number, y: number } | null}
- */
-function walking(layout, scene, t) {
-  const run = scene.run;
-  if (!run?.moved) return null;
-  const start = Math.max(run.moved.since, deliveryTimes(run).arrive);
-  const f = (t - start) / WALK_MS;
-  const from = deskAt(layout, scene.cubicles, run.moved.from);
-  const to = deskAt(layout, scene.cubicles, run.place);
-  if (f < 0 || f >= 1 || !from || !to) return null;
-  const a = workerRect(from);
-  const b = workerRect(to);
-  return { x: lerp(a.x, b.x, f), y: lerp(a.y, b.y, f) };
-}
-
-/**
- * The active run: the delivery, the worker at their desk (typing, still, or scribbling), their pile
- * and speech bubble, or walking over to a new desk with the pile.
- * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {number} t
- */
-function drawRun(ctx, layout, scene, t) {
+function drawRun(ctx, layout, scene, t, walking) {
   const run = scene.run;
   const desk = run && deskAt(layout, scene.cubicles, run.place);
   if (!run || !desk) return;
-  const { leave, arrive } = deliveryTimes(run);
   const frame = Math.floor(t / FRAME_MS);
-  if (t < leave && !run.postRun) s.phoneRinging(ctx, layout.desk, frame);
-  const walked = walking(layout, scene, t);
-  if (walked) {
-    s.walkingWorker(ctx, walked.x, walked.y, frame, run.pile);
-  } else if (t >= arrive || run.postRun) {
-    // in post-run the worker has been at the desk all along, whenever the page saw the run start
+  for (const p of walking) {
+    if (p.who === 'carrier' && p.pose === 'standing' && p.carrying === 'phone') s.phoneRinging(ctx, layout.desk, frame);
+    if (p.who !== 'worker') continue;
+    if (p.pose === 'walking') {
+      s.walkingWorker(ctx, p.x, p.y, frame, p.pile);
+      continue;
+    }
     const w = workerRect(desk);
     const typing = run.work === 'typing';
     const scribbling = run.work === 'scribbling';
@@ -149,17 +83,11 @@ function drawRun(ctx, layout, scene, t) {
     s.worker(ctx, w, typing || scribbling ? /** @type {1 | 2} */ ((beat % 2) + 1) : 0);
     if (run.worker) s.jobGear(ctx, run.worker, w, desk, frame);
     if (scribbling) s.scribbles(ctx, w, beat);
-    s.paperPile(ctx, desk.x + 2, desk.y + 3, run.pile);
+    s.paperPile(ctx, desk.x + 2, desk.y + 3, p.pile);
     const bounds = roomAt(layout, run.place).rect;
     if (run.bubble) s.speechBubble(ctx, w.x + 5, w.y - 1, run.bubble, Math.min(120, bounds.w - 4), bounds);
   }
-  if (!carrierOut(scene, t)) return;
-  const from = carrierStart(layout);
-  const to = handOver(desk);
-  const going = t < arrive;
-  const f = going ? (t - leave) / WALK_MS : (t - arrive - HAND_MS) / WALK_MS;
-  const [a, b] = going ? [from, to] : [to, from];
-  s.walkingCarrier(ctx, lerp(a.x, b.x, f), lerp(a.y, b.y, f), frame, t < arrive + HAND_MS ? run.delivery.by : null);
+  for (const p of walking) if (p.who === 'carrier' && p.pose === 'walking') s.walkingCarrier(ctx, p.x, p.y, frame, p.carrying);
 }
 
 /** The scheduled job whose desk `place` is, by name. @param {import('./scene.js').Place} p */
@@ -180,11 +108,11 @@ function jobAt(scene, place) {
  * Each scheduled job's worker at their desk while their job isn't running, unless their room's last
  * outcome has them (injured, asleep, dizzy, shrugging, or gone home). A running job's worker stays
  * put until the mail carrier arrives with it (drawRun takes over from then).
- * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {number} t
+ * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {Walker[]} walking
  */
-function drawJobWorkers(ctx, layout, scene, t) {
+function drawJobWorkers(ctx, layout, scene, walking) {
   const run = scene.run;
-  const arrived = run && (run.postRun || t >= deliveryTimes(run).arrive);
+  const arrived = run && walking.some((p) => p.who === 'worker');
   for (const c of scene.cubicles) {
     for (const j of c.jobs) {
       /** @type {import('./scene.js').Place} */
@@ -294,26 +222,15 @@ function drawPending(ctx, r, c) {
 
 /**
  * The boss: at their desk, walking over to the worker, reading over their shoulder, or walking back.
- * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {number} t
+ * @param {Ctx} ctx @param {number} t @param {Walker[]} walking
  */
-function drawBossFigure(ctx, layout, scene, t) {
-  const { at, from, since } = scene.boss;
-  const home = bossHome(layout);
-  /** @param {import('./scene.js').Place | null} p */
-  const spot = (p) => {
-    const d = p && deskAt(layout, scene.cubicles, p);
-    return d ? bossBeside(d) : home;
-  };
-  const f = (t - since) / WALK_MS;
-  const step = Math.floor(t / FRAME_MS);
-  if (f < 1) {
-    const a = spot(from);
-    const b = spot(at);
-    s.boss(ctx, lerp(a.x, b.x, f), lerp(a.y, b.y, f), { step });
-  } else if (at) {
-    const b = spot(at);
-    s.boss(ctx, b.x, b.y);
-  } else s.boss(ctx, home.x, home.y + 3, { seated: true });
+function drawBossFigure(ctx, t, walking) {
+  for (const p of walking) {
+    if (p.who !== 'boss') continue;
+    if (p.pose === 'walking') s.boss(ctx, p.x, p.y, { step: Math.floor(t / FRAME_MS) });
+    else if (p.pose === 'standing') s.boss(ctx, p.x, p.y);
+    else s.boss(ctx, p.x, p.y, { seated: true });
+  }
 }
 
 /**
@@ -325,6 +242,7 @@ function drawBossFigure(ctx, layout, scene, t) {
  */
 export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   const { rooms } = layout;
+  const walking = walkers(layout, scene.cubicles, scene, t).walkers;
   ctx.clearRect(0, 0, layout.width, layout.height);
   s.room(ctx, rooms.review.rect, rooms.review.name, 'wood', WALL);
   s.room(ctx, rooms.joplin.rect, rooms.joplin.name, 'wood', WALL);
@@ -349,15 +267,15 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   s.frontDoor(ctx, layout.door);
   if (scene.backInFive) s.backInFive(ctx, layout.door);
   if (scene.queueRoom.countdownMs != null) s.countdownClock(ctx, layout.clock, formatClock(scene.queueRoom.countdownMs));
-  if (!carrierOut(scene, t)) s.mailCarrier(ctx, layout.desk.x + 30, layout.desk.y - 16);
+  for (const p of walking) if (p.who === 'carrier' && p.pose === 'standing') s.mailCarrier(ctx, p.x, p.y);
   s.frontDesk(ctx, layout.desk);
   s.mailCart(ctx, layout.cart);
   for (const slot of cartSlots(layout, scene.queueRoom.letters)) s.letter(ctx, slot.rect, slot.pile);
   s.plant(ctx, rooms.queueRoom.rect.x + rooms.queueRoom.rect.w - 14, rooms.queueRoom.rect.y + WALL + 4);
-  drawJobWorkers(ctx, layout, scene, t);
+  drawJobWorkers(ctx, layout, scene, walking);
   drawOutcomes(ctx, layout, scene, t);
-  drawRun(ctx, layout, scene, t);
-  drawBossFigure(ctx, layout, scene, t);
+  drawRun(ctx, layout, scene, t, walking);
+  drawBossFigure(ctx, t, walking);
   drawFolders(ctx, layout, scene);
 
   if (scene.dark) {

@@ -4,8 +4,9 @@
 import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, what } from './format.js';
 import { cartSlots, clickFilter, deskAt, fitScene, folderSlots, inTraySlots, inside, layoutOffice, placeName, placeRect, stickyNote, workerRect } from './layout.js';
 import { applyLogEvent } from './logPane.js';
-import { animating, drawOffice } from './officeView.js';
+import { drawOffice } from './officeView.js';
 import { lastLine, reduceScene, samePlace } from './scene.js';
+import { walkers } from './walkers.js';
 
 const FEED_URL = 'feed';
 const RECONNECT_MS = 3000;
@@ -507,6 +508,6 @@ fetch('office.json', { cache: 'no-cache' })
 // keeps elapsed times and countdowns moving between snapshots
 setInterval(() => snap && render(), 1000);
 // and the floor's animations in between
-setInterval(() => scene && snap && animating(scene, now()) && drawScene(), REDRAW_MS);
+setInterval(() => scene && snap && layout && walkers(layout, scene.cubicles, scene, now()).animating && drawScene(), REDRAW_MS);
 render();
 connect();
