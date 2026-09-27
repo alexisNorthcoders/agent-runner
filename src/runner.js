@@ -256,11 +256,13 @@ export function createRunner({
       const { pause: p, extended } = await usageLimit.extend(result.limit);
       // no pause, no re-queue: it would only start and hit the limit again
       if (!p) return;
-      if (retry && (result.usage.turns ?? 0) <= MAX_UNSTARTED_TURNS) {
-        await queue.unshift({ ...retry, queuedAt: new Date(now()).toISOString() }).then(
-          () => void (a.requeued = true),
-          (err) => logger.error(`run ${a.record.runId}: could not re-queue the request:`, err?.message || err)
-        );
+      if (retry && result.usage.turns <= MAX_UNSTARTED_TURNS) {
+        try {
+          await queue.unshift({ ...retry, queuedAt: new Date(now()).toISOString() });
+          a.requeued = true;
+        } catch (err) {
+          logger.error(`run ${a.record.runId}: could not re-queue the request:`, err?.message || err);
+        }
       }
       if (a.limitNotice && !extended) return;
       const n = await queue.length().catch(() => 0);
