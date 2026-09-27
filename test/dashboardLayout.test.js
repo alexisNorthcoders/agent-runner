@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { CART_CAPACITY, FOLDERS_MAX, cartSlots, folderSlots, inTraySlots, stickyNote, clickFilter, cubicleDesk, deskAt, fitScene, inside, layoutOffice, placeName, placeRect, workerRect } from '../dashboard/layout.js';
+import { CART_CAPACITY, FOLDERS_MAX, cartSlots, folderSlots, inTraySlots, stickyNote, clickFilter, cubicleDesk, cubicleDesks, deskAt, fitScene, inside, layoutOffice, placeName, placeRect, workerRect } from '../dashboard/layout.js';
 
 /** @param {{ x: number, y: number, w: number, h: number }} a @param {{ x: number, y: number, w: number, h: number }} b */
 const within = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
@@ -87,6 +87,52 @@ describe('workers and clicks on the floor', () => {
     assert.equal(clickFilter(l, cubicles, w.x + 1, w.y + 1, 'bot'), 'dots');
     const [ax, ay] = centre(l.rooms.annex.rect);
     assert.equal(clickFilter(l, cubicles, ax, ay, 'dots'), null);
+  });
+});
+
+describe('job desks', () => {
+  const RA = 'Research & Archives';
+  const jobs = (...names) => names.map((name) => ({ name }));
+
+  it("sets a cubicle's desks side by side, each worker inside the cubicle and clear of the others", () => {
+    for (const [mode, width] of /** @type {const} */ ([['wide', 560], ['wide', 720], ['narrow', 240], ['narrow', 360]])) {
+      for (const count of [1, 4, 9]) {
+        for (const c of layoutOffice(count, mode, width).cubicles) {
+          assert.deepEqual(cubicleDesks(c, 1), [cubicleDesk(c)]);
+          for (const n of [2, 3]) {
+            const desks = cubicleDesks(c, n);
+            assert.equal(desks.length, n);
+            const workers = desks.map(workerRect);
+            for (const d of desks) assert.ok(within(d, c), `${mode} ${width} desk ${JSON.stringify(d)} in ${JSON.stringify(c)}`);
+            for (const w of workers) assert.ok(within(w, c), `${mode} ${width} worker ${JSON.stringify(w)}`);
+            for (let i = 1; i < n; i++) assert.ok(!overlap(workers[i - 1], workers[i]), `${mode} ${width} workers ${i - 1}, ${i}`);
+          }
+        }
+      }
+    }
+  });
+
+  it("finds a job's desk in its room: after the workspace's own desk, or alone in a job room", () => {
+    const l = layoutOffice(2, 'wide', 640);
+    const cubicles = [
+      { alias: 'bot', workspace: true, jobs: jobs('backup') },
+      { alias: RA, workspace: false, jobs: jobs('cleanup_agent', 'report_agent') },
+    ];
+    assert.deepEqual(deskAt(l, cubicles, { room: 'cubicle', alias: 'bot' }), cubicleDesks(l.cubicles[0], 2)[0]);
+    assert.deepEqual(deskAt(l, cubicles, { room: 'cubicle', alias: 'bot', job: 'backup' }), cubicleDesks(l.cubicles[0], 2)[1]);
+    assert.deepEqual(deskAt(l, cubicles, { room: 'cubicle', alias: RA, job: 'report_agent' }), cubicleDesks(l.cubicles[1], 2)[1]);
+    assert.equal(deskAt(l, cubicles, { room: 'cubicle', alias: RA, job: 'gone' }), null);
+  });
+
+  it("doesn't filter the panel to a job room that isn't a workspace", () => {
+    const l = layoutOffice(2, 'wide', 640);
+    const cubicles = [
+      { alias: 'bot', workspace: true, jobs: [] },
+      { alias: RA, workspace: false, jobs: jobs('cleanup_agent') },
+    ];
+    const r = l.cubicles[1];
+    assert.equal(clickFilter(l, cubicles, r.x + r.w / 2, r.y + r.h / 2, null), null);
+    assert.equal(clickFilter(l, cubicles, r.x + r.w / 2, r.y + r.h / 2, 'bot'), null);
   });
 });
 

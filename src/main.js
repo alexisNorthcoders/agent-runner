@@ -25,7 +25,7 @@ import { collectOfficeSnapshot } from './officeSnapshot.js';
 import { createOfficeFeed } from './officeFeed.js';
 import { createLogTail } from './logTail.js';
 import { createJobLauncher } from './jobProcess.js';
-import { createJobScheduler, loadJobsFile } from './scheduledJobs.js';
+import { createJobScheduler, jobSchedule, loadJobsFile } from './scheduledJobs.js';
 import { createIssueScan } from './issueScan.js';
 
 const config = loadConfig();
@@ -112,7 +112,14 @@ changes.subscribe((reason) => {
 issueScan.start();
 
 const officeFeed = createOfficeFeed({
-  snapshot: () => collectOfficeSnapshot({ statusSnapshot, liveRun: runner.status, workspaceAliases: workspaces.aliases, issues: issueScan.current }),
+  snapshot: () =>
+    collectOfficeSnapshot({
+      statusSnapshot,
+      liveRun: runner.status,
+      workspaceAliases: workspaces.aliases,
+      issues: issueScan.current,
+      jobs: () => jobSchedule({ loadJobs: () => loadJobsFile(config.jobs.file), store }),
+    }),
   subscribe: changes.subscribe,
   logTail: createLogTail({ current: runner.activeLog }),
 });

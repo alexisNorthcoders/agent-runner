@@ -79,16 +79,49 @@ export function cubicleDesk(r) {
   return { x: r.x + 8, y: r.y + 2 + Math.min(r.h - 20, 28), w: r.w - 16, h: 13 };
 }
 
+/** The gap between desks side by side in a cubicle. */
+const DESK_GAP = 2;
+
 /**
- * The desk a worker sits behind, or null when `place` names a cubicle the layout doesn't have.
- * @param {Layout} layout @param {Array<{ alias: string }>} cubicles the scene's, in the layout's order
+ * A cubicle's `n` desks, side by side across the width of its one desk.
+ * @param {Rect} r the cubicle @param {number} n
+ * @returns {Rect[]}
+ */
+export function cubicleDesks(r, n) {
+  const d = cubicleDesk(r);
+  if (n <= 1) return [d];
+  const w = Math.floor((d.w - (n - 1) * DESK_GAP) / n);
+  return Array.from({ length: n }, (_, i) => ({ ...d, x: d.x + i * (w + DESK_GAP), w }));
+}
+
+/**
+ * @typedef {{ alias: string, workspace?: boolean, jobs?: Array<{ name: string }> }} CubicleDesks
+ *   A scene cubicle, as far as its desks go: the workspace's own (unless `workspace` is false), then
+ *   one per scheduled job.
+ */
+
+/**
+ * Who sits at each of a cubicle's desks, in order: null for the workspace's own worker, else a job's name.
+ * @param {CubicleDesks} c
+ * @returns {Array<string | null>}
+ */
+export const deskOwners = (c) => [...(c.workspace === false ? [] : [null]), ...(c.jobs ?? []).map((j) => j.name)];
+
+/**
+ * The desk a worker sits behind, or null when `place` names a cubicle (or a job's desk) the
+ * layout doesn't have.
+ * @param {Layout} layout @param {CubicleDesks[]} cubicles the scene's, in the layout's order
  * @param {import('./scene.js').Place} place
  * @returns {Rect | null}
  */
 export function deskAt(layout, cubicles, place) {
   if (place.room !== 'cubicle') return layout.desks[place.room];
-  const r = layout.cubicles[cubicles.findIndex((c) => c.alias === place.alias)];
-  return r ? cubicleDesk(r) : null;
+  const i = cubicles.findIndex((c) => c.alias === place.alias);
+  const r = layout.cubicles[i];
+  if (!r) return null;
+  const owners = deskOwners(cubicles[i]);
+  const at = owners.indexOf(place.job ?? null);
+  return at < 0 ? null : cubicleDesks(r, owners.length)[at];
 }
 
 /**
@@ -120,22 +153,27 @@ export function placeName(layout, cubicles, place) {
  */
 export const roomAt = (layout, place) => layout.rooms[place.room === 'cubicle' ? 'bullpen' : place.room];
 
-/** Where the worker sits at `desk`: left of the monitor, head and body above the desktop. @param {Rect} desk */
-export const workerRect = (desk) => ({ x: desk.x + Math.floor(desk.w / 2) - 17, y: desk.y - 17, w: 10, h: 19 });
+/**
+ * Where the worker sits at `desk`: left of the monitor (at a narrow desk, at its left end), head and
+ * body above the desktop.
+ * @param {Rect} desk
+ */
+export const workerRect = (desk) => ({ x: desk.x + Math.max(1, Math.floor(desk.w / 2) - 17), y: desk.y - 17, w: 10, h: 19 });
 
 /**
- * The workspace whose cubicle (or the worker in it) is at (x, y), or null for anywhere else.
- * @param {Layout} layout @param {Array<{ alias: string }>} cubicles @param {number} x @param {number} y
+ * The workspace whose cubicle (or the worker in it) is at (x, y), or null for anywhere else
+ * (a scheduled-job room that isn't a workspace included).
+ * @param {Layout} layout @param {Array<{ alias: string, workspace?: boolean }>} cubicles @param {number} x @param {number} y
  */
 function cubicleAt(layout, cubicles, x, y) {
-  const i = layout.cubicles.findIndex((r) => inside(r, x, y));
-  return cubicles[i]?.alias ?? null;
+  const c = cubicles[layout.cubicles.findIndex((r) => inside(r, x, y))];
+  return c && c.workspace !== false ? c.alias : null;
 }
 
 /**
  * The panel's workspace filter after a click at (x, y): a cubicle's workspace, or none when the
  * click is on the filtered cubicle again or anywhere else.
- * @param {Layout} layout @param {Array<{ alias: string }>} cubicles @param {number} x @param {number} y
+ * @param {Layout} layout @param {Array<{ alias: string, workspace?: boolean }>} cubicles @param {number} x @param {number} y
  * @param {string | null} current
  * @returns {string | null}
  */

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { PILE_MAX, reduceScene, restingState } from '../dashboard/scene.js';
+import { PILE_MAX, jobWorker, reduceScene, restingState } from '../dashboard/scene.js';
 
 const NOW = Date.parse('2026-09-26T12:00:00Z');
 const iso = (ms) => new Date(NOW + ms).toISOString();
@@ -204,9 +204,8 @@ describe('office scene: a run starting', () => {
     assert.deepEqual(reduceScene(running({ workspaceAlias: 'gone' }), null, up).run?.place, { room: 'annex' });
   });
 
-  it('has no worker while idle, or for a scheduled job (their rooms come later)', () => {
+  it('has no worker while idle', () => {
     assert.equal(reduceScene(snap(), null, up).run, null);
-    assert.equal(reduceScene(running({ kind: 'job', trigger: 'schedule', room: 'reddit-bot', workspaceAlias: null }), null, up).run, null);
   });
 
   it('keeps the worker in place while the runner is down', () => {
@@ -542,5 +541,136 @@ describe('office scene: pending issues', () => {
     assert.deepEqual(none.parked, []);
     const stale = reduceScene(snap({ issues: issues(repo('bot', { stale: true, runnable: [item(1)] })) }), null, up);
     assert.equal(stale.cubicles[0].inTray.length, 1);
+  });
+});
+
+describe('office scene: scheduled jobs', () => {
+  const RA = 'Research & Archives';
+  const jobs = [
+    { name: 'cleanup_agent', room: RA, at: '02:00', nextDueAt: iso(3_600_000) },
+    { name: 'report_agent', room: RA, at: '02:30', nextDueAt: iso(5_400_000) },
+    { name: 'backup', room: 'bot', at: '03:00', nextDueAt: iso(7_200_000) },
+  ];
+  /** A running job: `over` on top of an OfficeRun. */
+  const jobRun = (over = {}) => ({
+    ...run({ runId: 'j1', kind: 'job', trigger: 'schedule', label: 'scheduled job cleanup_agent', workspaceAlias: null, issueNumber: null, room: RA, jobName: 'cleanup_agent', phase: 'job', model: null, ...over }),
+  });
+  const jobSnap = (over = {}) => snap({ jobs, ...over });
+  const runningJob = (over = {}) => {
+    const r = jobRun(over);
+    return jobSnap({ activeRun: r, active: [r] });
+  };
+
+  it('gives each job room a cubicle after the workspaces, with a desk per job, even if it is no workspace', () => {
+    const scene = reduceScene(jobSnap(), null, up);
+    assert.deepEqual(
+      scene.cubicles.map((c) => [c.alias, c.name, c.workspace, c.jobs.map((j) => j.name)]),
+      [
+        ['bot', 'bot', true, ['backup']],
+        ['chess-trainer', 'chess-trainer', true, []],
+        ['dots', 'dots', true, []],
+        [RA, RA, false, ['cleanup_agent', 'report_agent']],
+      ]
+    );
+  });
+
+  it("puts a job room named after a workspace's department sign in that workspace's cubicle", () => {
+    const config = { cubicles: [{ alias: 'dots', name: 'Sales' }] };
+    const scene = reduceScene(snap({ jobs: [{ name: 'report_agent', room: 'Sales', at: '02:30', nextDueAt: iso(1000) }] }), null, { ...up, config });
+    assert.deepEqual(scene.cubicles.map((c) => [c.alias, c.jobs.map((j) => j.name)]), [
+      ['dots', ['report_agent']],
+      ['bot', []],
+      ['chess-trainer', []],
+    ]);
+  });
+
+  it('gives each job its own worker: a janitor for cleanup, an analyst for insight or report, else a clerk', () => {
+    assert.equal(jobWorker('cleanup_agent'), 'janitor');
+    assert.equal(jobWorker('report_agent'), 'analyst');
+    assert.equal(jobWorker('weekly-insight'), 'analyst');
+    assert.equal(jobWorker('backup'), 'clerk');
+    const ra = reduceScene(jobSnap(), null, up).cubicles[3];
+    assert.deepEqual(ra.jobs, [
+      { name: 'cleanup_agent', worker: 'janitor', at: '02:00', nextDueAt: NOW + 3_600_000 },
+      { name: 'report_agent', worker: 'analyst', at: '02:30', nextDueAt: NOW + 5_400_000 },
+    ]);
+  });
+
+  it('has no job rooms when there are no jobs, or the feed is older than the job config', () => {
+    assert.ok(reduceScene(snap(), null, up).cubicles.every((c) => c.workspace && !c.jobs.length));
+    assert.equal(reduceScene(snap({ jobs: undefined }), null, up).cubicles.length, 3);
+  });
+
+  it("delivers a due job by envelope to its worker's desk in its room", () => {
+    const scene = reduceScene(runningJob(), null, up);
+    assert.deepEqual(scene.run?.place, { room: 'cubicle', alias: RA, job: 'cleanup_agent' });
+    assert.equal(scene.run?.delivery.by, 'envelope');
+    assert.equal(scene.run?.worker, 'janitor');
+    assert.equal(scene.run?.work, 'typing');
+  });
+
+  it('puts a queued job on the mail cart as a letter', () => {
+    const queue = [{ id: 'q1', kind: 'job', label: 'scheduled job report_agent', queuedAt: iso(-1000) }];
+    assert.deepEqual(reduceScene(jobSnap({ queue }), null, up).reception.letters, [{ id: 'q1', label: 'scheduled job report_agent' }]);
+  });
+
+  it('grows the pile with elapsed time alone (a job has no turns)', () => {
+    const [a, b] = play([
+      [runningJob({ elapsedMs: 0 }), NOW],
+      [runningJob({ elapsedMs: 9 * 60_000 }), NOW + 9 * 60_000],
+    ]);
+    assert.equal(a.run?.pile, 0);
+    assert.equal(b.run?.pile, 3);
+  });
+
+  it("shows the latest line of the job's output in the bubble, from its live log", () => {
+    const log = { runId: 'j1', lines: ['Starting cleanup', 'Deleted 12 rows', '  '] };
+    const scene = reduceScene(runningJob(), null, { ...up, log });
+    assert.equal(scene.run?.bubble, 'Deleted 12 rows');
+    assert.equal(scene.run?.activity, 'Deleted 12 rows');
+    // another run's log (the last one's, before this one's arrives) says nothing
+    assert.equal(reduceScene(runningJob(), null, { ...up, log: { runId: 'old', lines: ['old news'] } }).run?.bubble, null);
+    assert.equal(reduceScene(runningJob(), null, up).run?.bubble, null);
+  });
+
+  it('puts a job whose config is gone in the Annex', () => {
+    const scene = reduceScene(runningJob({ jobName: 'retired', room: 'Nowhere' }), null, up);
+    assert.deepEqual(scene.run?.place, { room: 'annex' });
+    assert.equal(scene.run?.worker, 'clerk');
+  });
+
+  it("keeps each job room's last outcome, in the shared states, at the job's desk", () => {
+    const job = (over) => row({ kind: 'job', trigger: 'schedule', workspaceAlias: null, issueNumber: null, room: RA, result: null, prUrl: null, ...over });
+    const cases = [
+      ['success', 'stamped'],
+      ['failed', 'injured'],
+      ['stopped', 'home'],
+      ['interrupted', 'dizzy'],
+      ['timeout', 'asleep'],
+    ];
+    for (const [outcome, state] of cases) {
+      const [o] = reduceScene(jobSnap({ history: [job({ jobName: 'report_agent', outcome })] }), null, up).outcomes;
+      assert.deepEqual([o.place, o.state], [{ room: 'cubicle', alias: RA, job: 'report_agent' }, state], outcome);
+    }
+    // one outcome per room: its latest run's, whichever job it was
+    const history = [job({ runId: 'c2', jobName: 'cleanup_agent', outcome: 'failed' }), job({ runId: 'r1', jobName: 'report_agent' })];
+    assert.deepEqual(
+      reduceScene(jobSnap({ history }), null, up).outcomes.map((o) => o.runId),
+      ['c2']
+    );
+  });
+
+  it("clears the room's last outcome while a job runs there", () => {
+    const history = [row({ kind: 'job', trigger: 'schedule', workspaceAlias: null, issueNumber: null, room: RA, jobName: 'report_agent', result: null, prUrl: null })];
+    const r = jobRun();
+    assert.deepEqual(reduceScene(jobSnap({ activeRun: r, active: [r], history }), null, up).outcomes, []);
+  });
+
+  it('never brings the boss over for a job', () => {
+    const scenes = play([
+      [runningJob(), NOW],
+      [jobSnap(), NOW + 5_000],
+    ]);
+    for (const sc of scenes) assert.equal(sc.boss.at, null);
   });
 });

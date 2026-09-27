@@ -132,6 +132,34 @@ export function decideJobs(jobs, now, lastFired) {
 }
 
 /**
+ * When `job` next joins the queue (ISO), as the scheduler decides it: today's time until it has
+ * fired today (past, while it waits for the next tick), then tomorrow's. A job with no record yet
+ * runs today only if its time hasn't passed (see `decideJobs`).
+ * @param {Pick<ScheduledJob, 'at'>} job @param {number} now @param {string | undefined} lastFiredDay
+ */
+export function nextDueAt(job, now, lastFiredDay) {
+  const today = dueTimeOn(job, now);
+  const tomorrow = lastFiredDay === utcDay(now) || (lastFiredDay == null && now >= today);
+  return new Date(tomorrow ? dueTimeOn(job, now + DAY_MS) : today).toISOString();
+}
+
+/**
+ * @typedef {{ name: string, room: string, at: string, nextDueAt: string }} JobScheduleEntry
+ *   A configured job, for the office: no command, directory or env.
+ */
+
+/**
+ * The configured jobs and when each is next due, in config order.
+ * @param {{ loadJobs: () => Promise<{ jobs: ScheduledJob[] }>, store: Pick<import('./redisStore.js').Store, 'hashGetAll'>, now?: () => number }} p
+ * @returns {Promise<JobScheduleEntry[]>}
+ */
+export async function jobSchedule({ loadJobs, store, now = Date.now }) {
+  const [{ jobs }, fired] = await Promise.all([loadJobs(), store.hashGetAll(JOBS_LAST_FIRED_KEY)]);
+  const t = now();
+  return jobs.map((j) => ({ name: j.name, room: j.room, at: j.at, nextDueAt: nextDueAt(j, t, fired[j.name]) }));
+}
+
+/**
  * @param {{
  *   store: import('./redisStore.js').Store,
  *   loadJobs: () => Promise<{ jobs: ScheduledJob[], errors: string[] }>,

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createJobScheduler, decideJobs, JOBS_LAST_FIRED_KEY, loadJobsFile, parseJobs } from '../src/scheduledJobs.js';
+import { createJobScheduler, decideJobs, JOBS_LAST_FIRED_KEY, jobSchedule, loadJobsFile, nextDueAt, parseJobs } from '../src/scheduledJobs.js';
 import { createOutbox, OUTBOX_KEY } from '../src/outbox.js';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
@@ -65,6 +65,34 @@ describe('scheduled jobs: when a job is due', () => {
   it('a new job is recorded without running: for today if past its time, else for yesterday', () => {
     assert.deepEqual(decideJobs([cleanup], at('2026-09-26T10:00:00Z'), fired({})), { due: [], adopt: new Map([['cleanup_agent', '2026-09-26']]) });
     assert.deepEqual(decideJobs([cleanup], at('2026-09-26T01:00:00Z'), fired({})), { due: [], adopt: new Map([['cleanup_agent', '2026-09-25']]) });
+  });
+});
+
+describe('scheduled jobs: next due time', () => {
+  const t = (iso) => new Date(at(iso)).toISOString();
+
+  it("is today's time until it has fired today, then tomorrow's", () => {
+    assert.equal(nextDueAt(cleanup, at('2026-09-26T01:00:00Z'), '2026-09-25'), t('2026-09-26T02:00:00Z'));
+    assert.equal(nextDueAt(cleanup, at('2026-09-26T03:00:00Z'), '2026-09-26'), t('2026-09-27T02:00:00Z'));
+  });
+
+  it("stays today's (now past) while a due job waits to fire", () => {
+    assert.equal(nextDueAt(cleanup, at('2026-09-26T03:00:00Z'), '2026-09-25'), t('2026-09-26T02:00:00Z'));
+  });
+
+  it('follows the scheduler for a job with no record yet: today before its time, else tomorrow', () => {
+    assert.equal(nextDueAt(cleanup, at('2026-09-26T01:00:00Z'), undefined), t('2026-09-26T02:00:00Z'));
+    assert.equal(nextDueAt(cleanup, at('2026-09-26T10:00:00Z'), undefined), t('2026-09-27T02:00:00Z'));
+  });
+
+  it("lists each configured job's name, room, time and next due time, for the office", async () => {
+    const store = createMemoryStore();
+    await store.hashSet(JOBS_LAST_FIRED_KEY, 'cleanup_agent', '2026-09-26');
+    const list = await jobSchedule({ loadJobs: async () => ({ jobs: [cleanup, report], errors: [] }), store, now: () => at('2026-09-26T02:10:00Z') });
+    assert.deepEqual(list, [
+      { name: 'cleanup_agent', room: 'reddit-bot', at: '02:00', nextDueAt: t('2026-09-27T02:00:00Z') },
+      { name: 'report_agent', room: 'reddit-bot', at: '02:30', nextDueAt: t('2026-09-26T02:30:00Z') },
+    ]);
   });
 });
 

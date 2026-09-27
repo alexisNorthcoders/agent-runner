@@ -5,7 +5,7 @@ import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, for
 import { cartSlots, clickFilter, deskAt, fitScene, folderSlots, inTraySlots, inside, layoutOffice, placeName, placeRect, stickyNote, workerRect } from './layout.js';
 import { applyLogEvent } from './logPane.js';
 import { animating, drawOffice } from './officeView.js';
-import { reduceScene, samePlace } from './scene.js';
+import { lastLine, reduceScene, samePlace } from './scene.js';
 
 const FEED_URL = 'feed';
 const RECONNECT_MS = 3000;
@@ -66,6 +66,16 @@ const dl = (pairs) => h('dl', null, ...pairs.flatMap(([k, v]) => [h('dt', null, 
  */
 const workspaceOf = (r) => r.workspaceAlias ?? r.inferredWorkspace ?? null;
 
+/** The latest line of `runId`'s live log with anything on it, if the pane holds its log. @param {string} runId */
+const lastLogLine = (runId) => (pane.runId === runId ? lastLine(pane.lines) : null);
+
+/** When a scheduled job is next due, from `t`. @param {{ nextDueAt: string | number | null }} j @param {number} t */
+function nextDue(j, t) {
+  const at = typeof j.nextDueAt === 'string' ? Date.parse(j.nextDueAt) : j.nextDueAt;
+  if (at == null || !Number.isFinite(at)) return '-';
+  return at > t ? `in ~${formatDuration(at - t)} (${new Date(at).toLocaleString()})` : 'due now';
+}
+
 /** The snapshot's clock, advanced by the time since it arrived. */
 const now = () => Date.parse(snap.at) + (Date.now() - receivedAt);
 
@@ -75,8 +85,21 @@ function renderNow() {
   const t = now();
   const out = [];
   const run = snap.activeRun;
+  const elapsed = run && formatDuration(run.elapsedMs == null ? null : run.elapsedMs + (Date.now() - receivedAt));
   if (!run) out.push(h('p', null, 'Agent: idle'));
-  else {
+  else if (run.kind === 'job') {
+    // a job has no model, turns or tokens: its output is the live log below
+    out.push(
+      h('h2', null, what(run)),
+      dl([
+        ['trigger', run.trigger],
+        ['room', run.room ?? '-'],
+        ['elapsed', elapsed],
+        ['output', lastLogLine(run.runId) ?? '-'],
+        ['run', run.runId],
+      ])
+    );
+  } else {
     out.push(
       h('h2', null, what(run)),
       dl([
@@ -85,7 +108,7 @@ function renderNow() {
         ['issue', run.issueNumber != null ? `#${run.issueNumber}` : '-'],
         ['phase', run.phase ?? '-'],
         ['model', shortModel(run.model)],
-        ['elapsed', formatDuration(run.elapsedMs == null ? null : run.elapsedMs + (Date.now() - receivedAt))],
+        ['elapsed', elapsed],
         ['turns', String(run.turns)],
         ['tokens', `${formatTokens(run.outputTokens)} out · ${formatTokens(run.contextTokens)} ctx`],
         ['last activity', run.lastActivity ?? '-'],
@@ -213,6 +236,12 @@ function renderOffice() {
       }),
       'No allowlisted workspaces.'
     ),
+    h('h3', null, 'Scheduled jobs'),
+    table(
+      ['job', 'room', 'daily (UTC)', 'next due'],
+      (snap.jobs ?? []).map((j) => [j.name, j.room, j.at, nextDue(j, t)]),
+      'No scheduled jobs.'
+    ),
   ];
 }
 
@@ -262,7 +291,7 @@ function render() {
 
 function drawScene() {
   const t = snap ? now() : Date.now();
-  scene = reduceScene(snap, scene, { up, now: t, config });
+  scene = reduceScene(snap, scene, { up, now: t, config, log: pane });
   const floor = document.getElementById('floor');
   const canvas = sceneCanvas;
   const dpr = window.devicePixelRatio || 1;
@@ -341,6 +370,17 @@ function pendingAt(x, y) {
   return folderSlots(layout, scene.cubicles, scene.outcomes, scene.parked).find((f) => inside(f.rect, x, y))?.tip ?? null;
 }
 
+/** The scheduled job whose worker is at (x, y), if any. @param {number} x @param {number} y */
+function jobWorkerAt(x, y) {
+  for (const c of scene.cubicles) {
+    for (const j of c.jobs) {
+      const d = deskAt(layout, scene.cubicles, { room: 'cubicle', alias: c.alias, job: j.name });
+      if (d && inside(workerRect(d), x, y)) return j;
+    }
+  }
+  return null;
+}
+
 /** What's under the pointer: a letter's label, a pending issue, the cron countdown, or a room (a cubicle's workspace) and its last run. */
 function hovered() {
   if (!pointer || !scene || !layout || scene.dark) return null;
@@ -348,6 +388,8 @@ function hovered() {
   const run = scene.run;
   const desk = run && deskAt(layout, scene.cubicles, run.place);
   if (run && desk && inside(workerRect(desk), x, y)) return `${run.label ?? run.runId}${run.activity ? `: ${run.activity}` : ''}`;
+  const job = jobWorkerAt(x, y);
+  if (job) return `Scheduled job ${job.name} (${job.worker}), daily at ${job.at} UTC\nNext due ${nextDue(job, now())}`;
   const slot = cartSlots(layout, scene.reception.letters).find((sl) => inside(sl.rect, x, y));
   if (slot) return slot.label;
   const pending = pendingAt(x, y);
@@ -357,7 +399,8 @@ function hovered() {
   const c = scene.cubicles[i];
   if (c) {
     const o = scene.outcomes.find((x) => samePlace(x.place, { room: 'cubicle', alias: c.alias }));
-    return `${c.name}${c.name === c.alias ? '' : ` (${c.alias})`}${c.doNotDisturb ? ': do not disturb' : ''}${lastRun(o)}`;
+    const jobs = c.jobs.map((j) => `\n${j.name}: next due ${nextDue(j, now())}`).join('');
+    return `${c.name}${c.name === c.alias ? '' : ` (${c.alias})`}${c.doNotDisturb ? ': do not disturb' : ''}${jobs}${lastRun(o)}`;
   }
   const room = scene.outcomes.find((o) => {
     const r = o.place.room !== 'cubicle' && placeRect(layout, scene.cubicles, o.place);
@@ -420,6 +463,8 @@ function connect() {
     // visible first, or the scroll to the bottom does nothing
     showLog();
     renderLog();
+    // a job's speech bubble is its latest line
+    if (snap?.activeRun?.kind === 'job') drawScene();
   });
   source.addEventListener('error', () => {
     setUp(false);

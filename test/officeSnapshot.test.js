@@ -81,6 +81,7 @@ describe('buildOfficeSnapshot', () => {
       inferredWorkspace: null,
       issueNumber: 7,
       room: null,
+      jobName: null,
       health: 'running',
       phase: 'post-run',
       model: 'claude-sonnet-5',
@@ -118,7 +119,7 @@ describe('buildOfficeSnapshot', () => {
   it('lists the queue, the lock holder and every pause', () => {
     const s = buildOfficeSnapshot({ status: status({ paused: { token: 't', reason: 'safe-restart', pausedAt: '2026-09-24T11:59:30Z' } }), live: null, workspaces: [] });
     assert.deepEqual(s.queue, [{ id: 'q1', kind: 'freeform', label: 'next job', queuedAt: '2026-09-24T11:59:00Z' }]);
-    assert.deepEqual(s.lock, { runId: 'r1', kind: 'issue', trigger: 'cron', label: 'issue bot#7 "Fix it"', workspaceAlias: 'bot', inferredWorkspace: null, issueNumber: 7, room: null, startedAt: '2026-09-24T11:50:00Z' });
+    assert.deepEqual(s.lock, { runId: 'r1', kind: 'issue', trigger: 'cron', label: 'issue bot#7 "Fix it"', workspaceAlias: 'bot', inferredWorkspace: null, issueNumber: 7, room: null, jobName: null, startedAt: '2026-09-24T11:50:00Z' });
     assert.deepEqual(s.pauses, {
       restart: { reason: 'safe-restart', pausedAt: '2026-09-24T11:59:30Z' },
       general: { reason: 'lunch', pausedAt: '2026-09-24T11:00:00Z', until: '2026-09-24T13:00:00Z' },
@@ -145,18 +146,34 @@ describe('buildOfficeSnapshot', () => {
     assert.equal(buildOfficeSnapshot({ status: status({ cron: null }), live: null, workspaces: [] }).cron, null);
   });
 
-  it('marks a scheduled job with trigger schedule and its room', () => {
+  it('marks a scheduled job with trigger schedule, its room and its name', () => {
     const job = { runId: 'j1', kind: 'job', trigger: /** @type {const} */ ('schedule'), jobName: 'cleanup_agent', room: 'reddit-bot', label: 'scheduled job cleanup_agent' };
     const st = status();
     const s = buildOfficeSnapshot({
-      status: { ...st, lock: { ...job, startedAt: '2026-09-24T11:50:00Z' }, history: [{ ...job, endedAt: '2026-09-24T10:01:00Z', outcome: 'success' }] },
-      live: null,
+      status: {
+        ...st,
+        active: [{ ...st.active[0], ...job, workspaceAlias: undefined, issueNumber: undefined }],
+        lock: { ...job, startedAt: '2026-09-24T11:50:00Z' },
+        history: [{ ...job, endedAt: '2026-09-24T10:01:00Z', outcome: 'success' }],
+      },
+      live: { runId: 'j1', phase: 'job' },
       workspaces: [],
     });
     assert.equal(s.lock?.trigger, 'schedule');
     assert.equal(s.lock?.room, 'reddit-bot');
+    assert.equal(s.lock?.jobName, 'cleanup_agent');
+    assert.equal(s.activeRun?.phase, 'job');
+    assert.equal(s.activeRun?.jobName, 'cleanup_agent');
+    assert.equal(s.activeRun?.room, 'reddit-bot');
     assert.equal(s.history[0].trigger, 'schedule');
     assert.equal(s.history[0].room, 'reddit-bot');
+    assert.equal(s.history[0].jobName, 'cleanup_agent');
+  });
+
+  it("carries the scheduled jobs' config: names, rooms and next due times, and none by default", () => {
+    const jobs = [{ name: 'cleanup_agent', room: 'Research & Archives', at: '02:00', nextDueAt: '2026-09-25T02:00:00.000Z' }];
+    assert.deepEqual(buildOfficeSnapshot({ status: status(), live: null, workspaces: [], jobs }).jobs, jobs);
+    assert.deepEqual(buildOfficeSnapshot({ status: status(), live: null, workspaces: [] }).jobs, []);
   });
 
   it("carries a freeform run's inferred workspace: live, in the lock and in history", () => {
@@ -192,6 +209,7 @@ describe('buildOfficeSnapshot', () => {
       inferredWorkspace: null,
       issueNumber: null,
       room: null,
+      jobName: null,
       startedAt: '2026-09-24T10:00:00Z',
       endedAt: '2026-09-24T10:01:00Z',
       durationMs: 60_000,
@@ -233,5 +251,15 @@ describe('collectOfficeSnapshot', () => {
     const base = { statusSnapshot: async () => status(), liveRun: async () => ({ activeRun: null }), workspaceAliases: async () => ['bot'] };
     assert.deepEqual((await collectOfficeSnapshot({ ...base, issues: () => issues })).issues, issues);
     assert.equal((await collectOfficeSnapshot(base)).issues, null);
+  });
+
+  it('reads the job schedule, and still builds (with no jobs) when it fails', async () => {
+    const jobs = [{ name: 'cleanup_agent', room: 'Research & Archives', at: '02:00', nextDueAt: '2026-09-25T02:00:00.000Z' }];
+    const base = { statusSnapshot: async () => status(), liveRun: async () => ({ activeRun: null }), workspaceAliases: async () => ['bot'] };
+    assert.deepEqual((await collectOfficeSnapshot({ ...base, jobs: async () => jobs })).jobs, jobs);
+    const failing = async () => {
+      throw new Error('redis down');
+    };
+    assert.deepEqual((await collectOfficeSnapshot({ ...base, jobs: failing })).jobs, []);
   });
 });

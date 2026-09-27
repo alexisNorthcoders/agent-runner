@@ -22,6 +22,7 @@ import { spend, totalTokens } from './statusFormat.js';
  *   inferredWorkspace: string | null,
  *   issueNumber: number | null,
  *   room: string | null,
+ *   jobName: string | null,
  *   health: RunHealth,
  *   phase: 'agent' | 'post-run' | 'job' | null,
  *   model: string | null,
@@ -34,7 +35,7 @@ import { spend, totalTokens } from './statusFormat.js';
  *   agentPid: number | null,
  * }} OfficeRun
  *   An in-flight run. `trigger` is `cron` for the cron issue tracer, `schedule` for a scheduled
- *   job (`kind: job`, with its `room`), else `manual` (WhatsApp or HTTP). `inferredWorkspace`: the
+ *   job (`kind: job`, with its `room` and `jobName`), else `manual` (WhatsApp or HTTP). `inferredWorkspace`: the
  *   allowlisted workspace a freeform run turned out to work in, once its first edit or command
  *   there is seen (null until then, and for other kinds). A job's phase is `job`. `phase` is known only for the run this process is executing (null for an orphaned or
  *   stale one). `elapsedMs` is as of the snapshot's `at`.
@@ -48,6 +49,7 @@ import { spend, totalTokens } from './statusFormat.js';
  *   inferredWorkspace: string | null,
  *   issueNumber: number | null,
  *   room: string | null,
+ *   jobName: string | null,
  *   startedAt: string | null,
  *   endedAt: string,
  *   durationMs: number | null,
@@ -97,6 +99,7 @@ import { spend, totalTokens } from './statusFormat.js';
  *   inferredWorkspace: string | null,
  *   issueNumber: number | null,
  *   room: string | null,
+ *   jobName: string | null,
  *   startedAt: string | null,
  * }} OfficeLock
  *
@@ -113,12 +116,14 @@ import { spend, totalTokens } from './statusFormat.js';
  *   spend: { today: SpendTotals, week: SpendTotals },
  *   workspaces: string[],
  *   issues: import('./issueScan.js').OfficeIssues | null,
+ *   jobs: import('./scheduledJobs.js').JobScheduleEntry[],
  * }} OfficeSnapshot
  *   `at`: when the snapshot was taken (ISO). `activeRun`: the run this runner is executing, if any.
  *   `active`: every in-flight run `agent:status` lists, including orphaned and stale ones, oldest
  *   first. `queue`: oldest first. `history`: the last 7 days, newest first. `spend`: today (since
  *   local midnight) and the last 7 days. `workspaces`: the allowlisted aliases, sorted. `issues`:
- *   the issue scan's latest result (src/issueScan.js), null before its first scan ends.
+ *   the issue scan's latest result (src/issueScan.js), null before its first scan ends. `jobs`: the
+ *   scheduled jobs' config (src/scheduledJobs.js) with each one's next due time, in config order.
  *
  * @typedef {{ runId: string, phase?: 'agent' | 'post-run' | 'job', inferredWorkspace?: string } & Partial<import('./agentBackend/index.js').AgentProgress>} LiveRun
  *   What this process knows about the run it's executing (from `runner.status()`), fresher than
@@ -133,6 +138,9 @@ const triggerOf = (trigger) => (trigger === 'cron' || trigger === 'schedule' ? t
 
 /** @param {unknown} room @returns {string | null} */
 const roomOf = (room) => (typeof room === 'string' ? room : null);
+
+/** @param {unknown} name @returns {string | null} */
+const jobNameOf = (name) => (typeof name === 'string' ? name : null);
 
 /** @param {unknown} alias @returns {string | null} */
 const aliasOf = (alias) => (typeof alias === 'string' ? alias : null);
@@ -155,6 +163,7 @@ function officeRun(r, live, now) {
     inferredWorkspace: aliasOf(p.inferredWorkspace),
     issueNumber: r.issueNumber ?? null,
     room: roomOf(r.room),
+    jobName: jobNameOf(r.jobName),
     health: r.health,
     phase: mine?.phase ?? null,
     model: p.model ?? null,
@@ -180,6 +189,7 @@ function historyEntry(h) {
     inferredWorkspace: aliasOf(h.inferredWorkspace),
     issueNumber: typeof h.issueNumber === 'number' ? h.issueNumber : null,
     room: roomOf(h.room),
+    jobName: jobNameOf(h.jobName),
     startedAt: h.startedAt ?? null,
     endedAt: h.endedAt,
     durationMs: Number.isFinite(durationMs) ? durationMs : null,
@@ -197,10 +207,16 @@ function historyEntry(h) {
 const manualPause = (p) => ({ reason: p.reason, pausedAt: p.pausedAt, until: p.until });
 
 /**
- * @param {{ status: import('./statusCollect.js').StatusSnapshot, live: LiveRun | null, workspaces: string[], issues?: import('./issueScan.js').OfficeIssues | null }} p
+ * @param {{
+ *   status: import('./statusCollect.js').StatusSnapshot,
+ *   live: LiveRun | null,
+ *   workspaces: string[],
+ *   issues?: import('./issueScan.js').OfficeIssues | null,
+ *   jobs?: import('./scheduledJobs.js').JobScheduleEntry[],
+ * }} p
  * @returns {OfficeSnapshot}
  */
-export function buildOfficeSnapshot({ status: d, live, workspaces, issues = null }) {
+export function buildOfficeSnapshot({ status: d, live, workspaces, issues = null, jobs = [] }) {
   const active = d.active.map((r) => officeRun(r, live, d.now));
   const manual = d.manualPauses ?? [];
   const general = manual.find((p) => p.scope === ALL);
@@ -240,6 +256,7 @@ export function buildOfficeSnapshot({ status: d, live, workspaces, issues = null
           inferredWorkspace: aliasOf(d.lock.inferredWorkspace),
           issueNumber: d.lock.issueNumber ?? null,
           room: roomOf(d.lock.room),
+          jobName: jobNameOf(d.lock.jobName),
           startedAt: d.lock.startedAt ?? null,
         }
       : null,
@@ -247,25 +264,28 @@ export function buildOfficeSnapshot({ status: d, live, workspaces, issues = null
     spend: { today: totals(today), week: totals(week) },
     workspaces,
     issues,
+    jobs,
   };
 }
 
 /**
- * Read everything a snapshot needs and build it. The allowlist is config, so a broken map file
- * shows as no workspaces instead of failing the feed.
+ * Read everything a snapshot needs and build it. The allowlist and the job schedule are config, so
+ * a broken file shows as no workspaces or no jobs instead of failing the feed.
  * @param {{
  *   statusSnapshot: () => Promise<import('./statusCollect.js').StatusSnapshot>,
  *   liveRun: () => Promise<{ activeRun: LiveRun | null }>,
  *   workspaceAliases: () => Promise<string[]>,
  *   issues?: () => import('./issueScan.js').OfficeIssues | null,
+ *   jobs?: () => Promise<import('./scheduledJobs.js').JobScheduleEntry[]>,
  * }} deps
  * @returns {Promise<OfficeSnapshot>}
  */
-export async function collectOfficeSnapshot({ statusSnapshot, liveRun, workspaceAliases, issues = () => null }) {
-  const [status, live, workspaces] = await Promise.all([
+export async function collectOfficeSnapshot({ statusSnapshot, liveRun, workspaceAliases, issues = () => null, jobs = async () => [] }) {
+  const [status, live, workspaces, schedule] = await Promise.all([
     statusSnapshot(),
     liveRun().then((s) => s.activeRun, () => null),
     workspaceAliases().catch(() => []),
+    jobs().catch(() => []),
   ]);
-  return buildOfficeSnapshot({ status, live, workspaces, issues: issues() });
+  return buildOfficeSnapshot({ status, live, workspaces, issues: issues(), jobs: schedule });
 }
