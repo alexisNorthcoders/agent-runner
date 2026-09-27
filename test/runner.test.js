@@ -1290,6 +1290,36 @@ describe('runner: the usage limit', () => {
     assert.equal(await queue.length(), 0);
   });
 
+  it('claude:resume with no alias ends it early, with any pauses by hand, and the queue starts', async () => {
+    const { runner, starts, usageLimit, queue } = setup();
+    await runner.handleCommand({ text: 'claude one', replyTo: 'jid-1' });
+    await runner.handleCommand({ text: 'claude two', replyTo: 'jid-1' });
+    starts[0].hitLimit(LIMIT);
+    await runner.idle();
+    assert.equal(starts.length, 1);
+
+    assert.equal((await runner.handleCommand({ text: 'claude:resume', replyTo: 'jid-1' })).reply, 'Resumed: cleared the usage-limit pause.');
+    await runner.idle();
+    assert.equal(await usageLimit.get(), null);
+    assert.deepEqual(starts.map((s) => s.opts.prompt), ['one', 'two']);
+    assert.equal(await queue.length(), 0);
+
+    starts[1].hitLimit(LIMIT);
+    await runner.idle();
+    await runner.handleCommand({ text: 'claude:pause 1h', replyTo: 'jid-1' });
+    assert.equal((await runner.handleCommand({ text: 'claude:resume', replyTo: 'jid-1' })).reply, 'Resumed: cleared 1 pause and the usage-limit pause.');
+    assert.equal((await runner.handleCommand({ text: 'claude:resume', replyTo: 'jid-1' })).reply, 'Nothing was paused.');
+  });
+
+  it('claude:resume <alias> leaves it in place', async () => {
+    const { runner, starts, usageLimit } = setup();
+    await runner.handleCommand({ text: 'claude one', replyTo: 'jid-1' });
+    starts[0].hitLimit(LIMIT);
+    await runner.idle();
+    assert.equal((await runner.handleCommand({ text: 'claude:resume all', replyTo: 'jid-1' })).reply, 'There was no general pause.');
+    assert.notEqual(await usageLimit.get(), null);
+  });
+
   it('a second hit with an earlier reset does not shorten the pause', async () => {
     const { runner, starts, usageLimit, outboxEntries } = setup();
     await runner.handleCommand({ text: 'claude one', replyTo: 'jid-1' });

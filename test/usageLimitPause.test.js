@@ -42,6 +42,17 @@ describe('usage-limit pause', () => {
     assert.equal(await pause.get(), null);
   });
 
+  it('clears early, saying whether a live pause was there', async () => {
+    const { pause, advance } = setup();
+    assert.equal(await pause.clear(), false);
+    await pause.extend({ resetsAt: '2026-09-26T06:02:00.000Z', note: null, timeZone: null });
+    assert.equal(await pause.clear(), true);
+    assert.equal(await pause.get(), null);
+    await pause.extend({ resetsAt: '2026-09-26T06:02:00.000Z', note: null, timeZone: null });
+    advance(60 * 60_000);
+    assert.equal(await pause.clear(), false, 'an expired pause was not live');
+  });
+
   it('describes itself in the zone the agent named', () => {
     const p = { until: '2026-09-26T06:02:00.000Z', note: 'resets 7am Europe/London', timeZone: 'Europe/London', since: '' };
     const now = Date.parse('2026-09-26T05:10:00Z');

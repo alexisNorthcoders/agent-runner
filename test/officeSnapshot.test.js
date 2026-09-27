@@ -124,9 +124,16 @@ describe('buildOfficeSnapshot', () => {
       restart: { reason: 'safe-restart', pausedAt: '2026-09-24T11:59:30Z' },
       general: { reason: 'lunch', pausedAt: '2026-09-24T11:00:00Z', until: '2026-09-24T13:00:00Z' },
       workspaces: [{ alias: 'chess', reason: '', pausedAt: '2026-09-24T11:30:00Z', until: '2026-09-24T12:30:00Z' }],
+      limit: null,
     });
     const unknown = buildOfficeSnapshot({ status: status({ paused: 'unknown', manualPauses: [] }), live: null, workspaces: [] });
-    assert.deepEqual(unknown.pauses, { restart: 'unknown', general: null, workspaces: [] });
+    assert.deepEqual(unknown.pauses, { restart: 'unknown', general: null, workspaces: [], limit: null });
+  });
+
+  it('gives the usage-limit pause with its reset time', () => {
+    const usageLimit = { until: '2026-09-24T14:02:00.000Z', note: 'resets 3pm Europe/London', timeZone: 'Europe/London', since: '2026-09-24T11:40:00Z' };
+    const s = buildOfficeSnapshot({ status: status({ usageLimit }), live: null, workspaces: [] });
+    assert.deepEqual(s.pauses.limit, { resetsAt: '2026-09-24T14:02:00.000Z', message: 'usage limit hit, until 15:02 (resets 3pm Europe/London)' });
   });
 
   it('gives the cron state with its next tick, only while the cron is alive', () => {

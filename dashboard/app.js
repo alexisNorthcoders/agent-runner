@@ -81,9 +81,17 @@ const now = () => Date.parse(snap.at) + (Date.now() - receivedAt);
 
 // --- tabs ---
 
+/** The usage-limit pause's line while it holds, else null. @param {number} t */
+function usageLimitLine(t) {
+  const l = snap.pauses.limit;
+  return l && Date.parse(l.resetsAt) > t ? l.message : null;
+}
+
 function renderNow() {
   const t = now();
   const out = [];
+  const limited = usageLimitLine(t);
+  if (limited) out.push(h('p', { class: 'stale' }, `Paused: ${limited}`));
   const run = snap.activeRun;
   const elapsed = run && formatDuration(run.elapsedMs == null ? null : run.elapsedMs + (Date.now() - receivedAt));
   if (!run) out.push(h('p', null, 'Agent: idle'));
@@ -223,6 +231,7 @@ function renderOffice() {
       ['cron', cron],
       ['restart pause', restart],
       ['paused by hand', general],
+      ['usage limit', usageLimitLine(t) ?? 'no'],
       ['lock', lock],
       ['queue', snap.queue.length ? `${snap.queue.length} waiting (next: ${snap.queue[0].label})` : 'empty'],
     ]),

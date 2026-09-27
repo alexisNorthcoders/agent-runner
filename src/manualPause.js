@@ -108,9 +108,11 @@ export function describeManualPause(p, nowMs) {
 
 /**
  * Apply a parsed `pause` / `resume` command. Shared by `claude:pause` and the `agent:pause` CLI.
- * `ok` is false when nothing was applied (an unknown workspace alias).
+ * A resume with no scope also ends the usage-limit pause. `ok` is false when nothing was applied
+ * (an unknown workspace alias).
  * @param {{
  *   manualPause: ReturnType<typeof createManualPause>,
+ *   usageLimit?: Pick<ReturnType<typeof import('./usageLimitPause.js').createUsageLimitPause>, 'clear'>,
  *   workspaces?: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
  *   cmd: { kind: 'pause', scope: string, seconds: number, reason: string } | { kind: 'resume', scope: string | null },
  *   now?: () => number,
@@ -128,7 +130,7 @@ export async function applyPauseCommand(p) {
 class UnknownScope extends Error {}
 
 /** @param {Parameters<typeof applyPauseCommand>[0]} p */
-async function apply({ manualPause, workspaces, cmd, now = Date.now }) {
+async function apply({ manualPause, usageLimit, workspaces, cmd, now = Date.now }) {
   let scope = cmd.scope;
   if (scope && scope !== ALL) {
     if (!workspaces) throw new UnknownScope('Workspace pauses need CLAUDE_WORKSPACE_MAP.');
@@ -147,8 +149,11 @@ async function apply({ manualPause, workspaces, cmd, now = Date.now }) {
     return `Paused ${describeManualPause(p, now())}. ${effect} A run already going is not stopped. Send claude:resume${p.scope === ALL ? '' : ` ${p.scope}`} to end it early.`;
   }
   if (scope) {
-    return (await manualPause.clear(scope)) ? `Resumed ${scope === ALL ? 'everything' : scope}.` : `${scope === ALL ? 'Nothing' : scope} was not paused.`;
+    if (await manualPause.clear(scope)) return `Resumed ${scope === ALL ? 'everything' : scope}.`;
+    return scope === ALL ? 'There was no general pause.' : `${scope} was not paused.`;
   }
   const n = await manualPause.clearAll();
-  return n ? `Resumed: cleared ${n} pause${n === 1 ? '' : 's'}.` : 'Nothing was paused.';
+  const limit = (await usageLimit?.clear()) ?? false;
+  const cleared = [n ? `${n} pause${n === 1 ? '' : 's'}` : '', limit ? 'the usage-limit pause' : ''].filter(Boolean);
+  return cleared.length ? `Resumed: cleared ${cleared.join(' and ')}.` : 'Nothing was paused.';
 }

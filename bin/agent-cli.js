@@ -34,7 +34,8 @@ Usage:
   node bin/agent-cli.js pause [<alias>] [2h] [reason...]
                                                    stop new runs: everything, or only issue runs in
                                                    <alias> (default 2h; 30m, 2h, 1d up to 7d)
-  node bin/agent-cli.js resume [<alias>]           end a pause (no alias: every pause)
+  node bin/agent-cli.js resume [<alias>]           end a pause (no alias: every pause, and the
+                                                   usage-limit pause)
 
 Also available as: npm run agent:status | agent:watch | agent:history | agent:logs | agent:pause | agent:resume
 e.g. npm run agent:pause -- chess-trainer 1h fixing lessons`;
@@ -85,7 +86,8 @@ function createRedisReader() {
     readManualPauses: () => withStore((store) => createManualPause({ store }).list()),
     readUsageLimit: () => withStore((store) => createUsageLimitPause({ store }).get()),
     /** @param {Parameters<typeof applyPauseCommand>[0]['cmd']} cmd */
-    applyPause: (cmd) => withStore((store) => applyPauseCommand({ manualPause: createManualPause({ store }), workspaces: createWorkspaceAllowlist(), cmd })),
+    applyPause: (cmd) =>
+      withStore((store) => applyPauseCommand({ manualPause: createManualPause({ store }), usageLimit: createUsageLimitPause({ store }), workspaces: createWorkspaceAllowlist(), cmd })),
     async close() {
       const client = await connecting?.catch(() => null);
       await client?.quit().catch(() => {});

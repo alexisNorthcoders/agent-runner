@@ -16,7 +16,7 @@ function byHandText(d) {
 }
 
 /** The usage-limit pause, e.g. `usage limit hit, until 07:02 (resets 7am Europe/London)`, or ''. @param {StatusSnapshot} d */
-const usageLimitText = (d) => (d.usageLimit ? `usage limit hit, ${describeUsageLimitPause(d.usageLimit, d.now)}` : '');
+export const usageLimitText = (d) => (d.usageLimit ? `usage limit hit, ${describeUsageLimitPause(d.usageLimit, d.now)}` : '');
 /** @typedef {import('./runHistory.js').HistoryEntry} HistoryEntry */
 /** @typedef {import('./activeRuns.js').ActiveRun} ActiveRun */
 /** @typedef {Record<'dim' | 'green' | 'red' | 'yellow' | 'bold' | 'cyan', (s: string) => string>} Colors */

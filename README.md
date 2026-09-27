@@ -32,7 +32,7 @@ WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-resta
 | `claude:queue` | List the requests waiting for the agent. |
 | `claude:queue clear` | Drop every waiting request. |
 | `claude:pause [<alias>] [2h] [reason]` | Pause by hand while you work in a repo yourself (duration `30m`, `2h`, `1d`, up to 7d; default 2h). With no alias, no new run starts anywhere: requests queue and the cron skips its ticks. With an alias, only issue runs there are refused (the cron moves on to the next workspace), and freeform runs are told to leave it alone. A run already going is not stopped. |
-| `claude:resume [<alias>]` | End that pause early, or every pause with no alias. |
+| `claude:resume [<alias>]` | End that pause early, or with no alias every pause, the [usage-limit pause](#usage-limit) included (e.g. after a plan upgrade). |
 | `claude:restart` | Run safe-restart in the background, then report to the outbox. |
 | `claude:status` | Active run (with orphaned/stale warnings), pause, last cron tick, today's spend, last 3 runs. |
 | `claude:history [n]` | The last `n` finished runs (default 10, max 30) with outcome, duration, cost and tokens. |
@@ -59,7 +59,14 @@ While it holds, no new run starts: requests and scheduled jobs queue, and the cr
 (tick outcome `limited`). `owner` gets one message per hit, e.g. `⏸ Usage limit hit: pausing agent
 runs until 07:02 (resets 7am Europe/London). 2 requests queued.` (a run reporting to `owner`, like
 the cron's, has its report in the same message). When the pause ends the queue and the cron pick up
-silently. The run's history row has `outcome: limited`, and `claude:status` shows the pause.
+silently. The run's history row has `outcome: limited`. `claude:status` and `npm run agent:status`
+show the pause (`Paused: usage limit hit, until 07:02 (resets 7am Europe/London)`), and so do the
+office snapshot's `pauses.limit` and the dashboard's Now and Office tabs.
+
+To end it early (e.g. after a plan upgrade), send `claude:resume` with no alias or run `npm run
+agent:resume`: they clear it along with any pauses by hand, and queued requests start (after
+`agent:resume`, on the runner's next queue check, within 15s). If the limit
+hasn't really lifted, the next run hits it again and sets a new pause.
 
 An issue run the limit cuts short stops there. When the agent's own pass hits it, post-run commits
 the leftover work as WIP on the issue branch and skips the review and the autofix; when the autofix
@@ -99,7 +106,7 @@ npm run agent:watch             # the same, refreshed every 2s (agent:watch -- 5
 npm run agent:history -- -n 20  # finished runs with model, tokens and cost (--json)
 npm run agent:logs -- -f        # print or follow a run's log: [runId|prefix|latest] [-f]
 npm run agent:pause -- chess-trainer 1h fixing lessons   # same as claude:pause, works while the runner is down
-npm run agent:resume            # end every pause (agent:resume -- <alias> for one)
+npm run agent:resume            # end every pause, the usage-limit pause too (agent:resume -- <alias> for one)
 ```
 
 These read `logs/agent-runs/` directly (plus the pause flag, lock and cron state from Redis), so they work while the
@@ -147,7 +154,8 @@ in-process cron (`CRON_ISSUE_TRACER_DISABLE=1` in its `.env`) before enabling th
   (comma-separated; else `CRON_PLATFORMER_WORKSPACE_ALIAS`, default `platformer`). Each must be in
   the allowlist; one that isn't is skipped with a log line. The first workspace with a runnable
   issue wins, and within it the lowest issue number.
-- **Skips**: the whole tick while the lock is held or agent-runner is paused; issues that GitHub's
+- **Skips**: the whole tick while the lock is held or agent-runner is paused (safe-restart, the
+  general pause by hand or the usage-limit pause); issues that GitHub's
   native dependencies mark as blocked (a failed lookup counts as blocked).
 - **Progress**: a run that pushed, opened a PR or merged records the issue as its repo's
   last-started, and the cron doesn't pick it again. A failed, empty or timed-out run doesn't count,
@@ -302,7 +310,9 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
   "pauses": {
     "restart": null,                   // safe-restart's flag: {reason, pausedAt}, null or "unknown"
     "general": null,                   // by hand: {reason, pausedAt, until} or null
-    "workspaces": [ { "alias": "chess-trainer", "reason": "…", "pausedAt": "…", "until": "…" } ]
+    "workspaces": [ { "alias": "chess-trainer", "reason": "…", "pausedAt": "…", "until": "…" } ],
+    "limit": null                      // usage-limit pause: {resetsAt, message} or null, e.g.
+                                       // {"resetsAt": "…", "message": "usage limit hit, until 07:02 (resets 7am Europe/London)"}
   },
   "cron": {                            // null when the cron hasn't started
     "alive": true, "pid": 579608, "intervalMs": 600000,
@@ -467,7 +477,7 @@ sudo nginx -t && sudo systemctl reload nginx     # open http://<pi>/office/
 | `agent-runner:lock` | string (JSON) | Single-flight lock holding the active run's record. It is TTL'd, and on startup a leftover lock is reported to `owner` as an interrupted run. |
 | `agent-runner:queue` | list (JSON) | Run requests waiting for the agent, oldest first: `{id, cmd, replyTo, label, queuedAt}`. |
 | `agent-runner:paused` | string (JSON) | Pause flag set by safe-restart. It is TTL'd, and only its setter (by token) clears it. The cron skips its ticks while it's set. |
-| `agent-runner:usage-limit` | string (JSON) | The usage-limit pause: `{until, note, timeZone, since}`, TTL'd to end with it. Set only by the runner, and only ever extended. |
+| `agent-runner:usage-limit` | string (JSON) | The usage-limit pause: `{until, note, timeZone, since}`, TTL'd to end with it. Set only by the runner, and only ever extended; `claude:resume` / `agent:resume` with no alias delete it. |
 | `agent-runner:manual-pause` | hash | Pauses set by hand: `all` or a workspace alias → `{scope, reason, pausedAt, until}`. Expired fields are ignored and deleted on read. |
 | `agent-runner:cron:state` | string (JSON) | The cron's last tick (`pid`, `intervalMs`, times, outcome), for the status views. |
 | `agent-runner:cron:last-started` | hash | `owner/repo` → the last issue the cron made progress on there. |

@@ -1,5 +1,5 @@
 import { ALL } from './manualPause.js';
-import { spend, totalTokens } from './statusFormat.js';
+import { spend, totalTokens, usageLimitText } from './statusFormat.js';
 
 /**
  * The office snapshot: what the office feed (src/officeFeed.js) sends to the dashboard. It is the
@@ -74,9 +74,12 @@ import { spend, totalTokens } from './statusFormat.js';
  *   restart: { reason: string, pausedAt: string | null } | null | 'unknown',
  *   general: OfficeManualPause | null,
  *   workspaces: Array<OfficeManualPause & { alias: string }>,
+ *   limit: { resetsAt: string, message: string } | null,
  * }} OfficePauses
  *   `restart` is the safe-restart pause flag (`unknown` when Redis couldn't be read). `general` and
- *   `workspaces` are the owner's pauses by hand.
+ *   `workspaces` are the owner's pauses by hand. `limit` is the usage-limit pause: when the limit
+ *   resets, and the line `agent:status` shows for it (e.g. `usage limit hit, until 07:02 (resets
+ *   7am Europe/London)`, in the zone the agent named).
  *
  * @typedef {{
  *   alive: boolean,
@@ -234,6 +237,7 @@ export function buildOfficeSnapshot({ status: d, live, workspaces, issues = null
       restart: d.paused === 'unknown' ? 'unknown' : d.paused ? { reason: d.paused.reason, pausedAt: d.paused.pausedAt } : null,
       general: general ? manualPause(general) : null,
       workspaces: manual.filter((p) => p.scope !== ALL).map((p) => ({ alias: p.scope, ...manualPause(p) })),
+      limit: d.usageLimit ? { resetsAt: d.usageLimit.until, message: usageLimitText(d) } : null,
     },
     cron: d.cron
       ? {
