@@ -57,7 +57,20 @@ The office floor drawn on the page's canvas: the **Bullpen** and the rooms aroun
 _Avoid_: map, canvas (for the concept)
 
 **Bullpen**:
-The open-plan middle of the office, where the **Cubicles** are.
+The open-plan middle of the office, where the **Cubicles** are, in rows with an **Aisle** in front of each.
+
+**Corridor**:
+The hallway between a side column of rooms and the **Bullpen** (in the stacked layout, the lane down its edge). It opens straight into the Bullpen's **Aisles**; the side rooms open onto it through their **Doors**. Everyone who walks the office (the **Mail carrier**, the boss, a **Worker** moving desks) goes by Corridor and Aisle, never through a wall.
+_Avoid_: hallway, path
+
+**Aisle**:
+The walkway in front of a row of **Cubicles**, inside the **Bullpen**, joining the **Corridors**. A cubicle is entered from its Aisle, through its open front.
+
+**Door**:
+A side room's door onto its **Corridor**, which swings open as someone walks through and closes behind them. Not the **front door**.
+
+**Front door**:
+The door in the **Queue room**'s back wall, out of the office. Nobody walks through it; it carries the **BACK IN 5** sign and the EXIT sign.
 
 **Cubicle**:
 A **Workspace**'s desk in the office bullpen, one per allowlisted alias, where its issue runs are worked, and freeform runs whose **Inferred workspace** it is. A **Scheduled job**'s room label that isn't a workspace's alias or **Department sign** gets a cubicle of its own; each job has its own desk in its room's cubicle.
@@ -128,6 +141,7 @@ The figure who delivers each run to its room: an interoffice envelope for a cron
 - Each allowlisted **Workspace** has one **Cubicle**; an **Issue run** is worked in its **Cubicle**.
 - A freeform **Run** is worked in the **Freeform room**, or in the **Cubicle** of its **Inferred workspace** once it has one; a Joplin **Run** in the **Joplin room**, a **Scheduled job** in the room its config names.
 - The **Queue** waits in the **Queue room** until the **Mail carrier** delivers the next **Run**.
+- Every walk goes out through a room's **Door**, along the **Corridors** and **Aisles**, and in through the next room's **Door** or a **Cubicle**'s open front.
 
 ## Flagged ambiguities
 
