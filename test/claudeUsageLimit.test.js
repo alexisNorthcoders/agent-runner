@@ -1,23 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { isUsageLimitText, usageLimitFrom, RESET_BUFFER_MS, FALLBACK_PAUSE_MS, MAX_PAUSE_MS } from '../src/agentBackend/claudeUsageLimit.js';
+import { usageLimitFrom, RESET_BUFFER_MS, FALLBACK_PAUSE_MS, MAX_PAUSE_MS } from '../src/agentBackend/claudeUsageLimit.js';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const iso = (ms) => new Date(ms).toISOString();
-
-describe('isUsageLimitText', () => {
-  for (const text of [
-    "You've hit your session limit · resets 7am (Europe/London)",
-    "You've hit your weekly limit · resets Oct 3, 7am (Europe/London)",
-    'You’ve hit your usage limit',
-  ]) {
-    it(`matches: ${text}`, () => assert.equal(isUsageLimitText(text), true));
-  }
-  for (const text of ['All done. I added a rate limit test.', "Done: a run that says You've hit your session limit now pauses.", 'Tests pass.', '']) {
-    it(`leaves alone: ${JSON.stringify(text)}`, () => assert.equal(isUsageLimitText(text), false));
-  }
-});
 
 describe('usageLimitFrom: the reset text', () => {
   const at = (s) => Date.parse(s);

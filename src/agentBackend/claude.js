@@ -6,7 +6,7 @@ import { finished } from 'stream/promises';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { createStreamAccumulator } from './claudeStreamParser.js';
-import { isUsageLimitText, usageLimitFrom } from './claudeUsageLimit.js';
+import { usageLimitFrom } from './claudeUsageLimit.js';
 import { augmentedPathEnv } from '../processPath.js';
 
 /**
@@ -191,10 +191,10 @@ export function createClaudeBackend({
           logLines(stream.flush());
           const snap = stream.snapshot();
           const text = snap.result?.text || snap.assistantText;
-          // the run failed on the usage-limit message (the CLI may still exit 0 with an error result),
-          // or a rate-limit event rejected it
+          // the run failed (the CLI may still exit 0 with an error result) and the stream signalled the
+          // usage limit; the text only supplies the reset time
           const failed = exitCode !== 0 || Boolean(snap.result?.isError);
-          const hitLimit = failed && (isUsageLimitText(text) || snap.rejectedResetsAt != null);
+          const hitLimit = failed && snap.rateLimited;
           /** @type {import('./index.js').AgentOutcome} */
           const outcome = spawnError
             ? 'spawn_error'

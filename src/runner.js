@@ -237,15 +237,17 @@ export function createRunner({
 
   /**
    * The agent hit its usage limit: hold new runs until it resets (never shortening a longer pause)
-   * and keep `owner`'s one notice on the run, to send with its report.
+   * and keep `owner`'s one notice on the run, to send with its report. A later pass (the autofix)
+   * hitting it again only rewrites the notice if it pushed the pause further, so it stays one message
+   * naming the pause in force.
    * @param {ActiveRun} a
    * @param {import('./agentBackend/index.js').AgentResult} result
    */
   async function hitUsageLimit(a, result) {
     if (result.outcome !== 'limited' || !result.limit) return;
     try {
-      const { pause: p } = await usageLimit.extend(result.limit);
-      if (!p) return;
+      const { pause: p, extended } = await usageLimit.extend(result.limit);
+      if (!p || (a.limitNotice && !extended)) return;
       const n = await queue.length().catch(() => 0);
       a.limitNotice = `⏸ Usage limit hit: pausing agent runs ${describeUsageLimitPause(p, now())}. ${n} request${n === 1 ? '' : 's'} queued.`;
     } catch (err) {

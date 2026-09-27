@@ -213,6 +213,16 @@ describe('claude AgentBackend', () => {
       assert.equal((await run.done).outcome, 'success');
     });
 
+    it('a failure that only quotes the message, with no rate-limit signal, is not limited', async () => {
+      const run = await backend().start({ prompt: 'P', cwd: '/w', logPath: join(dir, 'g.log') });
+      child.stdout.write(line({ type: 'result', subtype: 'error_during_execution', is_error: true, result: "You've hit your session limit · resets 7am (Europe/London)" }));
+      await tick();
+      child.emit('close', 1, null);
+      const r = await run.done;
+      assert.equal(r.outcome, 'failed');
+      assert.equal(r.limit, undefined);
+    });
+
     it('a normal failure has no limit', async () => {
       const run = await backend().start({ prompt: 'P', cwd: '/w', logPath: join(dir, 'f.log') });
       child.stdout.write(line({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'boom' }));

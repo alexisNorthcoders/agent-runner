@@ -9,13 +9,9 @@ export const RESET_BUFFER_MS = 2 * 60_000;
 export const FALLBACK_PAUSE_MS = 60 * 60_000;
 export const MAX_PAUSE_MS = 7 * 24 * 60 * 60_000;
 
-const LIMIT_RE = /^\W*(?:you(?:['’]ve| have) )?(?:hit|reached) your (?:[\w-]+ )?limit\b/i;
 const RESETS_RE = /\bresets\s+(?:([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(?:at\s+)?)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:\(([^)]+)\))?/i;
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const DAY_MS = 24 * 60 * 60_000;
-
-/** Whether the agent's text is the usage-limit message (not just quoting it). @param {string} text */
-export const isUsageLimitText = (text) => LIMIT_RE.test(String(text ?? ''));
 
 /** @param {string} tz */
 function validZone(tz) {
