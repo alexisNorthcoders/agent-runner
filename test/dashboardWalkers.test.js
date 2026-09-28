@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { WALL, cubicleDesks, deskAt, deskOwners, inside, layoutOffice, workerRect } from '../dashboard/layout.js';
-import { HAND_MS, RING_MS, walkers } from '../dashboard/walkers.js';
+import { BOSS_FEET, HAND_MS, RING_MS, WORKER_FEET, walkers } from '../dashboard/walkers.js';
 
 /** @typedef {import('../dashboard/scene.js').Scene} Scene */
 /** @typedef {import('../dashboard/scene.js').SceneRun} SceneRun */
@@ -243,9 +243,6 @@ function solidWithDesks(l, cs) {
     [[p.x + 2, p.y + feet - 1], [p.x + 7, p.y + feet - 1]].some(([x, y]) => walls.some((w) => inside(w, x, y)) && !doorways.some((d) => inside(d, x, y)));
 }
 
-/** How far a standing boss's and a walking worker's feet are below the top of their head. */
-const BOSS_FEET = 19;
-const WORKER_FEET = 21;
 
 /**
  * The first t from `from` at which `done` holds, by bisection (it holds from then on).
@@ -289,7 +286,7 @@ describe('office walkers: the boss walks the corridors', () => {
             const b = walkers(lw, many, sc, t).boss;
             if (b.pose === 'seated') continue;
             assert.ok(!blocked(b, BOSS_FEET), `${width} ${alias} at ${t}: ${JSON.stringify(b)}`);
-            if (Object.values(lw.doorways).some((d) => inside(d, b.x + 4, b.y + BOSS_FEET - 1))) through++;
+            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (lw.doorways.review), b.x + 4, b.y + BOSS_FEET - 1)) through++;
           }
           assert.ok(through > 0, `${alias}: through the Review room's doorway`);
         }

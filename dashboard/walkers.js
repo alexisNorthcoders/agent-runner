@@ -44,12 +44,14 @@ export const lerp = (a, b, f) => Math.round(a + (b - a) * Math.max(0, Math.min(1
 /** Where the mail carrier stands behind the front desk (top of their cap). @param {Layout} layout */
 const carrierHome = (layout) => ({ x: layout.desk.x + 30, y: layout.desk.y - 16 });
 /** How far below the top of their head the feet are of the boss standing, and of a worker on foot. */
-const BOSS_FEET = 19;
-const WORKER_FEET = 21;
-/** Where the boss stands behind their chair, and at a worker's shoulder, and where a worker sits (x). @param {Rect} desk */
+export const BOSS_FEET = 19;
+export const WORKER_FEET = 21;
+/** Where the boss stands behind their chair (x). @param {Rect} desk the boss's desk */
 const bossChair = (desk) => desk.x + 23;
-const shoulder = (/** @type {Rect} */ desk) => workerRect(desk).x + 10;
-const seat = (/** @type {Rect} */ desk) => workerRect(desk).x;
+/** Where the boss stands at a worker's shoulder (x). @param {Rect} desk the worker's */
+const shoulder = (desk) => workerRect(desk).x + 10;
+/** Where a worker stands to sit down at `desk` (x). @param {Rect} desk */
+const seat = (desk) => workerRect(desk).x;
 
 /** @param {Point} a @param {Point} b */
 const distance = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
@@ -94,24 +96,27 @@ function shortestRoute(graph, from, to) {
  * The way from in front of a desk (its approach point) round its nearer end to `x` just behind it
  * (feet), where the boss stands at a worker's shoulder or a worker takes their seat. Only an end
  * with room to pass counts: a cubicle's desks side by side leave none between them. Null when the
- * layout doesn't have the desk.
+ * layout doesn't have the desk, or it has no end to pass (a desk between two others).
  * @param {Layout} layout @param {Scene['cubicles']} cubicles @param {WalkGraph} graph
- * @param {Place | { room: 'review' }} place @param {(desk: Rect) => number} x
+ * @param {Place | { room: 'review' }} place the desk's, or the boss's own
+ * @param {(desk: Rect) => number} spotX where behind the desk to stand
  * @returns {Point[] | null}
  */
-function roundDesk(layout, cubicles, graph, place, x) {
+function roundDesk(layout, cubicles, graph, place, spotX) {
   const desk = place.room === 'cubicle' ? deskAt(layout, cubicles, place) : layout.desks[place.room];
   const from = graph.approaches.get(place.room === 'cubicle' ? placeKey(place) : place.room);
   if (!desk || !from) return null;
-  const spot = { x: x(desk), y: desk.y - 1 };
+  const spot = { x: spotX(desk), y: desk.y - 1 };
   // just clear of the desk's left end, and of its right end
   let ends = [desk.x - 8, desk.x + desk.w - 2];
   if (place.room === 'cubicle') {
     const c = cubicles.find((cu) => cu.alias === place.alias);
     const owners = c ? deskOwners(c) : [];
     const k = owners.indexOf(place.job ?? null);
-    ends = ends.filter((_, i) => (i ? k === owners.length - 1 : k === 0));
+    const [left, right] = ends;
+    ends = [...(k === 0 ? [left] : []), ...(k === owners.length - 1 ? [right] : [])];
   }
+  if (!ends.length) return null;
   const end = ends.reduce((a, b) => (Math.abs(from.x - b) + Math.abs(b - spot.x) < Math.abs(from.x - a) + Math.abs(a - spot.x) ? b : a));
   return [from, { x: end, y: from.y }, { x: end, y: spot.y }, spot];
 }
@@ -237,6 +242,7 @@ function worker(layout, cubicles, trip, move, scene, t) {
  * @param {Layout} layout @param {Scene['cubicles']} cubicles @param {WalkGraph} graph @param {Scene} scene
  */
 function bossWalk(layout, cubicles, graph, scene) {
+  // the Review room's desk is always in the layout, with room at both ends
   const home = /** @type {Point[]} */ (roundDesk(layout, cubicles, graph, { room: 'review' }, bossChair));
   /** @param {Place | null} p */
   const way = (p) => (p && roundDesk(layout, cubicles, graph, p, shoulder)) || null;
