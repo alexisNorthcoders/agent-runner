@@ -675,6 +675,17 @@ describe('office walkers: the Doors', () => {
         }
         assert.deepEqual([queue, freeform], [1, 1]);
       });
+
+      it('leaves shut the Doors a walk only goes past', () => {
+        const sc2 = scene({ cubicles: many, run: run({ place: { room: 'joplin' }, delivery: { by: 'envelope', at: 0 } }) });
+        const sc3 = scene({ cubicles: many, run: run({ place: cube('f'), delivery: { by: 'envelope', at: 0 } }) });
+        for (let t = 0; t < 30_000; t += 20) {
+          const { doors } = look(sc2, t);
+          assert.deepEqual([doors.review, doors.freeform], [0, 0], `to the Joplin room, at ${t}`);
+          assert.equal(look(sc3, t).doors.review, 0, `to cubicle f, at ${t}`);
+          assert.equal(look(sc, since + t).doors.freeform, 0, `the boss back to the Review room, at ${since + t}`);
+        }
+      });
     });
   }
 });

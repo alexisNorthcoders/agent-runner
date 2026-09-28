@@ -4,7 +4,7 @@
 // side room's Door is open, from how near someone walking is, and whether anything on the floor
 // still moves. No DOM here, so it can be tested in Node; officeView.js draws
 // what it returns.
-import { WIDE_WIDTH, deskAt, deskOwners, layoutOffice, placeKey, walkGraph, workerRect } from './layout.js';
+import { SIDE_ROOMS, WIDE_WIDTH, deskAt, deskOwners, inside, layoutOffice, placeKey, walkGraph, workerRect } from './layout.js';
 
 /** @typedef {import('./layout.js').Rect} Rect */
 /** @typedef {import('./layout.js').Layout} Layout */
@@ -310,29 +310,41 @@ function boss({ route, since, walk, reading }, t) {
   return { who: 'boss', x: p.x, y: p.y - BOSS_FEET + (pose === 'seated' ? 3 : 0), pose, facing: pose === 'seated' ? 'right' : p.facing };
 }
 
+/** How far below a walker's `y` their feet are: the carrier's `y` is their feet already. */
+const FEET = { carrier: 0, boss: BOSS_FEET, worker: WORKER_FEET };
+
 /**
- * Where a walker's feet are, when they're walking (x the middle of their sprite).
- * @param {Walker | null} w
- * @returns {Point | null}
+ * Whether `route` goes through the doorway `d`: one of its points in it, or a leg across it.
+ * @param {Point[]} route @param {Rect} d
  */
-function walkingFeet(w) {
-  if (w?.pose !== 'walking') return null;
-  const up = w.who === 'boss' ? BOSS_FEET : w.who === 'worker' ? WORKER_FEET : 0;
-  return { x: w.x + 4, y: w.y + up - 1 };
+function goesThrough(route, d) {
+  return route.some((a, i) => {
+    const b = route[i + 1] ?? a;
+    const steps = Math.max(1, Math.ceil(distance(a, b)));
+    for (let k = 0; k <= steps; k++) if (inside(d, Math.round(a.x + ((b.x - a.x) * k) / steps), Math.round(a.y + ((b.y - a.y) * k) / steps))) return true;
+    return false;
+  });
 }
 
 /**
- * How far each side room's Door is open: by how near the nearest walker's feet are to its doorway.
- * @param {Layout} layout @param {Point[]} feet
+ * How far each side room's Door is open: by how near its doorway the nearest walker on foot is
+ * whose route goes through it (someone only going past, down the narrow lane, leaves it shut).
+ * @param {Layout} layout @param {Array<{ walker: Walker | null, route: Point[] | null }>} onFoot each walker, and the route they're on
  * @returns {Doors}
  */
-function doors(layout, feet) {
+function doors(layout, onFoot) {
   /** @type {Doors} */
   const open = {};
-  for (const id of /** @type {const} */ (['queueRoom', 'review', 'freeform', 'joplin'])) {
+  for (const id of SIDE_ROOMS) {
     const d = layout.doorways[id];
     if (!d) continue;
-    const near = Math.min(Infinity, ...feet.map((p) => Math.hypot(Math.max(d.x - p.x, 0, p.x - (d.x + d.w - 1)), Math.max(d.y - p.y, 0, p.y - (d.y + d.h - 1)))));
+    let near = Infinity;
+    for (const { walker: w, route } of onFoot) {
+      if (w?.pose !== 'walking' || !route || !goesThrough(route, d)) continue;
+      // their feet, at the middle of their sprite
+      const [x, y] = [w.x + 4, w.y + FEET[w.who] - 1];
+      near = Math.min(near, Math.hypot(Math.max(d.x - x, 0, x - (d.x + d.w - 1)), Math.max(d.y - y, 0, y - (d.y + d.h - 1))));
+    }
     open[id] = Math.max(0, Math.min(1, (DOOR_FAR - near) / (DOOR_FAR - DOOR_NEAR)));
   }
   return open;
@@ -367,12 +379,16 @@ export function walkers(layout, cubicles, scene, t) {
   // no walk to or from a worker: seated at home all along
   const bossTrip = route ? { route, since: scene.boss.since, walk: timedWalk(timed.boss.route), reading } : { route: [home], since: scene.boss.since, walk: 0, reading: false };
   const onFloor = { carrier: carrier(layout, trip, scene, t), boss: boss(bossTrip, t), worker: worker(layout, cubicles, trip, move, scene, t) };
-  const open = doors(layout, [onFloor.carrier, onFloor.boss, onFloor.worker].map(walkingFeet).filter((p) => !!p));
+  const doorsOpen = doors(layout, [
+    { walker: onFloor.carrier, route: trip?.route ?? null },
+    { walker: onFloor.boss, route: bossTrip.route },
+    { walker: onFloor.worker, route: move?.route ?? null },
+  ]);
   const animating =
     !scene.dark &&
     (!!run ||
       (!!bossTrip.walk && t - bossTrip.since < bossTrip.walk) ||
-      Object.values(open).some((v) => v > 0) ||
+      Object.values(doorsOpen).some((v) => v > 0) ||
       scene.outcomes.some((o) => ANIMATED_STATES.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
-  return { ...onFloor, doors: open, animating };
+  return { ...onFloor, doors: doorsOpen, animating };
 }

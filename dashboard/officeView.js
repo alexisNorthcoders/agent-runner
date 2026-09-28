@@ -5,7 +5,7 @@
 // comes from walkers.js; typing and the ends of runs (the stamp coming down, the papers to the out
 // tray) are tweened here from when the run ended, so the reducer only says what happens and when.
 import { formatClock } from './format.js';
-import { WALL, backWallDoorway, cartSlots, cubicleDesks, deskAt, deskOwners, folderSlots, inTrayRect, inTraySlots, placeRect, roomAt, stickyNote, workerRect } from './layout.js';
+import { SIDE_ROOMS, WALL, backWallDoorway, cartSlots, cubicleDesks, deskAt, deskOwners, folderSlots, inTrayRect, inTraySlots, placeRect, roomAt, stickyNote, workerRect } from './layout.js';
 import { samePlace } from './scene.js';
 import * as s from './sprites.js';
 import { STAMP_MS, TRAY_MS, lerp, walkers } from './walkers.js';
@@ -256,7 +256,7 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   // the bullpen opens straight onto the corridors, and the side rooms onto them by their doorways
   s.room(ctx, rooms.bullpen.rect, rooms.bullpen.name, 'carpet', WALL, { open: true });
   for (const c of layout.corridors) s.corridor(ctx, c, WALL);
-  for (const id of /** @type {const} */ (['review', 'joplin', 'freeform', 'queueRoom'])) {
+  for (const id of SIDE_ROOMS) {
     const d = layout.doorways[id];
     if (!d) continue;
     // each doorway's Door: face-on in a back wall, else edge-on, swinging into the room
