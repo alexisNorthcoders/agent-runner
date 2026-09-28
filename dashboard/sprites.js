@@ -129,9 +129,10 @@ function floorAndWall(ctx, r, floor, wallH) {
 
 /**
  * A room: its back wall (`wallH` tall) with a name plate, and its floor. `open`: no side walls
- * (the bullpen, open to the corridors).
+ * (the bullpen, open to the corridors). `plateRight`: where the name plate ends, clear of a doorway
+ * (the room's right edge by default).
  * @param {Ctx} ctx @param {Rect} r @param {string} name @param {'carpet' | 'wood' | 'tile'} floor @param {number} wallH
- * @param {{ open?: boolean }} [o]
+ * @param {{ open?: boolean, plateRight?: number }} [o]
  */
 export function room(ctx, r, name, floor, wallH, o = {}) {
   floorAndWall(ctx, r, floor, wallH);
@@ -143,9 +144,10 @@ export function room(ctx, r, name, floor, wallH, o = {}) {
     ctx.fillRect(r.x, r.y, 1, r.h);
     ctx.fillRect(r.x + r.w - 1, r.y, 1, r.h);
   }
-  const plate = fitText(name, r.w - 12);
+  const right = o.plateRight ?? r.x + r.w;
+  const plate = fitText(name, right - r.x - 12);
   const pw = textWidth(plate) + 6;
-  const px = r.x + r.w - pw - 4;
+  const px = right - pw - 4;
   ctx.fillStyle = PALETTE.signText;
   ctx.fillRect(px, r.y + 4, pw, 9);
   text(ctx, plate, px + 3, r.y + 6, PALETTE.signBg);
@@ -166,6 +168,21 @@ export function doorway(ctx, r) {
   ctx.fillStyle = PALETTE.woodDark;
   ctx.fillRect(r.x - 2, r.y - 2, r.w + 4, 2);
   ctx.fillRect(r.x - 2, r.y + r.h, r.w + 4, 2);
+}
+
+/**
+ * A doorway in a back wall, at the room's right end, onto the corridor lane beside it: an opening
+ * down to the floor (`r` runs a little past the wall onto the floor, where walkers step through),
+ * with a frame round its top and left. @param {Ctx} ctx @param {Rect} r @param {number} floorY where the floor starts
+ */
+export function backDoorway(ctx, r, floorY) {
+  ctx.fillStyle = PALETTE.tile;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.fillStyle = PALETTE.tileLine;
+  ctx.fillRect(r.x, floorY - 1, r.w, 1);
+  ctx.fillStyle = PALETTE.woodDark;
+  ctx.fillRect(r.x - 2, r.y - 2, r.w + 2, 2);
+  ctx.fillRect(r.x - 2, r.y, 2, floorY - r.y);
 }
 
 /** A window on a back wall. @param {Ctx} ctx @param {number} x @param {number} y @param {number} w */

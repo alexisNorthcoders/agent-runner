@@ -372,7 +372,9 @@ per allowlisted workspace (then one per scheduled-job room that isn't one), the 
 boss's office) and the Joplin room on the left, and the Queue room (by the front door) and the
 Freeform room on the right. In the wide layout a tiled corridor runs down each side of the bullpen,
 an aisle runs in front of each row of cubicles from corridor to corridor, and each side room has a
-doorway onto its corridor. It shows the office-level state:
+doorway onto its corridor. In the narrow layout (a phone), the rooms are stacked with a tiled
+corridor lane down their right edge: each side room's doorway is at the lane's end of its back
+wall, and the bullpen and its aisles open straight onto the lane. It shows the office-level state:
 
 - **Runner down:** the whole office is dark, apart from the EXIT sign.
 - **General pause** (`claude:pause`): a "BACK IN 5" sign on the front door.
@@ -392,10 +394,12 @@ Pauses clear on the page as soon as they run out, without waiting for the next s
 A live run plays out on the floor:
 
 - **Delivery:** the mail carrier takes the run from the Queue room to its room: an interoffice envelope
-  for a cron run, or the Queue room's phone rings first for a manual (WhatsApp) one. In the wide
-  layout they walk out of the Queue room's doorway and along the corridors and aisles to the desk
-  (into a cubicle by its open front, into the Freeform or Joplin room by its doorway), and back,
-  at a steady pace, so a far desk takes longer. A page opened mid-run doesn't replay it.
+  for a cron run, or the Queue room's phone rings first for a manual (WhatsApp) one. They walk out
+  of the Queue room's doorway and along the corridors (or the lane) and aisles to the desk (into a
+  cubicle by its open front, into the Freeform or Joplin room by its doorway), and back, at a steady
+  pace, so a far desk takes longer. Every walk is timed on the wide office at its narrowest, so
+  resizing the page mid-walk (wide ↔ narrow too) puts the walker the same fraction along the new
+  route. A page opened mid-run doesn't replay it.
 - **Rooms:** an issue run is worked in its workspace's cubicle, a freeform run in the Freeform
   room, a Joplin run in the Joplin room, and a scheduled job at its own desk in the room its config
   names. When a freeform run's workspace is inferred (below), its worker picks up their papers and

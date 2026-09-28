@@ -112,6 +112,9 @@ describe('office walkers: the delivery', () => {
   });
 });
 
+/** Every room's and corridor's back wall. @param {import('../dashboard/layout.js').Layout} l */
+const backWalls = (l) => [...Object.values(l.rooms).map((r) => r.rect), ...l.corridors].map((r) => ({ x: r.x, y: r.y, w: r.w, h: WALL }));
+
 describe('office walkers: the carrier walks the corridors and aisles', () => {
   /** @type {import('../dashboard/scene.js').SceneJobDesk} */
   const backup = { name: 'backup', worker: 'clerk', at: '03:00', nextDueAt: null };
@@ -123,9 +126,9 @@ describe('office walkers: the carrier walks the corridors and aisles', () => {
   /** @param {import('../dashboard/layout.js').Layout} l */
   const look = (l) => (/** @type {Scene} */ sc, /** @type {number} */ t) => walkers(l, sc.cubicles, sc, t);
 
-  /** Where the carrier can't be: a room's walls (but its doorway), the back wall, a cubicle's partitions. @param {import('../dashboard/layout.js').Layout} l */
+  /** Where the carrier can't be: a room's walls (but its doorway), the back walls, a cubicle's partitions. @param {import('../dashboard/layout.js').Layout} l */
   function solid(l) {
-    const walls = [{ x: 0, y: 0, w: l.width, h: WALL }];
+    const walls = backWalls(l);
     for (const id of /** @type {const} */ (['review', 'joplin', 'queueRoom', 'freeform'])) {
       const r = l.rooms[id].rect;
       walls.push({ x: r.x, y: r.y, w: r.w, h: 1 }, { x: r.x, y: r.y + r.h - 1, w: r.w, h: 1 }, { x: r.x, y: r.y, w: 1, h: r.h }, { x: r.x + r.w - 1, y: r.y, w: 1, h: r.h });
@@ -207,11 +210,12 @@ describe('office walkers: the carrier walks the corridors and aisles', () => {
   });
 
   it('seats the worker exactly when the carrier arrives, on the route of the layout at t', () => {
-    // the office is resized mid-walk: arrival is the new route's, for the carrier and the worker alike
+    // the office is resized mid-walk onto a longer route: the carrier arrives when they would have
+    // on the old one, and the worker with them
     const sc = delivering({ room: 'cubicle', alias: 'a' });
     const l = wide(many.length, 720);
     const arrive = arrival(sc, look(l));
-    assert.ok(arrive > arrival(sc, look(wide(many.length, 560))), 'the new route is longer');
+    assert.equal(arrive, arrival(sc, look(wide(many.length, 560))));
     const [before, now, handing] = [arrive - 1, arrive, arrive + HAND_MS / 2].map((t) => look(l)(sc, t));
     assert.equal(before.worker, null);
     assert.equal(before.carrier.carrying, 'envelope');
@@ -227,7 +231,7 @@ describe('office walkers: the carrier walks the corridors and aisles', () => {
  * @param {import('../dashboard/layout.js').Layout} l @param {typeof cubicles} cs
  */
 function solidWithDesks(l, cs) {
-  const walls = [{ x: 0, y: 0, w: l.width, h: WALL }, l.desk, ...Object.values(l.desks)];
+  const walls = [...backWalls(l), l.desk, ...Object.values(l.desks)];
   for (const id of /** @type {const} */ (['review', 'joplin', 'queueRoom', 'freeform'])) {
     const r = l.rooms[id].rect;
     walls.push({ x: r.x, y: r.y, w: r.w, h: 1 }, { x: r.x, y: r.y + r.h - 1, w: r.w, h: 1 }, { x: r.x, y: r.y, w: 1, h: r.h }, { x: r.x + r.w - 1, y: r.y, w: 1, h: r.h });
@@ -435,6 +439,140 @@ describe('office walkers: a freeform worker moving desks', () => {
       const w = at(lost, t).worker;
       assert.deepEqual([w.pose, w.x, w.y, w.at], ['seated', seat.x, seat.y, from], `at ${t}`);
     }
+  });
+});
+
+describe('office walkers: the narrow layout\'s lane', () => {
+  /** @type {import('../dashboard/scene.js').SceneJobDesk} */
+  const backup = { name: 'backup', worker: 'clerk', at: '03:00', nextDueAt: null };
+  const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((alias) => ({ ...cubicles[0], alias, name: alias, jobs: alias === 'f' ? [backup] : [] }));
+  const since = 20_000;
+  /** @param {string} alias @param {string} [job] @returns {import('../dashboard/scene.js').Place} */
+  const cube = (alias, job) => ({ room: 'cubicle', alias, ...(job ? { job } : {}) });
+  /** @type {import('../dashboard/scene.js').Place[]} */
+  const places = [cube('a'), cube('c'), cube('d'), cube('f'), cube('f', 'backup'), { room: 'freeform' }, { room: 'joplin' }];
+  /** @param {import('../dashboard/scene.js').Place} place */
+  const delivering = (place) => scene({ cubicles: many, run: run({ place, delivery: { by: 'envelope', at: 0 } }) });
+  /** @param {import('../dashboard/scene.js').Place} place */
+  const bossGoing = (place) => scene({ cubicles: many, run: run({ place, postRun: true, work: 'reviewed' }), boss: { at: place, from: null, since } });
+  /** @param {import('../dashboard/scene.js').Place} place */
+  const bossReturning = (place) => scene({ cubicles: many, boss: { at: null, from: place, since } });
+  /** @param {import('../dashboard/scene.js').Place} place */
+  const moving = (place) => scene({ cubicles: many, run: run({ place, moved: { from: { room: 'freeform' }, since } }) });
+  /** @param {import('../dashboard/layout.js').Layout} l */
+  const look = (l) => (/** @type {Scene} */ sc, /** @type {number} */ t) => walkers(l, sc.cubicles, sc, t);
+  /** @param {import('../dashboard/layout.js').Layout} l @param {{ x: number, y: number }} feet */
+  const inDoorway = (l, feet) => Object.values(l.doorways).some((d) => inside(d, feet.x + 4, feet.y - 1));
+
+  for (const width of [240, 360]) {
+    const l = layoutOffice(many.length, 'narrow', width);
+    const blocked = solidWithDesks(l, many);
+
+    it(`has the carrier never inside a wall, partition or desk, out through a doorway and down the lane (${width})`, () => {
+      for (const place of places) {
+        const sc = delivering(place);
+        const arrive = arrival(sc, look(l));
+        let [passed, laned] = [0, 0];
+        for (let t = 1; t < 2 * arrive + HAND_MS; t += 8) {
+          const c = look(l)(sc, t).carrier;
+          assert.equal(c.pose, 'walking');
+          assert.ok(!blocked(c, 0), `${JSON.stringify(place)} at ${t}: ${JSON.stringify(c)}`);
+          if (inDoorway(l, c)) passed++;
+          if (inside(l.corridors[0], c.x + 4, c.y - 1)) laned++;
+        }
+        assert.ok(passed > 0 && laned > 0, `${JSON.stringify(place)}: out through a doorway and along the lane`);
+      }
+    });
+
+    it(`has the boss never inside a wall, partition or desk, there and back (${width})`, () => {
+      for (const place of places.filter((p) => p.room === 'cubicle')) {
+        for (const sc of [bossGoing(place), bossReturning(place)]) {
+          const end = firstWhen((t) => look(l)(sc, t).boss.pose !== 'walking', since);
+          assert.equal(look(l)(sc, end).boss.pose, sc.boss.at ? 'standing' : 'seated');
+          let through = 0;
+          for (let t = since; t < end; t += 8) {
+            const b = look(l)(sc, t).boss;
+            assert.ok(!blocked(b, BOSS_FEET), `${JSON.stringify(place)} at ${t}: ${JSON.stringify(b)}`);
+            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.review), b.x + 4, b.y + BOSS_FEET - 1)) through++;
+          }
+          assert.ok(through > 0, `${JSON.stringify(place)}: through the Review room's doorway`);
+        }
+      }
+    });
+
+    it(`has a worker moving desks never inside a wall, partition or desk (${width})`, () => {
+      for (const place of places.filter((p) => p.room === 'cubicle')) {
+        const sc = moving(place);
+        const end = firstWhen((t) => look(l)(sc, t).worker?.at?.room === 'cubicle', since);
+        let through = 0;
+        for (let t = since; t < end; t += 8) {
+          const w = look(l)(sc, t).worker;
+          if (w?.pose !== 'walking') continue;
+          assert.ok(!blocked(w, WORKER_FEET), `${JSON.stringify(place)} at ${t}: ${JSON.stringify(w)}`);
+          if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.freeform), w.x + 4, w.y + WORKER_FEET - 1)) through++;
+        }
+        assert.ok(through > 0, `${JSON.stringify(place)}: through the Freeform room's doorway`);
+        const sat = look(l)(sc, end).worker;
+        assert.deepEqual([sat?.pose, sat?.at], ['seated', place]);
+      }
+    });
+  }
+
+  describe('resizing wide ↔ narrow mid-walk', () => {
+    const wideL = layoutOffice(many.length, 'wide', 640);
+    const narrowL = layoutOffice(many.length, 'narrow', 300);
+    /**
+     * How far along the walk (0..1) a walker is at `t`, by the length walked on the layout's route:
+     * sampled from `start` to `end`, where they stop.
+     * @param {(t: number) => { x: number, y: number }} pos @param {number} start @param {number} end @param {number} t
+     */
+    function fractionAt(pos, start, end, t) {
+      let [walked, total] = [0, 0];
+      for (let u = start; u < end; u += 2) {
+        const [a, b] = [pos(u), pos(Math.min(end, u + 2))];
+        const step = Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
+        total += step;
+        if (u < t) walked += step;
+      }
+      return walked / total;
+    }
+
+    it('puts the carrier at the same fraction of the new route, arriving when they would have', () => {
+      const sc = delivering(cube('d'));
+      const arrive = arrival(sc, look(wideL));
+      assert.equal(arrival(sc, look(narrowL)), arrive, 'the same arrival, whichever layout');
+      for (const f of [0.25, 0.5, 0.75]) {
+        const t = Math.round(arrive * f);
+        for (const l of [wideL, narrowL]) {
+          const got = fractionAt((u) => look(l)(sc, u).carrier, 0, arrive, t);
+          assert.ok(Math.abs(got - f) < 0.02, `${l.width}: ${got} of the way at ${f}`);
+        }
+      }
+      const [w, n] = [wideL, narrowL].map((l) => look(l)(sc, Math.round(arrive / 2)).carrier);
+      assert.notDeepEqual([w.x, w.y], [n.x, n.y], 'on a different route');
+    });
+
+    it('puts the boss and a moving worker at the same fraction of the new route', () => {
+      const bossSc = bossGoing(cube('d'));
+      const bossThere = (/** @type {import('../dashboard/layout.js').Layout} */ l) => firstWhen((t) => look(l)(bossSc, t).boss.pose !== 'walking', since);
+      const there = bossThere(wideL);
+      assert.equal(bossThere(narrowL), there);
+      const t = Math.round((since + there) / 2);
+      for (const l of [wideL, narrowL]) {
+        const got = fractionAt((u) => look(l)(bossSc, u).boss, since, there, t);
+        assert.ok(Math.abs(got - 0.5) < 0.02, `boss ${l.width}: ${got}`);
+      }
+      const moveSc = moving(cube('d'));
+      const seated = (/** @type {import('../dashboard/layout.js').Layout} */ l) => firstWhen((u) => look(l)(moveSc, u).worker?.at?.room === 'cubicle', since + 1);
+      const sat = seated(wideL);
+      assert.equal(seated(narrowL), sat);
+      const start = Math.max(since, arrival(moveSc, look(wideL)) + HAND_MS);
+      const mid = Math.round((start + sat) / 2);
+      for (const l of [wideL, narrowL]) {
+        const got = fractionAt((u) => look(l)(moveSc, u).worker, start, sat, mid);
+        assert.ok(Math.abs(got - 0.5) < 0.02, `worker ${l.width}: ${got}`);
+      }
+    });
   });
 });
 
