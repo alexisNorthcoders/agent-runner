@@ -314,6 +314,13 @@ function boss({ route, since, walk, reading }, t) {
 const FEET = { carrier: 0, boss: BOSS_FEET, worker: WORKER_FEET };
 
 /**
+ * The pixel a walker stands on: the middle of their feet, the row above the route point they're at.
+ * @param {Walker} w
+ * @returns {Point}
+ */
+export const feet = (w) => ({ x: w.x + 4, y: w.y + FEET[w.who] - 1 });
+
+/**
  * Whether `route` goes through the doorway `d`: one of its points in it, or a leg across it.
  * @param {Point[]} route @param {Rect} d
  */
@@ -341,8 +348,7 @@ function doors(layout, onFoot) {
     let near = Infinity;
     for (const { walker: w, route } of onFoot) {
       if (w?.pose !== 'walking' || !route || !goesThrough(route, d)) continue;
-      // their feet, at the middle of their sprite
-      const [x, y] = [w.x + 4, w.y + FEET[w.who] - 1];
+      const { x, y } = feet(w);
       near = Math.min(near, Math.hypot(Math.max(d.x - x, 0, x - (d.x + d.w - 1)), Math.max(d.y - y, 0, y - (d.y + d.h - 1))));
     }
     open[id] = Math.max(0, Math.min(1, (DOOR_FAR - near) / (DOOR_FAR - DOOR_NEAR)));

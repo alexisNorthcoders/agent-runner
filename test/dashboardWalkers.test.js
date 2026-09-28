@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { WALL, cubicleDesks, deskAt, deskOwners, inside, layoutOffice, workerRect } from '../dashboard/layout.js';
-import { BOSS_FEET, HAND_MS, RING_MS, WORKER_FEET, walkers } from '../dashboard/walkers.js';
+import { BOSS_FEET, HAND_MS, RING_MS, WORKER_FEET, feet, walkers } from '../dashboard/walkers.js';
 
 /** @typedef {import('../dashboard/scene.js').Scene} Scene */
 /** @typedef {import('../dashboard/scene.js').SceneRun} SceneRun */
@@ -159,7 +159,7 @@ describe('office walkers: the carrier walks the corridors and aisles', () => {
         for (let t = 0; t <= back; t += 8) {
           const c = look(l)(sc, t).carrier;
           assert.ok(!blocked(c), `${width} ${JSON.stringify(place)} at ${t}: ${JSON.stringify(c)}`);
-          if (Object.values(l.doorways).some((d) => inside(d, c.x + 4, c.y - 1))) passed++;
+          if (Object.values(l.doorways).some((d) => inside(d, feet(c).x, feet(c).y))) passed++;
         }
         assert.ok(passed > 0, `${JSON.stringify(place)}: out through a doorway`);
       }
@@ -290,7 +290,7 @@ describe('office walkers: the boss walks the corridors', () => {
             const b = walkers(lw, many, sc, t).boss;
             if (b.pose === 'seated') continue;
             assert.ok(!blocked(b, BOSS_FEET), `${width} ${alias} at ${t}: ${JSON.stringify(b)}`);
-            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (lw.doorways.review), b.x + 4, b.y + BOSS_FEET - 1)) through++;
+            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (lw.doorways.review), feet(b).x, feet(b).y)) through++;
           }
           assert.ok(through > 0, `${alias}: through the Review room's doorway`);
         }
@@ -403,7 +403,7 @@ describe('office walkers: a freeform worker moving desks', () => {
         const w = walkers(l, cubicles, moving, t).worker;
         if (w.pose !== 'walking') continue;
         assert.ok(!blocked(w, WORKER_FEET), `${width} at ${t}: ${JSON.stringify(w)}`);
-        if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.freeform), w.x + 4, w.y + WORKER_FEET - 1)) through++;
+        if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.freeform), feet(w).x, feet(w).y)) through++;
       }
       assert.ok(through > 0, 'through the doorway');
     }
@@ -461,8 +461,8 @@ describe('office walkers: the narrow layout\'s lane', () => {
   const moving = (place) => scene({ cubicles: many, run: run({ place, moved: { from: { room: 'freeform' }, since } }) });
   /** @param {import('../dashboard/layout.js').Layout} l */
   const look = (l) => (/** @type {Scene} */ sc, /** @type {number} */ t) => walkers(l, sc.cubicles, sc, t);
-  /** @param {import('../dashboard/layout.js').Layout} l @param {{ x: number, y: number }} feet */
-  const inDoorway = (l, feet) => Object.values(l.doorways).some((d) => inside(d, feet.x + 4, feet.y - 1));
+  /** @param {import('../dashboard/layout.js').Layout} l @param {import('../dashboard/walkers.js').Walker} w */
+  const inDoorway = (l, w) => Object.values(l.doorways).some((d) => inside(d, feet(w).x, feet(w).y));
 
   for (const width of [240, 360]) {
     const l = layoutOffice(many.length, 'narrow', width);
@@ -478,7 +478,7 @@ describe('office walkers: the narrow layout\'s lane', () => {
           assert.equal(c.pose, 'walking');
           assert.ok(!blocked(c, 0), `${JSON.stringify(place)} at ${t}: ${JSON.stringify(c)}`);
           if (inDoorway(l, c)) passed++;
-          if (inside(l.corridors[0], c.x + 4, c.y - 1)) laned++;
+          if (inside(l.corridors[0], feet(c).x, feet(c).y)) laned++;
         }
         assert.ok(passed > 0 && laned > 0, `${JSON.stringify(place)}: out through a doorway and along the lane`);
       }
@@ -493,7 +493,7 @@ describe('office walkers: the narrow layout\'s lane', () => {
           for (let t = since; t < end; t += 8) {
             const b = look(l)(sc, t).boss;
             assert.ok(!blocked(b, BOSS_FEET), `${JSON.stringify(place)} at ${t}: ${JSON.stringify(b)}`);
-            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.review), b.x + 4, b.y + BOSS_FEET - 1)) through++;
+            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.review), feet(b).x, feet(b).y)) through++;
           }
           assert.ok(through > 0, `${JSON.stringify(place)}: through the Review room's doorway`);
         }
@@ -509,7 +509,7 @@ describe('office walkers: the narrow layout\'s lane', () => {
           const w = look(l)(sc, t).worker;
           if (w?.pose !== 'walking') continue;
           assert.ok(!blocked(w, WORKER_FEET), `${JSON.stringify(place)} at ${t}: ${JSON.stringify(w)}`);
-          if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.freeform), w.x + 4, w.y + WORKER_FEET - 1)) through++;
+          if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.freeform), feet(w).x, feet(w).y)) through++;
         }
         assert.ok(through > 0, `${JSON.stringify(place)}: through the Freeform room's doorway`);
         const sat = look(l)(sc, end).worker;
@@ -624,8 +624,6 @@ describe('office walkers: the Doors', () => {
   const cube = (alias) => ({ room: 'cubicle', alias });
   /** The run over, the boss setting off back from `alias`'s cubicle at `since`. @param {string} alias */
   const returning = (alias) => scene({ cubicles: many, boss: { at: null, from: cube(alias), since } });
-  /** Where the boss's feet are. @param {ReturnType<typeof walkers>['boss']} b */
-  const feet = (b) => ({ x: b.x + 4, y: b.y + BOSS_FEET - 1 });
   /** The first t from `from` (in steps of 5ms) at which `holds`. @param {(t: number) => boolean} holds @param {number} from */
   const scan = (holds, from) => {
     for (let t = from; t < from + 60_000; t += 5) if (holds(t)) return t;
