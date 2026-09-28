@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { WALL, cubicleDesks, deskAt, deskOwners, inside, layoutOffice, workerRect } from '../dashboard/layout.js';
-import { BOSS_FEET, HAND_MS, RING_MS, WORKER_FEET, walkers } from '../dashboard/walkers.js';
+import { BOSS_FEET, HAND_MS, RING_MS, WORKER_FEET, feet, walkers } from '../dashboard/walkers.js';
 
 /** @typedef {import('../dashboard/scene.js').Scene} Scene */
 /** @typedef {import('../dashboard/scene.js').SceneRun} SceneRun */
@@ -159,7 +159,7 @@ describe('office walkers: the carrier walks the corridors and aisles', () => {
         for (let t = 0; t <= back; t += 8) {
           const c = look(l)(sc, t).carrier;
           assert.ok(!blocked(c), `${width} ${JSON.stringify(place)} at ${t}: ${JSON.stringify(c)}`);
-          if (Object.values(l.doorways).some((d) => inside(d, c.x + 4, c.y - 1))) passed++;
+          if (Object.values(l.doorways).some((d) => inside(d, feet(c).x, feet(c).y))) passed++;
         }
         assert.ok(passed > 0, `${JSON.stringify(place)}: out through a doorway`);
       }
@@ -290,7 +290,7 @@ describe('office walkers: the boss walks the corridors', () => {
             const b = walkers(lw, many, sc, t).boss;
             if (b.pose === 'seated') continue;
             assert.ok(!blocked(b, BOSS_FEET), `${width} ${alias} at ${t}: ${JSON.stringify(b)}`);
-            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (lw.doorways.review), b.x + 4, b.y + BOSS_FEET - 1)) through++;
+            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (lw.doorways.review), feet(b).x, feet(b).y)) through++;
           }
           assert.ok(through > 0, `${alias}: through the Review room's doorway`);
         }
@@ -403,7 +403,7 @@ describe('office walkers: a freeform worker moving desks', () => {
         const w = walkers(l, cubicles, moving, t).worker;
         if (w.pose !== 'walking') continue;
         assert.ok(!blocked(w, WORKER_FEET), `${width} at ${t}: ${JSON.stringify(w)}`);
-        if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.freeform), w.x + 4, w.y + WORKER_FEET - 1)) through++;
+        if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.freeform), feet(w).x, feet(w).y)) through++;
       }
       assert.ok(through > 0, 'through the doorway');
     }
@@ -461,8 +461,8 @@ describe('office walkers: the narrow layout\'s lane', () => {
   const moving = (place) => scene({ cubicles: many, run: run({ place, moved: { from: { room: 'freeform' }, since } }) });
   /** @param {import('../dashboard/layout.js').Layout} l */
   const look = (l) => (/** @type {Scene} */ sc, /** @type {number} */ t) => walkers(l, sc.cubicles, sc, t);
-  /** @param {import('../dashboard/layout.js').Layout} l @param {{ x: number, y: number }} feet */
-  const inDoorway = (l, feet) => Object.values(l.doorways).some((d) => inside(d, feet.x + 4, feet.y - 1));
+  /** @param {import('../dashboard/layout.js').Layout} l @param {import('../dashboard/walkers.js').Walker} w */
+  const inDoorway = (l, w) => Object.values(l.doorways).some((d) => inside(d, feet(w).x, feet(w).y));
 
   for (const width of [240, 360]) {
     const l = layoutOffice(many.length, 'narrow', width);
@@ -478,7 +478,7 @@ describe('office walkers: the narrow layout\'s lane', () => {
           assert.equal(c.pose, 'walking');
           assert.ok(!blocked(c, 0), `${JSON.stringify(place)} at ${t}: ${JSON.stringify(c)}`);
           if (inDoorway(l, c)) passed++;
-          if (inside(l.corridors[0], c.x + 4, c.y - 1)) laned++;
+          if (inside(l.corridors[0], feet(c).x, feet(c).y)) laned++;
         }
         assert.ok(passed > 0 && laned > 0, `${JSON.stringify(place)}: out through a doorway and along the lane`);
       }
@@ -493,7 +493,7 @@ describe('office walkers: the narrow layout\'s lane', () => {
           for (let t = since; t < end; t += 8) {
             const b = look(l)(sc, t).boss;
             assert.ok(!blocked(b, BOSS_FEET), `${JSON.stringify(place)} at ${t}: ${JSON.stringify(b)}`);
-            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.review), b.x + 4, b.y + BOSS_FEET - 1)) through++;
+            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.review), feet(b).x, feet(b).y)) through++;
           }
           assert.ok(through > 0, `${JSON.stringify(place)}: through the Review room's doorway`);
         }
@@ -509,7 +509,7 @@ describe('office walkers: the narrow layout\'s lane', () => {
           const w = look(l)(sc, t).worker;
           if (w?.pose !== 'walking') continue;
           assert.ok(!blocked(w, WORKER_FEET), `${JSON.stringify(place)} at ${t}: ${JSON.stringify(w)}`);
-          if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.freeform), w.x + 4, w.y + WORKER_FEET - 1)) through++;
+          if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.freeform), feet(w).x, feet(w).y)) through++;
         }
         assert.ok(through > 0, `${JSON.stringify(place)}: through the Freeform room's doorway`);
         const sat = look(l)(sc, end).worker;
@@ -615,4 +615,75 @@ describe('office walkers: animating', () => {
     assert.equal(at(scene({ outcomes: [{ ...asleep, state: 'injured' }] }), 1e9).animating, false);
     assert.equal(at(scene({ run: run(), dark: true }), 1).animating, false);
   });
+});
+
+describe('office walkers: the Doors', () => {
+  const since = 5000;
+  const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((alias) => ({ ...cubicles[0], alias, name: alias }));
+  /** @param {string} alias @returns {import('../dashboard/scene.js').Place} */
+  const cube = (alias) => ({ room: 'cubicle', alias });
+  /** The run over, the boss setting off back from `alias`'s cubicle at `since`. @param {string} alias */
+  const returning = (alias) => scene({ cubicles: many, boss: { at: null, from: cube(alias), since } });
+  /** The first t from `from` (in steps of 5ms) at which `holds`. @param {(t: number) => boolean} holds @param {number} from */
+  const scan = (holds, from) => {
+    for (let t = from; t < from + 60_000; t += 5) if (holds(t)) return t;
+    assert.fail('it happens');
+  };
+
+  for (const mode of /** @type {const} */ (['wide', 'narrow'])) {
+    describe(mode, () => {
+      const l = layoutOffice(many.length, mode, mode === 'wide' ? 640 : 300);
+      /** @param {Scene} sc @param {number} t */
+      const look = (sc, t) => walkers(l, sc.cubicles, sc, t);
+      const sc = returning('d');
+      const home = firstWhen((t) => look(sc, t).boss.pose === 'seated', since);
+      const review = /** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.review);
+      const through = scan((t) => inside(review, feet(look(sc, t).boss).x, feet(look(sc, t).boss).y), since);
+
+      it('has a Door per side room, all shut with nobody walking', () => {
+        assert.deepEqual(look(scene({ cubicles: many }), 1e9).doors, { review: 0, joplin: 0, freeform: 0, queueRoom: 0 });
+      });
+
+      it('is closed before the boss gets near, open while they pass through, and closed again a moment after', () => {
+        assert.equal(look(sc, since).doors.review, 0, 'shut while the boss is across the office');
+        assert.equal(look(sc, through).doors.review, 1, 'wide open in the doorway');
+        const opening = scan((t) => look(sc, t).doors.review > 0, since);
+        assert.ok(through - opening > 100, 'swings open as they come near');
+        const shut = scan((t) => look(sc, t).doors.review === 0, through);
+        assert.ok(shut - through > 100 && shut - through < 1500, `closes a moment after: ${shut - through}ms`);
+        assert.equal(look(sc, shut).boss.pose, 'walking', 'shut behind them before they sit down');
+        for (const t of [since, through, shut]) assert.equal(look(sc, t).doors.joplin, 0, 'the other Doors stay shut');
+      });
+
+      it('keeps the office animating while a Door closes, and stops once every Door is shut', () => {
+        const closing = scan((t) => look(sc, t).doors.review < 1, through);
+        assert.ok(look(sc, closing).doors.review > 0, 'swinging shut');
+        assert.equal(look(sc, closing).animating, true);
+        assert.ok(Object.values(look(sc, home).doors).every((v) => v === 0));
+        assert.equal(look(sc, home).animating, false);
+      });
+
+      it('opens the Queue room\'s Door for the mail carrier, and the Freeform room\'s', () => {
+        const sc2 = scene({ cubicles: many, run: run({ place: { room: 'freeform' }, delivery: { by: 'envelope', at: 0 } }) });
+        let [queue, freeform] = [0, 0];
+        for (let t = 0; t < 30_000; t += 20) {
+          const { doors } = look(sc2, t);
+          queue = Math.max(queue, doors.queueRoom ?? 0);
+          freeform = Math.max(freeform, doors.freeform ?? 0);
+        }
+        assert.deepEqual([queue, freeform], [1, 1]);
+      });
+
+      it('leaves shut the Doors a walk only goes past', () => {
+        const sc2 = scene({ cubicles: many, run: run({ place: { room: 'joplin' }, delivery: { by: 'envelope', at: 0 } }) });
+        const sc3 = scene({ cubicles: many, run: run({ place: cube('f'), delivery: { by: 'envelope', at: 0 } }) });
+        for (let t = 0; t < 30_000; t += 20) {
+          const { doors } = look(sc2, t);
+          assert.deepEqual([doors.review, doors.freeform], [0, 0], `to the Joplin room, at ${t}`);
+          assert.equal(look(sc3, t).doors.review, 0, `to cubicle f, at ${t}`);
+          assert.equal(look(sc, since + t).doors.freeform, 0, `the boss back to the Review room, at ${since + t}`);
+        }
+      });
+    });
+  }
 });

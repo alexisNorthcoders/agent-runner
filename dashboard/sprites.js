@@ -185,6 +185,46 @@ export function backDoorway(ctx, r, floorY) {
   ctx.fillRect(r.x - 2, r.y, 2, floorY - r.y);
 }
 
+/** How far a wide-open Door swings: just short of square to its wall. */
+const DOOR_SWING = (Math.PI / 2) * 0.9;
+
+/**
+ * A side room's Door in a side-wall doorway `r`, edge-on from above: a leaf hung from the doorway's
+ * top jamb, `open` (0 shut, filling the gap, to 1 wide open) swinging into the room, which is to the
+ * left (`into` -1) or right (1).
+ * @param {Ctx} ctx @param {Rect} r @param {number} open @param {-1 | 1} into
+ */
+export function door(ctx, r, open, into) {
+  const a = open * DOOR_SWING;
+  const [dx, dy] = [into * Math.sin(a), Math.cos(a)];
+  for (let i = 0; i < r.h; i++) {
+    const [x, y] = [Math.round(r.x + dx * i), Math.round(r.y + dy * i)];
+    ctx.fillStyle = PALETTE.wood;
+    ctx.fillRect(x, y, 1, 1);
+    ctx.fillStyle = PALETTE.woodDark;
+    ctx.fillRect(x + into, y, 1, 1);
+  }
+}
+
+/**
+ * A side room's Door in a back-wall doorway `r`, face-on: a panel hung on the doorway's left, filling
+ * it down to the floor when shut, narrowing as it swings `open` (0 to 1) into the room.
+ * @param {Ctx} ctx @param {Rect} r @param {number} floorY where the floor starts @param {number} open
+ */
+export function backDoor(ctx, r, floorY, open) {
+  const w = Math.max(1, Math.round(r.w * Math.cos(open * DOOR_SWING)));
+  const h = floorY - r.y;
+  ctx.fillStyle = PALETTE.wood;
+  ctx.fillRect(r.x, r.y, w, h);
+  ctx.fillStyle = PALETTE.woodDark;
+  ctx.fillRect(r.x + w - 1, r.y, 1, h);
+  if (w > 6) {
+    ctx.fillRect(r.x + 2, r.y + 2, w - 5, 1);
+    ctx.fillStyle = PALETTE.selected;
+    ctx.fillRect(r.x + w - 4, r.y + Math.floor(h / 2), 2, 2);
+  }
+}
+
 /** A window on a back wall. @param {Ctx} ctx @param {number} x @param {number} y @param {number} w */
 export function wallWindow(ctx, x, y, w) {
   ctx.fillStyle = PALETTE.wallTrim;

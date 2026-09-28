@@ -33,6 +33,9 @@
  *   floor, and its threshold just past the wall.
  */
 
+/** The side rooms, the ones with a doorway onto a corridor. @type {SideRoomId[]} */
+export const SIDE_ROOMS = ['review', 'joplin', 'freeform', 'queueRoom'];
+
 /** The height of a room's back wall, above its floor. */
 export const WALL = 26;
 /** The wide scene is always this tall; its width stretches between these to fill whole-number scales. */

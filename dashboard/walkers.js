@@ -1,9 +1,10 @@
 // Who walks the office floor at a given time, and where: the mail carrier's delivery, the boss's
 // walks to a worker's shoulder and back, and a worker moving desks with their papers, all routed
-// over the layout's walk graph at a steady pace from the times the scene gives. Also whether
-// anything on the floor still moves. No DOM here, so it can be tested in Node; officeView.js draws
+// over the layout's walk graph at a steady pace from the times the scene gives. Also how far each
+// side room's Door is open, from how near someone walking is, and whether anything on the floor
+// still moves. No DOM here, so it can be tested in Node; officeView.js draws
 // what it returns.
-import { WIDE_WIDTH, deskAt, deskOwners, layoutOffice, placeKey, walkGraph, workerRect } from './layout.js';
+import { SIDE_ROOMS, WIDE_WIDTH, deskAt, deskOwners, inside, layoutOffice, placeKey, walkGraph, workerRect } from './layout.js';
 
 /** @typedef {import('./layout.js').Rect} Rect */
 /** @typedef {import('./layout.js').Layout} Layout */
@@ -25,6 +26,8 @@ import { WIDE_WIDTH, deskAt, deskOwners, layoutOffice, placeKey, walkGraph, work
  *   carrier has arrived, or walking to a new desk with their `pile` of papers (`at` null), `facing`
  *   the way they're heading.
  * @typedef {Carrier | Boss | Worker} Walker
+ * @typedef {Partial<Record<import('./layout.js').SideRoomId, number>>} Doors
+ *   How far each side room's Door is open, 0 (shut) to 1 (wide open), for each room with a doorway.
  */
 
 /** How long the phone rings before the mail carrier sets off, and the hand-over. */
@@ -35,6 +38,12 @@ export const WALK_SPEED = 60;
 /** A finished run's stamp coming down, and its papers going to the out tray. */
 export const STAMP_MS = 900;
 export const TRAY_MS = 900;
+/**
+ * A Door is wide open while someone walking is within DOOR_NEAR of its doorway, and shut once
+ * they're DOOR_FAR away, so it swings open as they come and shut behind them as they go.
+ */
+const DOOR_NEAR = 8;
+const DOOR_FAR = 36;
 /** Resting states that keep moving: Zzz, stars, the tumbleweed. */
 const ANIMATED_STATES = new Set(['asleep', 'dizzy', 'shrug']);
 
@@ -301,16 +310,63 @@ function boss({ route, since, walk, reading }, t) {
   return { who: 'boss', x: p.x, y: p.y - BOSS_FEET + (pose === 'seated' ? 3 : 0), pose, facing: pose === 'seated' ? 'right' : p.facing };
 }
 
+/** How far below a walker's `y` their feet are: the carrier's `y` is their feet already. */
+const FEET = { carrier: 0, boss: BOSS_FEET, worker: WORKER_FEET };
+
+/**
+ * The pixel a walker stands on: the middle of their feet, the row above the route point they're at.
+ * @param {Walker} w
+ * @returns {Point}
+ */
+export const feet = (w) => ({ x: w.x + 4, y: w.y + FEET[w.who] - 1 });
+
+/**
+ * Whether `route` goes through the doorway `d`: one of its points in it, or a leg across it.
+ * @param {Point[]} route @param {Rect} d
+ */
+function goesThrough(route, d) {
+  return route.some((a, i) => {
+    const b = route[i + 1] ?? a;
+    const steps = Math.max(1, Math.ceil(distance(a, b)));
+    for (let k = 0; k <= steps; k++) if (inside(d, Math.round(a.x + ((b.x - a.x) * k) / steps), Math.round(a.y + ((b.y - a.y) * k) / steps))) return true;
+    return false;
+  });
+}
+
+/**
+ * How far each side room's Door is open: by how near its doorway the nearest walker on foot is
+ * whose route goes through it (someone only going past, down the narrow lane, leaves it shut).
+ * @param {Layout} layout @param {Array<{ walker: Walker | null, route: Point[] | null }>} onFoot each walker, and the route they're on
+ * @returns {Doors}
+ */
+function doors(layout, onFoot) {
+  /** @type {Doors} */
+  const open = {};
+  for (const id of SIDE_ROOMS) {
+    const d = layout.doorways[id];
+    if (!d) continue;
+    let near = Infinity;
+    for (const { walker: w, route } of onFoot) {
+      if (w?.pose !== 'walking' || !route || !goesThrough(route, d)) continue;
+      const { x, y } = feet(w);
+      near = Math.min(near, Math.hypot(Math.max(d.x - x, 0, x - (d.x + d.w - 1)), Math.max(d.y - y, 0, y - (d.y + d.h - 1))));
+    }
+    open[id] = Math.max(0, Math.min(1, (DOOR_FAR - near) / (DOOR_FAR - DOOR_NEAR)));
+  }
+  return open;
+}
+
 /**
  * Everyone who walks the floor at `t` (the mail carrier, the boss, and the active run's worker
  * once they're on it), and whether anything on the floor moves, so the page knows to keep drawing
- * frames: a run (typing, the delivery), a walk, or a resting state that moves.
+ * frames: a run (typing, the delivery), a walk, a Door that isn't shut, or a resting state that moves.
  * @param {Layout} layout
  * @param {Scene['cubicles']} cubicles the scene's, in the layout's order
  * @param {Scene} scene
  * @param {number} t now on the scene's clock
- * @returns {{ carrier: Carrier, boss: Boss, worker: Worker | null, animating: boolean }} `worker`:
- *   null until the mail carrier arrives with the run, or with no run.
+ * @returns {{ carrier: Carrier, boss: Boss, worker: Worker | null, doors: Doors, animating: boolean }} `worker`:
+ *   null until the mail carrier arrives with the run, or with no run. `doors`: how far each side
+ *   room's Door is open.
  */
 export function walkers(layout, cubicles, scene, t) {
   const here = routes(layout, cubicles, scene);
@@ -328,8 +384,17 @@ export function walkers(layout, cubicles, scene, t) {
   const { home, route, reading } = here.boss;
   // no walk to or from a worker: seated at home all along
   const bossTrip = route ? { route, since: scene.boss.since, walk: timedWalk(timed.boss.route), reading } : { route: [home], since: scene.boss.since, walk: 0, reading: false };
+  const onFloor = { carrier: carrier(layout, trip, scene, t), boss: boss(bossTrip, t), worker: worker(layout, cubicles, trip, move, scene, t) };
+  const doorsOpen = doors(layout, [
+    { walker: onFloor.carrier, route: trip?.route ?? null },
+    { walker: onFloor.boss, route: bossTrip.route },
+    { walker: onFloor.worker, route: move?.route ?? null },
+  ]);
   const animating =
     !scene.dark &&
-    (!!run || (!!bossTrip.walk && t - bossTrip.since < bossTrip.walk) || scene.outcomes.some((o) => ANIMATED_STATES.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
-  return { carrier: carrier(layout, trip, scene, t), boss: boss(bossTrip, t), worker: worker(layout, cubicles, trip, move, scene, t), animating };
+    (!!run ||
+      (!!bossTrip.walk && t - bossTrip.since < bossTrip.walk) ||
+      Object.values(doorsOpen).some((v) => v > 0) ||
+      scene.outcomes.some((o) => ANIMATED_STATES.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
+  return { ...onFloor, doors: doorsOpen, animating };
 }
