@@ -8,6 +8,7 @@ export function buildPreamble({ repoRoot }) {
 - Never restart, reload, stop or delete the \`agent-runner\` PM2 process (\`pm2 restart agent-runner\`, \`pm2 reload\`, \`pm2 delete\`, \`killall node\`, …). This run is its child: that kills the run and its report.
 - If agent-runner itself must be restarted, run \`npm run safe-restart\` in ${repoRoot}. It refuses while any run is active, including this one. If your own run is the blocker, don't work around it: say in your summary that a restart is needed, and the user will send \`claude:restart\` afterwards.
 - Restarting other PM2 apps, including \`whatsapp\` (the bot), is allowed.
+- Time limit: this run is killed after roughly 20-30 minutes, so long-running work belongs to a human, not to you. Never run a command that takes more than about 2 minutes (full training runs, benchmarks, soak tests, large builds), and never wait on one with \`sleep\` or polling loops, including \`nohup\` or background jobs. Verify correctness with small inputs. If an acceptance criterion needs a long measurement, skip it, leave the command for the user in your summary, and don't tick it off.
 - Your final message is sent back to the user on WhatsApp, so end with a short summary.`;
 }
 

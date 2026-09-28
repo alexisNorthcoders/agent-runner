@@ -9,6 +9,12 @@ describe('preamble', () => {
     assert.doesNotMatch(p, /gh pr merge/);
   });
 
+  it('tells the agent long-running jobs are for a human', () => {
+    const p = buildPreamble({ repoRoot: '/r/agent-runner' });
+    assert.match(p, /long-running work belongs to a human/);
+    assert.match(p, /more than about 2 minutes/);
+  });
+
   it('adds the commit → PR → review → merge → default-branch rules for freeform runs', () => {
     const p = buildFreeformPreamble({ repoRoot: '/r/agent-runner' });
     assert.ok(p.startsWith(buildPreamble({ repoRoot: '/r/agent-runner' })));
