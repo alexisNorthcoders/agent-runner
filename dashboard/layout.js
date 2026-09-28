@@ -1,8 +1,9 @@
 // Where everything on the office floor sits, in the scene's internal pixels. Wide: the bullpen in
 // the middle, the Review room and the Joplin room on the left, the Queue room and the Freeform room
 // on the right, a corridor between each side and the bullpen, and an aisle in front of each row of
-// cubicles. Narrow: the rooms stacked, the Queue room first. Also the walk graph the walkers route
-// over. No DOM here, so it can be tested in Node.
+// cubicles. Narrow: the rooms stacked, the Queue room first, with a corridor lane down their right
+// edge and an aisle in front of each row of cubicles. Also the walk graph the walkers route over.
+// No DOM here, so it can be tested in Node.
 
 /**
  * @typedef {{ x: number, y: number, w: number, h: number }} Rect
@@ -25,9 +26,11 @@
  *   desks: { review: Rect, freeform: Rect, joplin: Rect },
  * }} Layout
  *   `desk`: the front desk. `desks`: the other rooms' desks (the Joplin room's reading table).
- *   `corridors`: wide, the Corridors either side of the bullpen, left then right (their back wall
- *   included). `aisles`: wide, one in front of each row of cubicles, from corridor to corridor.
- *   `doorways`: wide, the gap in each side room's wall onto its corridor. None of them when narrow.
+ *   `corridors`: wide, the Corridors either side of the bullpen, left then right; narrow, the lane
+ *   down the right edge (their back wall included). `aisles`: one in front of each row of cubicles,
+ *   joining the corridors. `doorways`: each side room's way onto its corridor: wide, the gap in its
+ *   wall facing the bullpen; narrow, the opening in its back wall at the lane's end, down to the
+ *   floor, and its threshold just past the wall.
  */
 
 /** The height of a room's back wall, above its floor. */
@@ -43,10 +46,13 @@ const CART_COLS = 6;
 export const CART_CAPACITY = CART_ROWS * CART_COLS;
 
 const SIDE = 150;
-/** Wide: a corridor's width, an aisle's depth, a doorway's height, and a cubicle's full height. */
+/** A corridor's width, an aisle's depth, a doorway's height (wide) or width (narrow), and a wide cubicle's full height. */
 const CORRIDOR = 14;
 const AISLE = 10;
 const DOORWAY = 16;
+/** Narrow: how far below the top of the back wall a doorway in it starts, and how far past the wall onto the floor its threshold runs. */
+export const DOORWAY_TOP = 4;
+export const THRESHOLD = 4;
 const CUBE_H = 100;
 const NAMES = { queueRoom: 'QUEUE', bullpen: 'HEADLESS INC.', review: 'REVIEW', freeform: 'FREEFORM', joplin: 'JOPLIN' };
 
@@ -212,6 +218,16 @@ export function approachPoint(desk, cubicle) {
   return { x: Math.max(cubicle.x + 4, Math.min(cubicle.x + cubicle.w - 13, p.x)), y: Math.min(p.y, cubicle.y + cubicle.h - 1) };
 }
 
+/**
+ * A side room's doorway when it's in the room's back wall (narrow), else null.
+ * @param {Layout} layout @param {SideRoomId} id
+ * @returns {Rect | null}
+ */
+export function backWallDoorway(layout, id) {
+  const d = layout.doorways[id];
+  return d && d.y < layout.rooms[id].rect.y + WALL ? d : null;
+}
+
 /** A desk's place, as a key into the walk graph's approach points. @param {import('./scene.js').Place} p */
 export const placeKey = (p) => (p.room === 'cubicle' ? `cubicle:${p.alias}:${p.job ?? ''}` : p.room);
 
@@ -224,8 +240,8 @@ export const placeKey = (p) => (p.room === 'cubicle' ? `cubicle:${p.alias}:${p.j
 
 /**
  * The walk graph: along the Corridors and Aisles, out of each side room through its doorway, and
- * into each cubicle through its open front, to each desk's approach point. With no doorways or
- * aisles (the narrow layout), every approach point is joined straight to the front desk.
+ * into each cubicle through its open front, to each desk's approach point. A room with no doorway,
+ * or a cubicle with no aisle, is joined straight to the front desk.
  * @param {Layout} layout @param {CubicleDesks[]} cubicles the scene's, in the layout's order
  * @returns {WalkGraph}
  */
@@ -247,15 +263,22 @@ export function walkGraph(layout, cubicles) {
   const corridorStops = lanes.map(() => new Set(layout.aisles.map(lane)));
   const aisleStops = layout.aisles.map(() => new Set(lanes));
 
-  /** Out of a side room from `p`: to the doorway's lane, and through it to the corridor. @param {SideRoomId} id @param {Point} p */
+  /**
+   * Out of a side room from `p` and through its doorway to the corridor: through a side wall, down
+   * or up the room to the doorway's lane first; through the back wall, across the room's floor to
+   * under the doorway first, clear of the furniture along the wall.
+   * @param {SideRoomId} id @param {Point} p
+   */
   const leave = (id, p) => {
     const d = layout.doorways[id];
     if (!d) return link(p, front);
     const y = lane(d);
     const i = lanes.reduce((best, x, j) => (Math.abs(x - d.x) < Math.abs(lanes[best] - d.x) ? j : best), 0);
     corridorStops[i].add(y);
-    link(p, { x: p.x, y });
-    link({ x: p.x, y }, { x: lanes[i], y });
+    const x = backWallDoorway(layout, id) ? d.x + Math.floor((d.w - 9) / 2) : p.x;
+    link(p, { x, y: p.y });
+    link({ x, y: p.y }, { x, y });
+    link({ x, y }, { x: lanes[i], y });
   };
   leave('queueRoom', front);
   for (const id of /** @type {const} */ (['review', 'freeform', 'joplin'])) {
@@ -328,25 +351,46 @@ export function layoutOffice(count, mode, width) {
   }
   const W = Math.max(NARROW_WIDTH.min, Math.min(NARROW_WIDTH.max, Math.floor(width)));
   const cols = W >= 300 ? 3 : 2;
-  const rows = Math.ceil(count / cols);
+  const rows = Math.max(1, Math.ceil(count / cols));
   const cubeH = 90;
+  // the rooms, stacked, leave the lane down the right edge
+  const roomW = W - CORRIDOR;
   let y = 0;
   /** @param {RoomId} id @param {number} h */
   const stack = (id, h) => {
-    const r = room(id, 0, y, W, h);
+    const r = room(id, 0, y, roomW, h);
     y += h;
     return r;
   };
   const rooms = {
     queueRoom: stack('queueRoom', 150),
-    bullpen: stack('bullpen', WALL + 12 + Math.max(1, rows) * cubeH),
+    bullpen: stack('bullpen', WALL + 12 + rows * (cubeH + AISLE)),
     review: stack('review', 110),
     freeform: stack('freeform', 110),
     joplin: stack('joplin', 110),
   };
   const b = rooms.bullpen.rect;
-  const cubicles = grid(count, { x: b.x + 6, y: b.y + WALL + 6, w: b.w - 12, h: rows * cubeH }, cols, cubeH);
-  return { width: W, height: y, rooms, cubicles, corridors: [], aisles: [], doorways: {}, ...queueRoomParts(rooms.queueRoom.rect), desks: roomDesks(rooms) };
+  const top = b.y + WALL + 6;
+  const cubicles = grid(count, { x: b.x + 6, y: top, w: b.w - 12, h: 0 }, cols, cubeH, AISLE);
+  const aisles = Array.from({ length: rows }, (_, i) => ({ x: b.x, y: top + i * (cubeH + AISLE) + cubeH, w: b.w, h: AISLE }));
+  // an opening in the back wall at the lane's end, from under the wall's top trim down to the
+  // floor, with a threshold on the floor (THRESHOLD deep) where walkers step out onto the lane. It
+  // is the same for every room height, and the name plate and the furniture along the wall keep
+  // left of it (officeView.js)
+  /** @param {Rect} r */
+  const doorway = (r) => ({ x: r.x + r.w - DOORWAY, y: r.y + DOORWAY_TOP, w: DOORWAY, h: WALL - DOORWAY_TOP + THRESHOLD });
+  const doorways = { queueRoom: doorway(rooms.queueRoom.rect), review: doorway(rooms.review.rect), freeform: doorway(rooms.freeform.rect), joplin: doorway(rooms.joplin.rect) };
+  return {
+    width: W,
+    height: y,
+    rooms,
+    cubicles,
+    corridors: [{ x: roomW, y: 0, w: CORRIDOR, h: y }],
+    aisles,
+    doorways,
+    ...queueRoomParts(rooms.queueRoom.rect),
+    desks: roomDesks(rooms),
+  };
 }
 
 /**

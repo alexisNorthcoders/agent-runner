@@ -5,7 +5,7 @@
 // the ends of runs (the stamp coming down, the papers to the out tray) are tweened here from when
 // the run ended, so the reducer only says what happens and when.
 import { formatClock } from './format.js';
-import { WALL, cartSlots, cubicleDesks, deskAt, deskOwners, folderSlots, inTrayRect, inTraySlots, placeRect, roomAt, stickyNote, workerRect } from './layout.js';
+import { WALL, backWallDoorway, cartSlots, cubicleDesks, deskAt, deskOwners, folderSlots, inTrayRect, inTraySlots, placeRect, roomAt, stickyNote, workerRect } from './layout.js';
 import { samePlace } from './scene.js';
 import * as s from './sprites.js';
 import { STAMP_MS, TRAY_MS, lerp, walkers } from './walkers.js';
@@ -29,6 +29,16 @@ const TUMBLE_MS = 3000;
 /** Resting states in which drawOutcomes draws the worker at their desk (or sends them home). */
 const WORKER_STATES = new Set(['injured', 'asleep', 'dizzy', 'shrug', 'home']);
 
+/**
+ * Where a side room's back wall and the floor under it end on the right: at its doorway when that's
+ * in the back wall (narrow), else at the room's edge.
+ * @param {Layout} layout @param {import('./layout.js').SideRoomId} id
+ */
+function clearRight(layout, id) {
+  const r = layout.rooms[id].rect;
+  return backWallDoorway(layout, id)?.x ?? r.x + r.w;
+}
+
 /** @param {Ctx} ctx @param {Layout} layout */
 function drawBoss(ctx, layout) {
   const r = layout.rooms.review.rect;
@@ -36,7 +46,7 @@ function drawBoss(ctx, layout) {
   s.wallWindow(ctx, r.x + 12, r.y + 6, 36);
   s.bossDesk(ctx, d.x, d.y);
   s.plant(ctx, r.x + 6, r.y + WALL + 4);
-  s.cabinets(ctx, r.x + r.w - 26, r.y + WALL + 2, 2);
+  s.cabinets(ctx, clearRight(layout, 'review') - 26, r.y + WALL + 2, 2);
 }
 
 /** @param {Ctx} ctx @param {Layout} layout */
@@ -55,7 +65,7 @@ function drawFreeformRoom(ctx, layout) {
   const d = layout.desks.freeform;
   s.wallWindow(ctx, r.x + 8, r.y + 6, 30);
   s.desk(ctx, d.x, d.y, d.w);
-  s.cabinets(ctx, r.x + r.w - 36, r.y + WALL + 2, 3);
+  s.cabinets(ctx, clearRight(layout, 'freeform') - 36, r.y + WALL + 2, 3);
   s.waterCooler(ctx, r.x + 6, r.y + WALL + 4);
 }
 
@@ -240,14 +250,16 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   const { rooms } = layout;
   const walking = walkers(layout, scene.cubicles, scene, t);
   ctx.clearRect(0, 0, layout.width, layout.height);
-  s.room(ctx, rooms.review.rect, rooms.review.name, 'wood', WALL);
-  s.room(ctx, rooms.joplin.rect, rooms.joplin.name, 'wood', WALL);
-  s.room(ctx, rooms.freeform.rect, rooms.freeform.name, 'carpet', WALL);
-  s.room(ctx, rooms.queueRoom.rect, rooms.queueRoom.name, 'tile', WALL);
-  // wide, the bullpen opens straight onto the corridors, and the side rooms onto them by their doorways
-  s.room(ctx, rooms.bullpen.rect, rooms.bullpen.name, 'carpet', WALL, { open: layout.corridors.length > 0 });
+  for (const [id, floor] of /** @type {const} */ ([['review', 'wood'], ['joplin', 'wood'], ['freeform', 'carpet'], ['queueRoom', 'tile']])) {
+    s.room(ctx, rooms[id].rect, rooms[id].name, floor, WALL, { plateRight: backWallDoorway(layout, id)?.x });
+  }
+  // the bullpen opens straight onto the corridors, and the side rooms onto them by their doorways
+  s.room(ctx, rooms.bullpen.rect, rooms.bullpen.name, 'carpet', WALL, { open: true });
   for (const c of layout.corridors) s.corridor(ctx, c, WALL);
-  for (const d of Object.values(layout.doorways)) s.doorway(ctx, d);
+  for (const id of /** @type {const} */ (['review', 'joplin', 'freeform', 'queueRoom'])) {
+    const d = layout.doorways[id];
+    if (d) backWallDoorway(layout, id) ? s.backDoorway(ctx, d, rooms[id].rect.y + WALL) : s.doorway(ctx, d);
+  }
   drawBoss(ctx, layout);
   drawJoplinRoom(ctx, layout);
   drawFreeformRoom(ctx, layout);
@@ -270,7 +282,7 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   s.frontDesk(ctx, layout.desk);
   s.mailCart(ctx, layout.cart);
   for (const slot of cartSlots(layout, scene.queueRoom.letters)) s.letter(ctx, slot.rect, slot.pile);
-  s.plant(ctx, rooms.queueRoom.rect.x + rooms.queueRoom.rect.w - 14, rooms.queueRoom.rect.y + WALL + 4);
+  s.plant(ctx, clearRight(layout, 'queueRoom') - 14, rooms.queueRoom.rect.y + WALL + 4);
   drawJobWorkers(ctx, layout, scene, walking);
   drawOutcomes(ctx, layout, scene, t);
   drawRun(ctx, layout, scene, t, walking);
