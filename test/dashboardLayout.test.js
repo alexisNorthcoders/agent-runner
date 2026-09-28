@@ -314,7 +314,7 @@ describe('the corridor lane, aisles and doorways (narrow)', () => {
     }
   });
 
-  it('draws each back-wall doorway clear of the name plate and of everything drawn after it', () => {
+  it('draws each back-wall doorway, with its Door, clear of the name plate and of everything drawn after it', () => {
     for (const width of widths) {
       const cubicles = ['a', 'b', 'c', 'd'].map((alias) => ({ alias, name: alias, workspace: true, doNotDisturb: false, inTray: [], sticky: [], jobs: [] }));
       const l = layoutOffice(cubicles.length, 'narrow', width);
@@ -345,8 +345,12 @@ describe('the corridor lane, aisles and doorways (narrow)', () => {
         assert.ok(!overlap(plates[0], framed), `${width} ${id}: plate ${JSON.stringify(plates[0])} clear of the doorway ${JSON.stringify(d)}`);
         const at = painted.findIndex((p) => p.style === PALETTE.tile && p.x === d.x && p.y === d.y && p.w === d.w && p.h === d.h);
         assert.ok(at >= 0, `${width} ${id}: the doorway is drawn`);
+        // then its Door, shut, inside it and down to the floor
+        const after = painted.slice(at + 4);
+        const door = after.findIndex((p) => !within(p, d));
+        assert.ok(door > 0 && after.slice(0, door).some((p) => p.style === PALETTE.wood && p.w === d.w && p.y + p.h === r.y + WALL), `${width} ${id}: its Door is drawn shut`);
         // walkers aside (the carrier at the front desk and the boss at theirs are nowhere near)
-        for (const p of painted.slice(at + 4)) assert.ok(!overlap(p, framed), `${width} ${id}: ${JSON.stringify(p)} over the doorway ${JSON.stringify(d)}`);
+        for (const p of after.slice(door)) assert.ok(!overlap(p, framed), `${width} ${id}: ${JSON.stringify(p)} over the doorway ${JSON.stringify(d)}`);
       }
     }
   });

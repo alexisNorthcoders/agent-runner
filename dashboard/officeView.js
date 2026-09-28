@@ -1,9 +1,9 @@
 // Draws the office floor: a scene (scene.js) placed on a layout (layout.js) with the sprites
 // (sprites.js), at the layout's internal resolution. The page scales the result up by a whole
 // number. Not tested: the rules live in the reducer, and this only draws. Who walks the floor
-// (the mail carrier, the boss, a worker moving desks) and where comes from walkers.js; typing and
-// the ends of runs (the stamp coming down, the papers to the out tray) are tweened here from when
-// the run ended, so the reducer only says what happens and when.
+// (the mail carrier, the boss, a worker moving desks) and where, and how far each Door is open,
+// comes from walkers.js; typing and the ends of runs (the stamp coming down, the papers to the out
+// tray) are tweened here from when the run ended, so the reducer only says what happens and when.
 import { formatClock } from './format.js';
 import { WALL, backWallDoorway, cartSlots, cubicleDesks, deskAt, deskOwners, folderSlots, inTrayRect, inTraySlots, placeRect, roomAt, stickyNote, workerRect } from './layout.js';
 import { samePlace } from './scene.js';
@@ -258,7 +258,17 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   for (const c of layout.corridors) s.corridor(ctx, c, WALL);
   for (const id of /** @type {const} */ (['review', 'joplin', 'freeform', 'queueRoom'])) {
     const d = layout.doorways[id];
-    if (d) backWallDoorway(layout, id) ? s.backDoorway(ctx, d, rooms[id].rect.y + WALL) : s.doorway(ctx, d);
+    if (!d) continue;
+    // each doorway's Door: face-on in a back wall, else edge-on, swinging into the room
+    const open = walking.doors[id] ?? 0;
+    const r = rooms[id].rect;
+    if (backWallDoorway(layout, id)) {
+      s.backDoorway(ctx, d, r.y + WALL);
+      s.backDoor(ctx, d, r.y + WALL, open);
+    } else {
+      s.doorway(ctx, d);
+      s.door(ctx, d, open, d.x > r.x ? -1 : 1);
+    }
   }
   drawBoss(ctx, layout);
   drawJoplinRoom(ctx, layout);

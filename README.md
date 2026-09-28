@@ -420,6 +420,9 @@ A live run plays out on the floor:
   shoulder during the review (from the start of post-run: the snapshot can't tell the review from
   the commit), the worker scribbles frantically during the autofix, and the boss walks back the same
   way and sits down when the run ends. Everyone walks at the same pace, facing the way they go.
+- **Doors:** each side room's doorway has a door that swings open as someone walking comes near
+  and shuts behind them once they've gone by: seen from above in the wide layout, its leaf swinging
+  into the room, and face-on in the back wall in the narrow one. The front door never opens.
 
 When a run ends, its room shows how it went, and keeps showing it until the next run there starts.
 It comes from the room's latest history row in the feed, so it survives a page reload and a runner
