@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { CART_CAPACITY, WALL, FOLDERS_MAX, cartSlots, folderSlots, inTraySlots, stickyNote, clickFilter, cubicleDesk, cubicleDesks, deskAt, fitScene, inside, layoutOffice, placeName, placeRect, workerRect } from '../dashboard/layout.js';
+import { drawOffice } from '../dashboard/officeView.js';
+import { PALETTE } from '../dashboard/sprites.js';
+import { CART_CAPACITY, DOORWAY_TOP, THRESHOLD, WALL, FOLDERS_MAX, cartSlots, folderSlots, inTraySlots, stickyNote, clickFilter, cubicleDesk, cubicleDesks, deskAt, fitScene, inside, layoutOffice, placeName, placeRect, workerRect } from '../dashboard/layout.js';
 
 /** @param {{ x: number, y: number, w: number, h: number }} a @param {{ x: number, y: number, w: number, h: number }} b */
 const within = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
@@ -291,8 +293,9 @@ describe('the corridor lane, aisles and doorways (narrow)', () => {
           const d = l.doorways[id];
           const r = l.rooms[id].rect;
           assert.ok(d && within(d, r), `${id} doorway ${JSON.stringify(d)}`);
-          // in the back wall, at the lane's edge
-          assert.ok(d.y < r.y + WALL, `${id} doorway in the back wall`);
+          // in the back wall, under its top trim and down to the floor, with only its threshold past it; at the lane's edge
+          assert.equal(d.y, r.y + DOORWAY_TOP, `${id} doorway under the wall's top`);
+          assert.equal(d.y + d.h, r.y + WALL + THRESHOLD, `${id} doorway down to the floor and its threshold`);
           assert.equal(d.x + d.w, lane.x, `${id} doorway at the lane's edge`);
           const furniture = [...Object.values(l.desks), l.desk, l.cart, l.door, l.clock, ...Object.values(l.desks).map(workerRect)];
           for (const f of furniture) assert.ok(!overlap(d, f), `${id} doorway clear of ${JSON.stringify(f)}`);
@@ -308,6 +311,43 @@ describe('the corridor lane, aisles and doorways (narrow)', () => {
     for (const r of [...l.corridors, ...l.aisles]) {
       const [x, y] = [r.x + r.w / 2, r.y + r.h / 2];
       assert.equal(clickFilter(l, cubicles, x, y, 'b'), null, JSON.stringify(r));
+    }
+  });
+
+  it('draws each back-wall doorway clear of the name plate and of everything drawn after it', () => {
+    for (const width of widths) {
+      const cubicles = ['a', 'b', 'c', 'd'].map((alias) => ({ alias, name: alias, workspace: true, doNotDisturb: false, inTray: [], sticky: [], jobs: [] }));
+      const l = layoutOffice(cubicles.length, 'narrow', width);
+      /** @type {Array<{ x: number, y: number, w: number, h: number, style: string }>} */
+      const painted = [];
+      const ctx = {
+        fillStyle: '',
+        /** @param {number} x @param {number} y @param {number} w @param {number} h */
+        fillRect(x, y, w, h) {
+          painted.push({ x, y, w, h, style: this.fillStyle });
+        },
+        clearRect() {},
+        save() {},
+        restore() {},
+        scale() {},
+        translate() {},
+      };
+      /** @type {import('../dashboard/scene.js').Scene} */
+      const scene = { dark: false, backInFive: false, cubicles, queueRoom: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [], parked: [] };
+      drawOffice(/** @type {any} */ (ctx), l, scene, { t: 0 });
+      for (const id of /** @type {const} */ (['review', 'joplin', 'queueRoom', 'freeform'])) {
+        const d = /** @type {import('../dashboard/layout.js').Rect} */ (l.doorways[id]);
+        const r = l.rooms[id].rect;
+        // the doorway with its frame
+        const framed = { x: d.x - 2, y: d.y - 2, w: d.w + 2, h: d.h + 2 };
+        const plates = painted.filter((p) => p.style === PALETTE.signText && p.y === r.y + 4 && p.h === 9 && within(p, r));
+        assert.equal(plates.length, 1, `${width} ${id}: its name plate`);
+        assert.ok(!overlap(plates[0], framed), `${width} ${id}: plate ${JSON.stringify(plates[0])} clear of the doorway ${JSON.stringify(d)}`);
+        const at = painted.findIndex((p) => p.style === PALETTE.tile && p.x === d.x && p.y === d.y && p.w === d.w && p.h === d.h);
+        assert.ok(at >= 0, `${width} ${id}: the doorway is drawn`);
+        // walkers aside (the carrier at the front desk and the boss at theirs are nowhere near)
+        for (const p of painted.slice(at + 4)) assert.ok(!overlap(p, framed), `${width} ${id}: ${JSON.stringify(p)} over the doorway ${JSON.stringify(d)}`);
+      }
     }
   });
 });

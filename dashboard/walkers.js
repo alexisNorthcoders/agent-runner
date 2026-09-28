@@ -154,7 +154,10 @@ const walkMs = (route) => (routeLength(route) / WALK_SPEED) * 1000;
 /**
  * The office every walk is timed on, whatever layout it's drawn on: the wide one at its narrowest,
  * with the scene's cubicles. A walk takes as long as its route there at WALK_SPEED, so resizing
- * (wide ↔ narrow, or wider) mid-walk puts the walker the same fraction along the new route.
+ * (wide ↔ narrow, or wider) mid-walk puts the walker the same fraction along the new route, and
+ * they arrive when they would have. Every layout of the same cubicles has the same desks (all the
+ * rooms' desks, and each cubicle's desk per owner, with the same ends to pass), so a walk has a
+ * route here exactly when it has one on the layout it's drawn on.
  * @param {Scene['cubicles']} cubicles
  */
 const timingOffice = (cubicles) => layoutOffice(cubicles.length, 'wide', WIDE_WIDTH.min);
@@ -312,19 +315,19 @@ function boss({ route, since, walk, reading }, t) {
 export function walkers(layout, cubicles, scene, t) {
   const here = routes(layout, cubicles, scene);
   const timed = routes(timingOffice(cubicles), cubicles, scene);
-  /** How long a walk takes: as long as its route on the office walks are timed on (or here, if that lacks it). @param {Point[] | null} there @param {Point[]} route here */
-  const timedWalk = (there, route) => walkMs(there ?? route);
+  /** How long a walk takes: as long as its route on the office walks are timed on (which has every route this layout has). @param {Point[] | null} there */
+  const timedWalk = (there) => walkMs(/** @type {Point[]} */ (there));
   const run = scene.run;
   // a run whose desk the layout doesn't have isn't delivered
-  const trip = run && here.delivery ? delivery(here.delivery, timedWalk(timed.delivery, here.delivery), run) : null;
+  const trip = run && here.delivery ? delivery(here.delivery, timedWalk(timed.delivery), run) : null;
   /** @type {Move | null} */
   const move =
     run?.moved && trip && here.move
-      ? { from: run.moved.from, route: here.move, start: Math.max(run.moved.since, trip.arrive + HAND_MS), walk: timedWalk(timed.move, here.move) }
+      ? { from: run.moved.from, route: here.move, start: Math.max(run.moved.since, trip.arrive + HAND_MS), walk: timedWalk(timed.move) }
       : null;
   const { home, route, reading } = here.boss;
   // no walk to or from a worker: seated at home all along
-  const bossTrip = route ? { route, since: scene.boss.since, walk: timedWalk(timed.boss.route, route), reading } : { route: [home], since: scene.boss.since, walk: 0, reading: false };
+  const bossTrip = route ? { route, since: scene.boss.since, walk: timedWalk(timed.boss.route), reading } : { route: [home], since: scene.boss.since, walk: 0, reading: false };
   const animating =
     !scene.dark &&
     (!!run || (!!bossTrip.walk && t - bossTrip.since < bossTrip.walk) || scene.outcomes.some((o) => ANIMATED_STATES.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));

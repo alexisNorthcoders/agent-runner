@@ -573,6 +573,28 @@ describe('office walkers: the narrow layout\'s lane', () => {
         assert.ok(Math.abs(got - 0.5) < 0.02, `worker ${l.width}: ${got}`);
       }
     });
+
+    it('times every walk the same on every layout, wide or narrow, at any width', () => {
+      const layouts = [
+        ...[560, 640, 720].map((w) => layoutOffice(many.length, 'wide', w)),
+        ...[240, 300, 360].map((w) => layoutOffice(many.length, 'narrow', w)),
+      ];
+      for (const place of places) {
+        const sc = delivering(place);
+        const arrivals = layouts.map((l) => arrival(sc, look(l)));
+        assert.deepEqual(new Set(arrivals).size, 1, `delivery to ${JSON.stringify(place)}: ${arrivals}`);
+      }
+      for (const place of places.filter((p) => p.room === 'cubicle')) {
+        for (const sc of [bossGoing(place), bossReturning(place), moving(place)]) {
+          const stops = layouts.map((l) =>
+            sc.run?.moved
+              ? firstWhen((u) => look(l)(sc, u).worker?.at?.room === 'cubicle', since + 1)
+              : firstWhen((u) => look(l)(sc, u).boss.pose !== 'walking', since),
+          );
+          assert.deepEqual(new Set(stops).size, 1, `${JSON.stringify(place)}: ${stops}`);
+        }
+      }
+    });
   });
 });
 

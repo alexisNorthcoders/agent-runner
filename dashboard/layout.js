@@ -29,8 +29,8 @@
  *   `corridors`: wide, the Corridors either side of the bullpen, left then right; narrow, the lane
  *   down the right edge (their back wall included). `aisles`: one in front of each row of cubicles,
  *   joining the corridors. `doorways`: each side room's way onto its corridor: wide, the gap in its
- *   wall facing the bullpen; narrow, the gap in its back wall at the lane's end, down to the front
- *   of the wall.
+ *   wall facing the bullpen; narrow, the opening in its back wall at the lane's end, down to the
+ *   floor, and its threshold just past the wall.
  */
 
 /** The height of a room's back wall, above its floor. */
@@ -50,6 +50,9 @@ const SIDE = 150;
 const CORRIDOR = 14;
 const AISLE = 10;
 const DOORWAY = 16;
+/** Narrow: how far below the top of the back wall a doorway in it starts, and how far past the wall onto the floor its threshold runs. */
+export const DOORWAY_TOP = 4;
+export const THRESHOLD = 4;
 const CUBE_H = 100;
 const NAMES = { queueRoom: 'QUEUE', bullpen: 'HEADLESS INC.', review: 'REVIEW', freeform: 'FREEFORM', joplin: 'JOPLIN' };
 
@@ -370,9 +373,12 @@ export function layoutOffice(count, mode, width) {
   const top = b.y + WALL + 6;
   const cubicles = grid(count, { x: b.x + 6, y: top, w: b.w - 12, h: 0 }, cols, cubeH, AISLE);
   const aisles = Array.from({ length: rows }, (_, i) => ({ x: b.x, y: top + i * (cubeH + AISLE) + cubeH, w: b.w, h: AISLE }));
-  // a gap in the back wall at the lane's end, through to the front of the wall, where walkers step out onto the lane
+  // an opening in the back wall at the lane's end, from under the wall's top trim down to the
+  // floor, with a threshold on the floor (THRESHOLD deep) where walkers step out onto the lane. It
+  // is the same for every room height, and the name plate and the furniture along the wall keep
+  // left of it (officeView.js)
   /** @param {Rect} r */
-  const doorway = (r) => ({ x: r.x + r.w - DOORWAY, y: r.y + 4, w: DOORWAY, h: WALL });
+  const doorway = (r) => ({ x: r.x + r.w - DOORWAY, y: r.y + DOORWAY_TOP, w: DOORWAY, h: WALL - DOORWAY_TOP + THRESHOLD });
   const doorways = { queueRoom: doorway(rooms.queueRoom.rect), review: doorway(rooms.review.rect), freeform: doorway(rooms.freeform.rect), joplin: doorway(rooms.joplin.rect) };
   return {
     width: W,
