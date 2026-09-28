@@ -399,7 +399,9 @@ A live run plays out on the floor:
 - **Rooms:** an issue run is worked in its workspace's cubicle, a freeform run in the Freeform
   room, a Joplin run in the Joplin room, and a scheduled job at its own desk in the room its config
   names. When a freeform run's workspace is inferred (below), its worker picks up their papers and
-  walks from the Freeform room to that cubicle, and its outcome shows there when it ends.
+  walks from the Freeform room to that cubicle (once the mail carrier has handed the run over): out
+  of its doorway, along the corridor and aisle, and round the end of the desk to their seat. Its
+  outcome shows there when it ends.
 - **Scheduled jobs:** each job's `room` label gets a cubicle (a label matching a workspace's alias or
   department sign is that workspace's cubicle), with a desk per job and its own worker: a janitor
   with a mop for a `cleanup` job, an analyst with a chart easel for an `insight` or `report` one, else
@@ -409,9 +411,11 @@ A live run plays out on the floor:
   masked output, and the Office tab lists each job's next due time.
 - **Agent phase:** the worker types, the paper pile on the desk grows with turns and elapsed time
   (to a cap), and a speech bubble shows the last activity, shortened (hover the worker for all of it).
-- **Post-run** (issue runs): the boss walks over and reads over the worker's shoulder during the
-  review (from the start of post-run: the snapshot can't tell the review from the commit), the
-  worker scribbles frantically during the autofix, and the boss walks back when the run ends.
+- **Post-run** (issue runs): the boss walks over (out of the Review room's doorway, along the
+  corridor and aisle, and round the nearer end of the desk) and, once there, reads over the worker's
+  shoulder during the review (from the start of post-run: the snapshot can't tell the review from
+  the commit), the worker scribbles frantically during the autofix, and the boss walks back the same
+  way and sits down when the run ends. Everyone walks at the same pace, facing the way they go.
 
 When a run ends, its room shows how it went, and keeps showing it until the next run there starts.
 It comes from the room's latest history row in the feed, so it survives a page reload and a runner

@@ -1,13 +1,15 @@
-// Who walks the office floor at a given time, and where: the mail carrier's delivery (routed over
-// the layout's walk graph, at a steady pace), the boss's walks to a worker's shoulder and back, and
-// a worker moving desks with their papers, tweened from the times the scene gives. Also whether
+// Who walks the office floor at a given time, and where: the mail carrier's delivery, the boss's
+// walks to a worker's shoulder and back, and a worker moving desks with their papers, all routed
+// over the layout's walk graph at a steady pace from the times the scene gives. Also whether
 // anything on the floor still moves. No DOM here, so it can be tested in Node; officeView.js draws
 // what it returns.
-import { deskAt, placeKey, walkGraph, workerRect } from './layout.js';
+import { deskAt, deskOwners, placeKey, walkGraph, workerRect } from './layout.js';
 
 /** @typedef {import('./layout.js').Rect} Rect */
 /** @typedef {import('./layout.js').Layout} Layout */
 /** @typedef {import('./layout.js').Point} Point */
+/** @typedef {import('./layout.js').WalkGraph} WalkGraph */
+/** @typedef {import('./scene.js').Place} Place */
 /** @typedef {import('./scene.js').Scene} Scene */
 
 /**
@@ -15,21 +17,21 @@ import { deskAt, placeKey, walkGraph, workerRect } from './layout.js';
  *   The mail carrier: standing behind the front desk (as the top of their cap, `carrying` the
  *   phone while it rings), or out delivering (as their feet, `carrying` the run until the
  *   hand-over), `facing` the way they're heading.
- * @typedef {{ who: 'boss', x: number, y: number, pose: 'walking' | 'standing' | 'seated' }} Boss
- *   The boss, as the top of their head: seated at their desk, walking, or standing at a worker's shoulder.
- * @typedef {{ who: 'worker', x: number, y: number, pose: 'walking' | 'seated', pile: number }} Worker
- *   The active run's worker, as the top of their head: seated at their desk once the mail carrier
- *   has arrived, or walking to a new desk with their `pile` of papers.
+ * @typedef {{ who: 'boss', x: number, y: number, pose: 'walking' | 'standing' | 'seated', facing: 'left' | 'right' }} Boss
+ *   The boss, as the top of their head: seated at their desk, walking, or standing at a worker's
+ *   shoulder (reading), `facing` the way they're heading (or last headed).
+ * @typedef {{ who: 'worker', x: number, y: number, pose: 'walking' | 'seated', facing: 'left' | 'right', pile: number, at: Place | null }} Worker
+ *   The active run's worker, as the top of their head: seated at the desk of `at` once the mail
+ *   carrier has arrived, or walking to a new desk with their `pile` of papers (`at` null), `facing`
+ *   the way they're heading.
  * @typedef {Carrier | Boss | Worker} Walker
  */
 
 /** How long the phone rings before the mail carrier sets off, and the hand-over. */
 export const RING_MS = 1600;
 export const HAND_MS = 500;
-/** The mail carrier's pace, in scene pixels a second. */
+/** Everyone's pace, in scene pixels a second. */
 export const WALK_SPEED = 60;
-/** How long the boss's walks, and a worker's move to a new desk, take. */
-export const WALK_MS = 2400;
 /** A finished run's stamp coming down, and its papers going to the out tray. */
 export const STAMP_MS = 900;
 export const TRAY_MS = 900;
@@ -41,13 +43,13 @@ export const lerp = (a, b, f) => Math.round(a + (b - a) * Math.max(0, Math.min(1
 
 /** Where the mail carrier stands behind the front desk (top of their cap). @param {Layout} layout */
 const carrierHome = (layout) => ({ x: layout.desk.x + 30, y: layout.desk.y - 16 });
-/** The boss's head, standing behind their chair and by a worker's shoulder. @param {Layout} layout */
-const bossHome = (layout) => ({ x: layout.desks.review.x + 23, y: layout.desks.review.y - 20 });
-/** @param {Rect} desk */
-const bossBeside = (desk) => {
-  const w = workerRect(desk);
-  return { x: w.x + 10, y: w.y - 3 };
-};
+/** How far below the top of their head the feet are of the boss standing, and of a worker on foot. */
+const BOSS_FEET = 19;
+const WORKER_FEET = 21;
+/** Where the boss stands behind their chair, and at a worker's shoulder, and where a worker sits (x). @param {Rect} desk */
+const bossChair = (desk) => desk.x + 23;
+const shoulder = (/** @type {Rect} */ desk) => workerRect(desk).x + 10;
+const seat = (/** @type {Rect} */ desk) => workerRect(desk).x;
 
 /** @param {Point} a @param {Point} b */
 const distance = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
@@ -88,6 +90,39 @@ function shortestRoute(graph, from, to) {
   return route;
 }
 
+/**
+ * The way from in front of a desk (its approach point) round its nearer end to `x` just behind it
+ * (feet), where the boss stands at a worker's shoulder or a worker takes their seat. Only an end
+ * with room to pass counts: a cubicle's desks side by side leave none between them. Null when the
+ * layout doesn't have the desk.
+ * @param {Layout} layout @param {Scene['cubicles']} cubicles @param {WalkGraph} graph
+ * @param {Place | { room: 'review' }} place @param {(desk: Rect) => number} x
+ * @returns {Point[] | null}
+ */
+function roundDesk(layout, cubicles, graph, place, x) {
+  const desk = place.room === 'cubicle' ? deskAt(layout, cubicles, place) : layout.desks[place.room];
+  const from = graph.approaches.get(place.room === 'cubicle' ? placeKey(place) : place.room);
+  if (!desk || !from) return null;
+  const spot = { x: x(desk), y: desk.y - 1 };
+  // just clear of the desk's left end, and of its right end
+  let ends = [desk.x - 8, desk.x + desk.w - 2];
+  if (place.room === 'cubicle') {
+    const c = cubicles.find((cu) => cu.alias === place.alias);
+    const owners = c ? deskOwners(c) : [];
+    const k = owners.indexOf(place.job ?? null);
+    ends = ends.filter((_, i) => (i ? k === owners.length - 1 : k === 0));
+  }
+  const end = ends.reduce((a, b) => (Math.abs(from.x - b) + Math.abs(b - spot.x) < Math.abs(from.x - a) + Math.abs(a - spot.x) ? b : a));
+  return [from, { x: end, y: from.y }, { x: end, y: spot.y }, spot];
+}
+
+/**
+ * From behind one desk to behind another: back round the first desk's end, over the walk graph,
+ * and round the second's.
+ * @param {WalkGraph} graph @param {Point[]} out roundDesk's way to the first @param {Point[]} into roundDesk's way to the second
+ */
+const deskToDesk = (graph, out, into) => [...[...out].reverse(), ...shortestRoute(graph, out[0], into[0]).slice(1), ...into.slice(1)];
+
 /** @param {Point[]} route */
 const routeLength = (route) => route.slice(1).reduce((n, p, i) => n + distance(route[i], p), 0);
 
@@ -108,17 +143,20 @@ function alongRoute(route, f) {
   return { x: lerp(a.x, b.x, g), y: lerp(a.y, b.y, g), facing: dx < 0 ? 'left' : 'right' };
 }
 
+/** How long walking `route` takes, in ms. @param {Point[]} route */
+const walkMs = (route) => (routeLength(route) / WALK_SPEED) * 1000;
+
 /**
  * The run's delivery, from the current layout: the carrier's route from the front desk to the
- * desk's approach point, and when they set off, arrive with the run (the worker is at the desk
- * from then on) and are back in the Queue room. A walk takes as long as its route at WALK_SPEED.
- * @param {Layout} layout @param {Scene['cubicles']} cubicles @param {NonNullable<Scene['run']>} run
+ * approach point of the desk it was delivered to (the one a worker who moved desks left), and when
+ * they set off, arrive with the run (the worker is at that desk from then on) and are back in the
+ * Queue room. A walk takes as long as its route at WALK_SPEED.
+ * @param {WalkGraph} graph @param {NonNullable<Scene['run']>} run
  */
-function delivery(layout, cubicles, run) {
-  const graph = walkGraph(layout, cubicles);
-  const to = graph.approaches.get(placeKey(run.place));
+function delivery(graph, run) {
+  const to = graph.approaches.get(placeKey(run.moved?.from ?? run.place));
   const route = to ? shortestRoute(graph, graph.front, to) : [graph.front];
-  const walk = (routeLength(route) / WALK_SPEED) * 1000;
+  const walk = walkMs(route);
   const leave = run.delivery.at + (run.delivery.by === 'phone' ? RING_MS : 0);
   return { route, walk, leave, arrive: leave + walk, back: leave + 2 * walk + HAND_MS };
 }
@@ -127,16 +165,16 @@ function delivery(layout, cubicles, run) {
 
 /**
  * The mail carrier at `t`: out delivering the active run, else behind the front desk.
- * @param {Layout} layout @param {Rect | null} desk the run's desk @param {Delivery | null} trip the run's delivery
+ * @param {Layout} layout @param {Delivery | null} trip the run's delivery, if the layout has its desk
  * @param {Scene} scene @param {number} t
  * @returns {Carrier}
  */
-function carrier(layout, desk, trip, scene, t) {
+function carrier(layout, trip, scene, t) {
   const run = scene.run;
   const home = { who: /** @type {const} */ ('carrier'), ...carrierHome(layout), pose: /** @type {const} */ ('standing'), facing: /** @type {const} */ ('right') };
   // by post-run the delivery is long over, whenever the page saw the run start. A run whose desk
   // the layout doesn't have isn't delivered.
-  if (!run || run.postRun || !desk || !trip) return { ...home, carrying: null };
+  if (!run || run.postRun || !trip) return { ...home, carrying: null };
   const { route, walk, leave, arrive, back } = trip;
   if (t < leave) return { ...home, carrying: 'phone' };
   if (t >= back) return { ...home, carrying: null };
@@ -147,56 +185,77 @@ function carrier(layout, desk, trip, scene, t) {
 }
 
 /**
- * The active run's worker at `t`: not on the floor until the mail carrier arrives (in post-run
- * they have been at the desk all along, whenever the page saw the run start), then at their desk,
- * or walking their papers over to a new desk (a freeform run leaving the Freeform room for its
- * cubicle) once the carrier has handed the run over. `trip` is the carrier's own, worked out from
- * the layout at `t`, so the worker sits down the moment the carrier reaches the hand-over point,
- * even when the route changed mid-walk.
- * @param {Layout} layout @param {Scene['cubicles']} cubicles @param {Rect | null} desk the run's desk
- * @param {Delivery | null} trip the run's delivery @param {Scene} scene @param {number} t
- * @returns {Worker | null}
+ * A freeform run's worker moving desks: their way from their seat at the desk they left round to
+ * their new seat, and when they set off (once the mail carrier has handed the run over at the old
+ * desk) and how long it takes. Null when they haven't moved, or the layout lacks either desk.
+ * @param {Layout} layout @param {Scene['cubicles']} cubicles @param {WalkGraph} graph
+ * @param {NonNullable<Scene['run']>} run @param {Delivery} trip the run's delivery
  */
-function worker(layout, cubicles, desk, trip, scene, t) {
-  const run = scene.run;
-  if (!run || !desk || !trip) return null;
-  const { arrive } = trip;
-  if (run.moved) {
-    const start = Math.max(run.moved.since, arrive);
-    const f = (t - start) / WALK_MS;
-    const from = deskAt(layout, cubicles, run.moved.from);
-    if (f >= 0 && f < 1 && from) {
-      const a = workerRect(from);
-      const b = workerRect(desk);
-      return { who: 'worker', x: lerp(a.x, b.x, f), y: lerp(a.y, b.y, f), pose: 'walking', pile: run.pile };
-    }
-  }
-  if (t < arrive && !run.postRun) return null;
-  const w = workerRect(desk);
-  return { who: 'worker', x: w.x, y: w.y, pose: 'seated', pile: run.pile };
+function deskMove(layout, cubicles, graph, run, trip) {
+  if (!run.moved) return null;
+  const out = roundDesk(layout, cubicles, graph, run.moved.from, seat);
+  const into = roundDesk(layout, cubicles, graph, run.place, seat);
+  if (!out || !into) return null;
+  const route = deskToDesk(graph, out, into);
+  return { from: run.moved.from, route, start: Math.max(run.moved.since, trip.arrive + HAND_MS), walk: walkMs(route) };
 }
 
 /**
- * The boss at `t`: at their desk, walking over to the worker, reading over their shoulder, or walking back.
- * @param {Layout} layout @param {Scene['cubicles']} cubicles @param {Scene} scene @param {number} t
+ * The active run's worker at `t`: not on the floor until the mail carrier arrives (in post-run
+ * they have been at the desk all along, whenever the page saw the run start), then at their desk,
+ * or carrying their papers over to a new one (a freeform run leaving the Freeform room for its
+ * cubicle) once the carrier has handed the run over. `trip` is the carrier's own, worked out from
+ * the layout at `t`, so the worker sits down the moment the carrier reaches the hand-over point,
+ * even when the route changed mid-walk.
+ * @param {Layout} layout @param {Scene['cubicles']} cubicles @param {Delivery | null} trip the run's delivery
+ * @param {ReturnType<typeof deskMove>} move @param {Scene} scene @param {number} t
+ * @returns {Worker | null}
+ */
+function worker(layout, cubicles, trip, move, scene, t) {
+  const run = scene.run;
+  const desk = run && deskAt(layout, cubicles, run.place);
+  if (!run || !desk || !trip) return null;
+  if (t < trip.arrive && !run.postRun) return null;
+  /** @param {Place} at @param {Rect} d @returns {Worker} */
+  const seated = (at, d) => {
+    const w = workerRect(d);
+    return { who: 'worker', x: w.x, y: w.y, pose: 'seated', facing: 'right', pile: run.pile, at };
+  };
+  const from = move && deskAt(layout, cubicles, move.from);
+  if (move && from && t < move.start) return seated(move.from, from);
+  if (move && t < move.start + move.walk) {
+    const p = alongRoute(move.route, (t - move.start) / move.walk);
+    return { who: 'worker', x: p.x, y: p.y - WORKER_FEET, pose: 'walking', facing: p.facing, pile: run.pile, at: null };
+  }
+  return seated(run.place, desk);
+}
+
+/**
+ * The boss's last walk, from the current layout: from behind their chair or a worker's shoulder
+ * (`boss.from`) to the other (`boss.at`), setting off at `boss.since`, and how long it takes. A
+ * desk the layout doesn't have counts as the boss's own.
+ * @param {Layout} layout @param {Scene['cubicles']} cubicles @param {WalkGraph} graph @param {Scene} scene
+ */
+function bossWalk(layout, cubicles, graph, scene) {
+  const home = /** @type {Point[]} */ (roundDesk(layout, cubicles, graph, { room: 'review' }, bossChair));
+  /** @param {Place | null} p */
+  const way = (p) => (p && roundDesk(layout, cubicles, graph, p, shoulder)) || null;
+  const [from, at] = [way(scene.boss.from), way(scene.boss.at)];
+  const route = deskToDesk(graph, from ?? home, at ?? home);
+  return { route, since: scene.boss.since, walk: walkMs(route), reading: !!at };
+}
+
+/**
+ * The boss at `t`: at their desk, walking over to the worker, reading over their shoulder once
+ * they're there, or walking back.
+ * @param {ReturnType<typeof bossWalk>} walk @param {number} t
  * @returns {Boss}
  */
-function boss(layout, cubicles, scene, t) {
-  const { at, from, since } = scene.boss;
-  const home = bossHome(layout);
-  /** @param {import('./scene.js').Place | null} p */
-  const spot = (p) => {
-    const d = p && deskAt(layout, cubicles, p);
-    return d ? bossBeside(d) : home;
-  };
-  const f = (t - since) / WALK_MS;
-  if (f < 1) {
-    const a = spot(from);
-    const b = spot(at);
-    return { who: 'boss', x: lerp(a.x, b.x, f), y: lerp(a.y, b.y, f), pose: 'walking' };
-  }
-  if (at) return { who: 'boss', ...spot(at), pose: 'standing' };
-  return { who: 'boss', x: home.x, y: home.y + 3, pose: 'seated' };
+function boss({ route, since, walk, reading }, t) {
+  const p = alongRoute(route, walk ? (t - since) / walk : 1);
+  const pose = t - since < walk ? 'walking' : reading ? 'standing' : 'seated';
+  // seated, the boss sinks into their chair
+  return { who: 'boss', x: p.x, y: p.y - BOSS_FEET + (pose === 'seated' ? 3 : 0), pose, facing: pose === 'seated' ? 'right' : p.facing };
 }
 
 /**
@@ -211,10 +270,14 @@ function boss(layout, cubicles, scene, t) {
  *   null until the mail carrier arrives with the run, or with no run.
  */
 export function walkers(layout, cubicles, scene, t) {
-  const desk = scene.run && deskAt(layout, cubicles, scene.run.place);
-  const trip = scene.run && delivery(layout, cubicles, scene.run);
+  const graph = walkGraph(layout, cubicles);
+  const run = scene.run;
+  // a run whose desk the layout doesn't have isn't delivered
+  const trip = run && deskAt(layout, cubicles, run.moved?.from ?? run.place) ? delivery(graph, run) : null;
+  const move = run && trip && deskMove(layout, cubicles, graph, run, trip);
+  const bossTrip = bossWalk(layout, cubicles, graph, scene);
   const animating =
     !scene.dark &&
-    (!!scene.run || t - scene.boss.since < WALK_MS || scene.outcomes.some((o) => ANIMATED_STATES.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
-  return { carrier: carrier(layout, desk, trip, scene, t), boss: boss(layout, cubicles, scene, t), worker: worker(layout, cubicles, desk, trip, scene, t), animating };
+    (!!run || t - bossTrip.since < bossTrip.walk || scene.outcomes.some((o) => ANIMATED_STATES.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
+  return { carrier: carrier(layout, trip, scene, t), boss: boss(bossTrip, t), worker: worker(layout, cubicles, trip, move ?? null, scene, t), animating };
 }
