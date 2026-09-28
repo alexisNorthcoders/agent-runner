@@ -8,6 +8,7 @@
     { "alias": "home-manuals" },
     { "alias": "platformer" },
     { "alias": "snake-colyseus" },
+    { "alias": "snake-lab" },
     { "alias": "snake-phaser" }
   ]
 }
