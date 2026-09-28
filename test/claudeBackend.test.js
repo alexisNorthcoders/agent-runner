@@ -165,6 +165,57 @@ describe('claude AgentBackend', () => {
     assert.equal((await run.done).outcome, 'timeout');
   });
 
+  // logs/agent-runs/2026-09-28T08-58-57-157Z.log: the agent finished, but its leftover Monitor
+  // watchers kept the CLI alive, waking it for more turns until the timeout
+  it('ends a CLI still running after its final result, with the outcome from that result', async () => {
+    const logPath = join(dir, 'r.log');
+    const run = await backend({ resultExitGraceMs: 5 }).start({ prompt: 'x', cwd: '/w', logPath });
+    child.stdout.write(line({ type: 'result', subtype: 'success', result: 'Committed', total_cost_usd: 2.56, num_turns: 58 }));
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(kills[0], [4242, 'SIGTERM']);
+    child.emit('close', null, 'SIGTERM');
+    const r = await run.done;
+    assert.equal(r.outcome, 'success');
+    assert.equal(r.text, 'Committed');
+    assert.equal(r.usage.costUsd, 2.56);
+    assert.match(await readFile(logPath, 'utf8'), /result received but the CLI is still running/);
+  });
+
+  it('an error result ended after the grace is a failure', async () => {
+    const run = await backend({ resultExitGraceMs: 5 }).start({ prompt: 'x', cwd: '/w', logPath: join(dir, 'r.log') });
+    child.stdout.write(line({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'boom' }));
+    await new Promise((r) => setTimeout(r, 20));
+    child.emit('close', null, 'SIGTERM');
+    assert.equal((await run.done).outcome, 'failed');
+  });
+
+  it('a CLI that exits promptly after its result is not killed', async () => {
+    const run = await backend({ resultExitGraceMs: 5 }).start({ prompt: 'x', cwd: '/w', logPath: join(dir, 'r.log') });
+    child.stdout.write(line({ type: 'result', subtype: 'success', result: 'ok' }));
+    await tick();
+    child.emit('close', 0, null);
+    assert.equal((await run.done).outcome, 'success');
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(kills, []);
+  });
+
+  it('a timeout after the final result reports the result, not "timeout"', async () => {
+    const run = await backend({ timeoutMs: 5 }).start({ prompt: 'x', cwd: '/w', logPath: join(dir, 'r.log') });
+    child.stdout.write(line({ type: 'result', subtype: 'success', result: 'done' }));
+    await new Promise((r) => setTimeout(r, 20));
+    child.emit('close', null, 'SIGTERM');
+    assert.equal((await run.done).outcome, 'success');
+  });
+
+  it('a stop after the final result stays stopped', async () => {
+    const run = await backend().start({ prompt: 'x', cwd: '/w', logPath: join(dir, 'r.log') });
+    child.stdout.write(line({ type: 'result', subtype: 'success', result: 'done' }));
+    await tick();
+    run.stop();
+    child.emit('close', null, 'SIGTERM');
+    assert.equal((await run.done).outcome, 'stopped');
+  });
+
   it('a spawn error (e.g. missing binary) resolves with a hint instead of throwing', async () => {
     const run = await backend().start({ prompt: 'x', cwd: '/w', logPath: join(dir, 'r.log') });
     child.emit('error', Object.assign(new Error('spawn /bin/claude ENOENT'), { code: 'ENOENT' }));

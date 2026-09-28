@@ -16,6 +16,12 @@ import { augmentedPathEnv } from '../processPath.js';
 
 const MAX_STDERR_BYTES = 256 * 1024;
 const KILL_GRACE_MS = 5000;
+/**
+ * How long the CLI gets to exit after its final `result`. It stays alive while the agent's
+ * background tasks (background Bash, Monitor watchers) are pending, and each one that ends wakes the
+ * model for another turn, so a finished run could idle on to the timeout. Past this, it's ended.
+ */
+const RESULT_EXIT_GRACE_MS = 10_000;
 
 /** CLAUDE_AGENT_BIN, then common install locations, then `claude` on PATH. */
 export function resolveClaudeBin(env = process.env) {
@@ -116,6 +122,7 @@ export async function repoSettingsModel(cwd) {
  *   bin?: string,
  *   model?: string,
  *   timeoutMs: number,
+ *   resultExitGraceMs?: number,
  *   spawnFn?: typeof spawn,
  *   killProcess?: (child: import('child_process').ChildProcess, signal: NodeJS.Signals) => void,
  *   now?: () => number,
@@ -128,6 +135,7 @@ export function createClaudeBackend({
   // A repo's own .claude settings still win (see repoSettingsModel).
   model: pinnedModel = process.env.CLAUDE_AGENT_MODEL?.trim() || 'sonnet',
   timeoutMs,
+  resultExitGraceMs = RESULT_EXIT_GRACE_MS,
   spawnFn = spawn,
   killProcess = killProcessGroup,
   now = Date.now,
@@ -159,8 +167,12 @@ export function createClaudeBackend({
       let stopped = false;
       let timedOut = false;
       let closed = false;
+      /** ended by the result grace: its final result came, but it didn't exit */
+      let endedAfterResult = false;
       /** @type {NodeJS.Timeout | null} */
       let killTimer = null;
+      /** @type {NodeJS.Timeout | null} */
+      let resultTimer = null;
 
       const terminate = () => {
         if (closed) return;
@@ -188,23 +200,26 @@ export function createClaudeBackend({
           closed = true;
           clearTimeout(timer);
           if (killTimer) clearTimeout(killTimer);
+          if (resultTimer) clearTimeout(resultTimer);
           logLines(stream.flush());
           const snap = stream.snapshot();
           const text = snap.result?.text || snap.assistantText;
+          // killed after its final result (by the result grace or the timeout): the result is the outcome
+          const resultEnded = Boolean(snap.result) && (endedAfterResult || timedOut);
+          const failed = (exitCode !== 0 && !resultEnded) || Boolean(snap.result?.isError);
           // the run failed (the CLI may still exit 0 with an error result) and the stream signalled the
           // usage limit; the text only supplies the reset time
-          const failed = exitCode !== 0 || Boolean(snap.result?.isError);
           const hitLimit = failed && snap.rateLimited;
           /** @type {import('./index.js').AgentOutcome} */
           const outcome = spawnError
             ? 'spawn_error'
             : stopped
               ? 'stopped'
-              : timedOut
+              : timedOut && !resultEnded
                 ? 'timeout'
                 : hitLimit
                   ? 'limited'
-                  : exitCode === 0
+                  : !failed
                     ? 'success'
                     : 'failed';
           log.end(`\n--- process end outcome=${outcome} exit=${exitCode ?? 'n/a'} ---\n`);
@@ -233,6 +248,15 @@ export function createClaudeBackend({
         child.stdout.on('data', (d) => {
           logLines(stream.push(d));
           const s = stream.snapshot();
+          if (s.result && !resultTimer && !closed) {
+            resultTimer = setTimeout(() => {
+              if (closed || stopped || timedOut) return;
+              endedAfterResult = true;
+              log.write(`--- result received but the CLI is still running (pending background tasks): ending it ---\n`);
+              terminate();
+            }, resultExitGraceMs);
+            resultTimer.unref();
+          }
           onProgress?.({ model: s.model, turns: s.turns, outputTokens: s.outputTokens, contextTokens: s.contextTokens, lastActivity: s.lastActivity });
         });
         child.stderr.on('data', (d) => {
