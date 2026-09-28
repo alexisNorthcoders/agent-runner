@@ -90,9 +90,9 @@ function roomDesks(rooms) {
   };
 }
 
-/** A cubicle's desk. @param {Rect} r the cubicle */
+/** A cubicle's desk, with room at each end to walk round it to the chair. @param {Rect} r the cubicle */
 export function cubicleDesk(r) {
-  return { x: r.x + 8, y: r.y + 2 + Math.min(r.h - 20, 28), w: r.w - 16, h: 13 };
+  return { x: r.x + 12, y: r.y + 2 + Math.min(r.h - 20, 28), w: r.w - 24, h: 13 };
 }
 
 /** The gap between desks side by side in a cubicle. */

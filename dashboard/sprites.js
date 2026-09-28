@@ -499,12 +499,27 @@ export function worker(ctx, r, hands) {
 }
 
 /**
+ * Start drawing a figure `w` wide at `x`, mirrored about the middle of its body when `facing` left,
+ * so it turns on the spot. Call ctx.restore() when it's drawn.
+ * @param {Ctx} ctx @param {number} x @param {number} w @param {'left' | 'right'} facing
+ */
+function facingWay(ctx, x, w, facing) {
+  ctx.save();
+  if (facing === 'left') {
+    ctx.translate(2 * x + w, 0);
+    ctx.scale(-1, 1);
+  }
+}
+
+/**
  * A worker on foot, carrying their papers (`pile` sheets, a few at most) in both hands: a freeform
  * run moving from the Freeform room to its cubicle. (x, y) is the top of the head, as in `worker`, and
- * `step` moves the legs.
+ * `step` moves the legs. Mirrored when `facing` left.
  * @param {Ctx} ctx @param {number} x @param {number} y @param {number} step @param {number} pile
+ * @param {'left' | 'right'} [facing]
  */
-export function walkingWorker(ctx, x, y, step, pile) {
+export function walkingWorker(ctx, x, y, step, pile, facing = 'right') {
+  facingWay(ctx, x, 10, facing);
   ctx.fillStyle = PALETTE.hair;
   ctx.fillRect(x + 2, y, 6, 2);
   ctx.fillStyle = PALETTE.skin;
@@ -524,6 +539,7 @@ export function walkingWorker(ctx, x, y, step, pile) {
   ctx.fillStyle = PALETTE.ink;
   ctx.fillRect(x + 2, y + 17, 2, s ? 3 : 4);
   ctx.fillRect(x + 6, y + 17, 2, s ? 4 : 3);
+  ctx.restore();
 }
 
 /** Scribbles flying off the worker's paper (the autofix). @param {Ctx} ctx @param {Rect} r workerRect @param {number} frame */
@@ -546,10 +562,12 @@ export function scribbles(ctx, r, frame) {
 
 /**
  * The boss: bald, in a dark suit. Seated (behind their desk) or standing, with `step` moving the
- * legs while walking.
- * @param {Ctx} ctx @param {number} x @param {number} y top of the head @param {{ seated?: boolean, step?: number }} [o]
+ * legs while walking, mirrored when `facing` left.
+ * @param {Ctx} ctx @param {number} x @param {number} y top of the head
+ * @param {{ seated?: boolean, step?: number, facing?: 'left' | 'right' }} [o]
  */
 export function boss(ctx, x, y, o = {}) {
+  facingWay(ctx, x, 10, o.facing ?? 'right');
   ctx.fillStyle = PALETTE.bald;
   ctx.fillRect(x + 2, y, 6, 6);
   ctx.fillStyle = PALETTE.hair;
@@ -564,11 +582,13 @@ export function boss(ctx, x, y, o = {}) {
   ctx.fillRect(x + 4, y + 6, 2, 2);
   ctx.fillStyle = PALETTE.tie;
   ctx.fillRect(x + 4, y + 8, 2, 4);
-  if (o.seated) return;
-  const step = (o.step ?? 0) % 2;
-  ctx.fillStyle = PALETTE.suit;
-  ctx.fillRect(x + 2, y + 15, 2, step ? 3 : 4);
-  ctx.fillRect(x + 6, y + 15, 2, step ? 4 : 3);
+  if (!o.seated) {
+    const step = (o.step ?? 0) % 2;
+    ctx.fillStyle = PALETTE.suit;
+    ctx.fillRect(x + 2, y + 15, 2, step ? 3 : 4);
+    ctx.fillRect(x + 6, y + 15, 2, step ? 4 : 3);
+  }
+  ctx.restore();
 }
 
 /** A pile of `n` sheets on a desk, standing on (x, y). @param {Ctx} ctx @param {number} x @param {number} y @param {number} n */
@@ -617,12 +637,7 @@ export function phoneRinging(ctx, r, frame) {
  * @param {'left' | 'right'} [facing]
  */
 export function walkingCarrier(ctx, x, y, step, carrying, facing = 'right') {
-  ctx.save();
-  if (facing === 'left') {
-    // flip about the middle of the body, so they turn on the spot
-    ctx.translate(2 * x + 9, 0);
-    ctx.scale(-1, 1);
-  }
+  facingWay(ctx, x, 9, facing);
   mailCarrier(ctx, x, y - 20);
   ctx.fillStyle = PALETTE.ink;
   ctx.fillRect(x + 2, y - 4, 2, step % 2 ? 4 : 3);

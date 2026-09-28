@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { WALL, deskAt, inside, layoutOffice, workerRect } from '../dashboard/layout.js';
-import { HAND_MS, RING_MS, WALK_MS, walkers } from '../dashboard/walkers.js';
+import { WALL, cubicleDesks, deskAt, deskOwners, inside, layoutOffice, workerRect } from '../dashboard/layout.js';
+import { BOSS_FEET, HAND_MS, RING_MS, WORKER_FEET, walkers } from '../dashboard/walkers.js';
 
 /** @typedef {import('../dashboard/scene.js').Scene} Scene */
 /** @typedef {import('../dashboard/scene.js').SceneRun} SceneRun */
@@ -221,58 +221,220 @@ describe('office walkers: the carrier walks the corridors and aisles', () => {
   });
 });
 
-describe('office walkers: the boss', () => {
-  it('sits at home when there is no run', () => {
-    const b = at(scene(), 10_000).boss;
-    assert.equal(b.pose, 'seated');
+/**
+ * Where nobody's feet can be: a room's walls (but its doorway), the back wall, a cubicle's
+ * partitions, and every desk (the front desk, the rooms' desks and each cubicle's).
+ * @param {import('../dashboard/layout.js').Layout} l @param {typeof cubicles} cs
+ */
+function solidWithDesks(l, cs) {
+  const walls = [{ x: 0, y: 0, w: l.width, h: WALL }, l.desk, ...Object.values(l.desks)];
+  for (const id of /** @type {const} */ (['review', 'joplin', 'queueRoom', 'freeform'])) {
+    const r = l.rooms[id].rect;
+    walls.push({ x: r.x, y: r.y, w: r.w, h: 1 }, { x: r.x, y: r.y + r.h - 1, w: r.w, h: 1 }, { x: r.x, y: r.y, w: 1, h: r.h }, { x: r.x + r.w - 1, y: r.y, w: 1, h: r.h });
+  }
+  cs.forEach((c, i) => {
+    const r = l.cubicles[i];
+    walls.push({ x: r.x + 2, y: r.y + 2, w: r.w - 4, h: 12 }, { x: r.x + 2, y: r.y + 2, w: 3, h: r.h - 4 }, { x: r.x + r.w - 5, y: r.y + 2, w: 3, h: r.h - 4 });
+    walls.push(...cubicleDesks(r, deskOwners(c).length));
+  });
+  const doorways = Object.values(l.doorways);
+  /** a figure's feet, `feet` below the top of their head @param {{ x: number, y: number }} p @param {number} feet */
+  return (p, feet) =>
+    [[p.x + 2, p.y + feet - 1], [p.x + 7, p.y + feet - 1]].some(([x, y]) => walls.some((w) => inside(w, x, y)) && !doorways.some((d) => inside(d, x, y)));
+}
+
+
+/**
+ * The first t from `from` at which `done` holds, by bisection (it holds from then on).
+ * @param {(t: number) => boolean} done @param {number} from
+ */
+function firstWhen(done, from) {
+  let [lo, hi] = [from, from + 120_000];
+  assert.ok(done(hi), 'it happens');
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (done(mid)) hi = mid;
+    else lo = mid;
+  }
+  return hi;
+}
+
+describe('office walkers: the boss walks the corridors', () => {
+  const since = 5000;
+  const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((alias) => ({ ...cubicles[0], alias, name: alias }));
+  const l = layoutOffice(many.length, 'wide', 640);
+  /** @param {Scene} sc @param {number} t */
+  const look = (sc, t) => walkers(l, sc.cubicles, sc, t);
+  /** @param {string} alias @returns {import('../dashboard/scene.js').Place} */
+  const cube = (alias) => ({ room: 'cubicle', alias });
+  /** Post-run in `alias`'s cubicle, the boss setting off at `since`. @param {string} alias */
+  const going = (alias) => scene({ cubicles: many, run: run({ place: cube(alias), postRun: true, work: 'reviewed' }), boss: { at: cube(alias), from: null, since } });
+  /** The run over, the boss setting off back from `alias`'s cubicle at `since`. @param {string} alias */
+  const returning = (alias) => scene({ cubicles: many, boss: { at: null, from: cube(alias), since } });
+  /** When the boss stops walking. @param {Scene} sc */
+  const arrival = (sc) => firstWhen((t) => look(sc, t).boss.pose !== 'walking', since);
+  const home = look(scene({ cubicles: many }), 1e9).boss;
+
+  it('is never inside a wall, partition or desk, there and back', () => {
+    for (const width of [560, 720]) {
+      const lw = layoutOffice(many.length, 'wide', width);
+      const blocked = solidWithDesks(lw, many);
+      for (const alias of ['a', 'd', 'f']) {
+        for (const sc of [going(alias), returning(alias)]) {
+          let through = 0;
+          for (let t = since; t <= since + 30_000; t += 8) {
+            const b = walkers(lw, many, sc, t).boss;
+            if (b.pose === 'seated') continue;
+            assert.ok(!blocked(b, BOSS_FEET), `${width} ${alias} at ${t}: ${JSON.stringify(b)}`);
+            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (lw.doorways.review), b.x + 4, b.y + BOSS_FEET - 1)) through++;
+          }
+          assert.ok(through > 0, `${alias}: through the Review room's doorway`);
+        }
+      }
+    }
   });
 
-  it('walks to the worker\'s shoulder after boss.since, then stands there', () => {
-    const since = 5000;
-    const sc = scene({ run: run({ postRun: true, work: 'reviewed' }), boss: { at: BOT, from: null, since } });
-    const home = at(scene(), 1e9).boss;
-    const start = at(sc, since).boss;
-    assert.equal(start.pose, 'walking');
-    const mid = at(sc, since + WALK_MS / 2).boss;
+  it('reaches the worker\'s shoulder, behind the desk, and only then reads', () => {
+    const sc = going('a');
+    const there = arrival(sc);
+    assert.ok(there > since + 3000, 'a walk across the office takes a while');
+    assert.equal(look(sc, there - 1).boss.pose, 'walking');
+    const b = look(sc, there).boss;
+    assert.equal(b.pose, 'standing');
+    const d = deskAt(l, many, cube('a'));
+    const w = workerRect(d);
+    assert.ok(b.x > w.x && b.x - w.x <= 12, 'at the worker\'s side');
+    assert.equal(b.y + BOSS_FEET, d.y - 1, 'standing just behind the desk');
+    for (let t = since; t < there; t += 50) assert.equal(look(sc, t).boss.pose, 'walking', `still walking at ${t}`);
+    assert.deepEqual(look(sc, there + 60_000).boss, b);
+  });
+
+  it('takes longer to reach a farther cubicle', () => {
+    // the Review room is on the left: a is the front row's leftmost cubicle, d its rightmost, f behind
+    const [a, d, f] = ['a', 'd', 'f'].map((alias) => arrival(going(alias)));
+    assert.ok(a < d, `a ${a} before d ${d}`);
+    assert.ok(a < f, `a ${a} before f ${f}`);
+  });
+
+  it('walks back and is seated at home', () => {
+    const sc = returning('d');
+    const back = arrival(sc);
+    assert.equal(back - since, arrival(going('d')) - since, 'the same way back');
+    assert.equal(look(sc, back - 1).boss.pose, 'walking');
+    assert.deepEqual(look(sc, back).boss, home);
+    assert.equal(home.pose, 'seated');
+  });
+
+  it('shows the boss partway along the route when the page looks mid-walk', () => {
+    const sc = going('d');
+    const there = arrival(sc);
+    const start = look(sc, since).boss;
+    const mid = look(sc, Math.floor((since + there) / 2)).boss;
+    const end = look(sc, there).boss;
     assert.equal(mid.pose, 'walking');
     assert.notDeepEqual([mid.x, mid.y], [start.x, start.y]);
-    const there = at(sc, since + WALK_MS).boss;
-    assert.equal(there.pose, 'standing');
-    const w = workerRect(desk);
-    assert.ok(Math.abs(there.x - w.x) < 20 && Math.abs(there.y - w.y) < 10, 'by the worker');
-    assert.notDeepEqual([there.x, there.y], [home.x, home.y]);
+    assert.notDeepEqual([mid.x, mid.y], [end.x, end.y]);
+    assert.ok(Math.abs(mid.x - start.x) + Math.abs(mid.y - start.y) > 20, 'well on the way');
   });
 
-  it('walks back home and sits down once the run is over', () => {
-    const since = 5000;
-    const sc = scene({ boss: { at: null, from: BOT, since } });
-    assert.equal(at(sc, since + 1).boss.pose, 'walking');
-    assert.deepEqual(at(sc, since + WALK_MS).boss, at(scene(), 1e9).boss);
+  it('faces the way they walk', () => {
+    const sc = returning('d');
+    const back = arrival(sc);
+    let [left, right] = [0, 0];
+    for (let t = since; t < back; t += 40) {
+      const [b, next] = [look(sc, t).boss, look(sc, t + 40).boss];
+      if (next.pose !== 'walking' || next.y !== b.y || next.x === b.x) continue;
+      if (next.x < b.x) left++;
+      else right++;
+      assert.equal(next.facing, next.x < b.x ? 'left' : 'right', `at ${t}`);
+    }
+    assert.ok(left > 0 && right > 0, 'walks both ways');
+  });
+
+  it('stays seated at home when the layout has neither end of the walk', () => {
+    const sc = scene({ cubicles: many, boss: { at: null, from: cube('gone'), since } });
+    for (const t of [since - 1, since, since + 1000, since + 60_000]) assert.deepEqual(look(sc, t).boss, home, `at ${t}`);
+    assert.equal(look(sc, since + 1).animating, false);
+  });
+
+  it('keeps the page animating for the walk, then stops', () => {
+    const sc = returning('f');
+    const back = arrival(sc);
+    assert.ok(back - since > 2400, 'longer than the old fixed walk');
+    assert.equal(look(sc, back - 1).animating, true);
+    assert.equal(look(sc, back).animating, false);
   });
 });
 
 describe('office walkers: a freeform worker moving desks', () => {
   const since = 20_000;
-  const moving = scene({ run: run({ moved: { from: { room: 'freeform' }, since } }) });
+  const from = { room: /** @type {const} */ ('freeform') };
+  const moving = scene({ run: run({ moved: { from, since } }) });
+  /** When the worker sits down. @param {Scene} sc @param {number} after */
+  const seated = (sc, after) => firstWhen((t) => at(sc, t).worker?.pose === 'seated' && at(sc, t).worker?.x === workerRect(desk).x, after);
 
-  it('starts the move after the hand-over and ends at the new desk', () => {
-    const from = workerRect(layout.desks.freeform);
-    const to = workerRect(desk);
+  it('stays at the Freeform room\'s desk until the move, then ends at the cubicle seat', () => {
     const before = at(moving, since - 1).worker;
-    assert.equal(before.pose, 'seated');
-    const start = at(moving, since).worker;
-    assert.deepEqual([start.pose, start.x, start.y, start.pile], ['walking', from.x, from.y, 3]);
-    assert.equal(at(moving, since + WALK_MS - 1).worker.pose, 'walking');
-    const end = at(moving, since + WALK_MS).worker;
+    const seat = workerRect(layout.desks.freeform);
+    assert.deepEqual([before.pose, before.x, before.y], ['seated', seat.x, seat.y]);
+    const start = at(moving, since + 1).worker;
+    assert.deepEqual([start.pose, start.pile], ['walking', 3]);
+    assert.ok(Math.abs(start.x - seat.x) <= 2 && Math.abs(start.y - seat.y) <= 6, 'standing up from their seat');
+    const sat = seated(moving, since);
+    assert.ok(sat - since > 2400, 'across the office takes a while');
+    assert.equal(at(moving, sat - 1).worker.pose, 'walking');
+    const to = workerRect(desk);
+    const end = at(moving, sat).worker;
     assert.deepEqual([end.pose, end.x, end.y], ['seated', to.x, to.y]);
+    assert.deepEqual(end.at, BOT);
+    assert.equal(at(moving, sat).animating, true, 'the run is still on the floor');
   });
 
-  it('waits for the carrier to arrive before moving', () => {
-    const early = scene({ run: run({ moved: { from: { room: 'freeform' }, since: 0 } }) });
+  it('is never inside a wall, partition or desk, and out through the Freeform room\'s doorway', () => {
+    for (const width of [560, 720]) {
+      const l = layoutOffice(cubicles.length, 'wide', width);
+      const blocked = solidWithDesks(l, cubicles);
+      let through = 0;
+      for (let t = since; t <= since + 30_000; t += 8) {
+        const w = walkers(l, cubicles, moving, t).worker;
+        if (w.pose !== 'walking') continue;
+        assert.ok(!blocked(w, WORKER_FEET), `${width} at ${t}: ${JSON.stringify(w)}`);
+        if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.freeform), w.x + 4, w.y + WORKER_FEET - 1)) through++;
+      }
+      assert.ok(through > 0, 'through the doorway');
+    }
+  });
+
+  it('faces left while heading left', () => {
+    let left = 0;
+    for (let t = since; t < since + 30_000; t += 40) {
+      const [w, next] = [at(moving, t).worker, at(moving, t + 40).worker];
+      if (next.pose !== 'walking' || next.y !== w.y || next.x === w.x) continue;
+      if (next.x < w.x) left++;
+      assert.equal(next.facing, next.x < w.x ? 'left' : 'right', `at ${t}`);
+    }
+    assert.ok(left > 0, 'the Freeform room is on the right: they head left');
+  });
+
+  it('waits for the hand-over in the Freeform room before moving', () => {
+    const early = scene({ run: run({ moved: { from, since: 0 } }) });
     const arrive = arrival(early);
-    assert.equal(at(early, arrive - 1).worker, null);
-    assert.equal(at(early, arrive).worker.pose, 'walking');
-    assert.equal(at(early, arrive + WALK_MS).worker.pose, 'seated');
+    const seat = workerRect(layout.desks.freeform);
+    const handed = at(early, arrive).worker;
+    assert.deepEqual([handed.pose, handed.x, handed.y], ['seated', seat.x, seat.y], 'delivered to the Freeform room');
+    assert.equal(at(early, arrive + HAND_MS - 1).worker.pose, 'seated');
+    assert.equal(at(early, arrive + HAND_MS + 1).worker.pose, 'walking');
+    const sat = seated(early, arrive + HAND_MS);
+    assert.deepEqual(at(early, sat).worker.at, BOT);
+  });
+
+  it('stays at the Freeform room\'s desk when there is no way to the new one', () => {
+    const lost = scene({ run: run({ place: { room: 'cubicle', alias: 'gone' }, moved: { from, since } }) });
+    const seat = workerRect(layout.desks.freeform);
+    for (const t of [since - 1, since + 1, since + 60_000]) {
+      const w = at(lost, t).worker;
+      assert.deepEqual([w.pose, w.x, w.y, w.at], ['seated', seat.x, seat.y, from], `at ${t}`);
+    }
   });
 });
 
@@ -280,8 +442,9 @@ describe('office walkers: animating', () => {
   it('is still once every walk is over and nothing on the floor moves', () => {
     const since = 5000;
     const sc = scene({ boss: { at: null, from: BOT, since } });
-    assert.equal(at(sc, since + WALK_MS - 1).animating, true);
-    assert.equal(at(sc, since + WALK_MS).animating, false);
+    const back = firstWhen((t) => at(sc, t).boss.pose === 'seated', since);
+    assert.equal(at(sc, back - 1).animating, true);
+    assert.equal(at(sc, back).animating, false);
   });
 
   it('keeps going while a run is on the floor or a resting state moves, but not in the dark', () => {

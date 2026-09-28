@@ -67,12 +67,13 @@ function drawFreeformRoom(ctx, layout) {
  */
 function drawRun(ctx, layout, scene, t, { carrier, worker: p }) {
   const run = scene.run;
-  const desk = run && deskAt(layout, scene.cubicles, run.place);
-  if (!run || !desk) return;
+  if (!run) return;
   const frame = Math.floor(t / FRAME_MS);
   if (carrier.pose === 'standing' && carrier.carrying === 'phone') s.phoneRinging(ctx, layout.desk, frame);
-  if (p?.pose === 'walking') s.walkingWorker(ctx, p.x, p.y, frame, p.pile);
-  else if (p) {
+  if (p?.pose === 'walking') s.walkingWorker(ctx, p.x, p.y, frame, p.pile, p.facing);
+  // seated at the desk they're at: a freeform worker's old one until they move
+  const desk = p?.at && deskAt(layout, scene.cubicles, p.at);
+  if (p?.at && desk) {
     const w = workerRect(desk);
     const typing = run.work === 'typing';
     const scribbling = run.work === 'scribbling';
@@ -81,7 +82,7 @@ function drawRun(ctx, layout, scene, t, { carrier, worker: p }) {
     if (run.worker) s.jobGear(ctx, run.worker, w, desk, frame);
     if (scribbling) s.scribbles(ctx, w, beat);
     s.paperPile(ctx, desk.x + 2, desk.y + 3, p.pile);
-    const bounds = roomAt(layout, run.place).rect;
+    const bounds = roomAt(layout, p.at).rect;
     if (run.bubble) s.speechBubble(ctx, w.x + 5, w.y - 1, run.bubble, Math.min(120, bounds.w - 4), bounds);
   }
   if (carrier.pose === 'walking') s.walkingCarrier(ctx, carrier.x, carrier.y, frame, carrier.carrying, carrier.facing);
@@ -223,8 +224,8 @@ function drawPending(ctx, r, c) {
  * @param {Ctx} ctx @param {number} t @param {Walkers['boss']} p
  */
 function drawBossFigure(ctx, t, p) {
-  if (p.pose === 'walking') s.boss(ctx, p.x, p.y, { step: Math.floor(t / FRAME_MS) });
-  else if (p.pose === 'standing') s.boss(ctx, p.x, p.y);
+  if (p.pose === 'walking') s.boss(ctx, p.x, p.y, { step: Math.floor(t / FRAME_MS), facing: p.facing });
+  else if (p.pose === 'standing') s.boss(ctx, p.x, p.y, { facing: p.facing });
   else s.boss(ctx, p.x, p.y, { seated: true });
 }
 
