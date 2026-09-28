@@ -7,6 +7,7 @@
     { "alias": "go-server" },
     { "alias": "home-manuals" },
     { "alias": "platformer" },
+    { "alias": "reply-buddy" },
     { "alias": "snake-colyseus" },
     { "alias": "snake-lab" },
     { "alias": "snake-phaser" }
