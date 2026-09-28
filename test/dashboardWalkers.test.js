@@ -351,6 +351,12 @@ describe('office walkers: the boss walks the corridors', () => {
     assert.ok(left > 0 && right > 0, 'walks both ways');
   });
 
+  it('stays seated at home when the layout has neither end of the walk', () => {
+    const sc = scene({ cubicles: many, boss: { at: null, from: cube('gone'), since } });
+    for (const t of [since - 1, since, since + 1000, since + 60_000]) assert.deepEqual(look(sc, t).boss, home, `at ${t}`);
+    assert.equal(look(sc, since + 1).animating, false);
+  });
+
   it('keeps the page animating for the walk, then stops', () => {
     const sc = returning('f');
     const back = arrival(sc);
@@ -420,6 +426,15 @@ describe('office walkers: a freeform worker moving desks', () => {
     assert.equal(at(early, arrive + HAND_MS + 1).worker.pose, 'walking');
     const sat = seated(early, arrive + HAND_MS);
     assert.deepEqual(at(early, sat).worker.at, BOT);
+  });
+
+  it('stays at the Freeform room\'s desk when there is no way to the new one', () => {
+    const lost = scene({ run: run({ place: { room: 'cubicle', alias: 'gone' }, moved: { from, since } }) });
+    const seat = workerRect(layout.desks.freeform);
+    for (const t of [since - 1, since + 1, since + 60_000]) {
+      const w = at(lost, t).worker;
+      assert.deepEqual([w.pose, w.x, w.y, w.at], ['seated', seat.x, seat.y, from], `at ${t}`);
+    }
   });
 });
 

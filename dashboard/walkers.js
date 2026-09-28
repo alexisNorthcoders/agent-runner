@@ -218,21 +218,24 @@ function deskMove(layout, cubicles, graph, run, trip) {
  */
 function worker(layout, cubicles, trip, move, scene, t) {
   const run = scene.run;
-  const desk = run && deskAt(layout, cubicles, run.place);
-  if (!run || !desk || !trip) return null;
+  if (!run || !trip) return null;
   if (t < trip.arrive && !run.postRun) return null;
   /** @param {Place} at @param {Rect} d @returns {Worker} */
   const seated = (at, d) => {
     const w = workerRect(d);
     return { who: 'worker', x: w.x, y: w.y, pose: 'seated', facing: 'right', pile: run.pile, at };
   };
-  const from = move && deskAt(layout, cubicles, move.from);
-  if (move && from && t < move.start) return seated(move.from, from);
+  const desk = deskAt(layout, cubicles, run.place);
+  // a worker who moved desks stays at the old one until the hand-over, even with no way over
+  // (they stay put when the layout lacks the new desk)
+  const from = run.moved && deskAt(layout, cubicles, run.moved.from);
+  const handedOver = run.moved ? Math.max(run.moved.since, trip.arrive + HAND_MS) : -Infinity;
+  if (run.moved && from && (t < handedOver || !desk)) return seated(run.moved.from, from);
   if (move && t < move.start + move.walk) {
     const p = alongRoute(move.route, (t - move.start) / move.walk);
     return { who: 'worker', x: p.x, y: p.y - WORKER_FEET, pose: 'walking', facing: p.facing, pile: run.pile, at: null };
   }
-  return seated(run.place, desk);
+  return desk ? seated(run.place, desk) : null;
 }
 
 /**
@@ -247,6 +250,8 @@ function bossWalk(layout, cubicles, graph, scene) {
   /** @param {Place | null} p */
   const way = (p) => (p && roundDesk(layout, cubicles, graph, p, shoulder)) || null;
   const [from, at] = [way(scene.boss.from), way(scene.boss.at)];
+  // no walk to or from a worker: seated at home all along
+  if (!from && !at) return { route: [home[home.length - 1]], since: scene.boss.since, walk: 0, reading: false };
   const route = deskToDesk(graph, from ?? home, at ?? home);
   return { route, since: scene.boss.since, walk: walkMs(route), reading: !!at };
 }
@@ -259,7 +264,7 @@ function bossWalk(layout, cubicles, graph, scene) {
  */
 function boss({ route, since, walk, reading }, t) {
   const p = alongRoute(route, walk ? (t - since) / walk : 1);
-  const pose = t - since < walk ? 'walking' : reading ? 'standing' : 'seated';
+  const pose = walk && t - since < walk ? 'walking' : reading ? 'standing' : 'seated';
   // seated, the boss sinks into their chair
   return { who: 'boss', x: p.x, y: p.y - BOSS_FEET + (pose === 'seated' ? 3 : 0), pose, facing: pose === 'seated' ? 'right' : p.facing };
 }
@@ -284,6 +289,6 @@ export function walkers(layout, cubicles, scene, t) {
   const bossTrip = bossWalk(layout, cubicles, graph, scene);
   const animating =
     !scene.dark &&
-    (!!run || t - bossTrip.since < bossTrip.walk || scene.outcomes.some((o) => ANIMATED_STATES.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
+    (!!run || (!!bossTrip.walk && t - bossTrip.since < bossTrip.walk) || scene.outcomes.some((o) => ANIMATED_STATES.has(o.state) || (o.state === 'stamped' && t - o.endedAt < STAMP_MS + TRAY_MS)));
   return { carrier: carrier(layout, trip, scene, t), boss: boss(bossTrip, t), worker: worker(layout, cubicles, trip, move ?? null, scene, t), animating };
 }
