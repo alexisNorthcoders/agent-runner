@@ -38,6 +38,15 @@ const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const cap = (s, n) => (s.length <= n ? s : `${s.slice(0, n)}\n…(truncated, see the log)`);
 
 /**
+ * `opus (workspace)` for a model that didn't come from the runner default, else ''.
+ * @param {import('./agentBackend/index.js').AgentModelChoice | undefined} m
+ */
+export const modelNote = (m) => (m && m.source !== 'default' ? `${m.name} (${m.source})` : '');
+
+/** @param {import('./agentBackend/index.js').AgentModelChoice | undefined} m */
+const modelSuffix = (m) => (modelNote(m) ? `, model ${modelNote(m)}` : '');
+
+/**
  * @param {import('./runLock.js').RunRecord} rec
  * @param {import('./agentBackend/index.js').AgentResult} r
  */
@@ -413,7 +422,7 @@ export function createRunner({
     /** @param {string} text */
     const toOwner = (text) =>
       outbox.send({ replyTo: OWNER, runId: record.runId, text }).catch((err) => logger.error(`run ${record.runId}: outbox write failed:`, err?.message || err));
-    return supervise(
+    await supervise(
       record,
       run,
       'agent',
@@ -427,6 +436,8 @@ export function createRunner({
           throw err;
         }
         let text = out.text;
+        const note = modelNote(run.model);
+        if (text && note) text = `${text}\nModel: ${note}`;
         if (a.limitNotice) {
           // owner hears once: the run's report joins the notice when it goes to owner too
           if (record.replyTo === OWNER) text = text ? `${a.limitNotice}\n\n${text}` : a.limitNotice;
@@ -436,6 +447,7 @@ export function createRunner({
       },
       (result) => ({ text: formatRunResult(record, result), history: agentHistory(result) })
     );
+    return { model: run.model };
   }
 
   /**
@@ -530,13 +542,13 @@ export function createRunner({
         prompt = cmd.prompt;
       }
       const onTouch = cmd.kind === 'freeform' ? inferWorkspace(record.runId) : undefined;
-      await launch(
+      const started = await launch(
         record,
         { prompt, preamble: await freeformPreambleNow(), cwd: workspaceRoot, ...(onTouch ? { onTouch } : {}) },
         async (result, a) => ({ text: `${formatRunResult(record, result)}${a.requeued ? `\n${REQUEUED_NOTE}` : ''}` }),
         queuedRun(cmd, replyTo)
       );
-      return { reply: `Started run ${record.runId}${source} in ${workspaceRoot}.\nLog: ${record.logPath}`, started: true };
+      return { reply: `Started run ${record.runId}${source} in ${workspaceRoot}${modelSuffix(started.model)}.\nLog: ${record.logPath}`, started: true };
     } catch (err) {
       await lock.release(record.runId).catch(() => {});
       return { reply: `Could not start the agent: ${err?.message || err}`, started: false };
@@ -639,10 +651,11 @@ export function createRunner({
 
     /** @type {IssueRunOutcome | null} */
     let outcome = null;
+    let started;
     // the cron retries on its own after the reset
     const retry = trigger === 'manual' ? queuedRun({ kind: 'issue', issueNumber, alias, extraInstructions }, replyTo) : undefined;
     try {
-      await launch(record, { prompt: prep.prompt, implement: true, cwd: ws.root }, async (agent, a) => {
+      started = await launch(record, { prompt: prep.prompt, implement: true, cwd: ws.root }, async (agent, a) => {
         const fin = await issues.finish({
           repo: ws.root,
           prompt: prep.prompt,
@@ -687,7 +700,7 @@ export function createRunner({
     }
     const title = prep.issue.title ? ` (${prep.issue.title})` : '';
     return {
-      reply: `Started run ${record.runId}: issue #${prep.issue.number}${title} in ${ws.alias} on \`${prep.branchName}\`${prep.resumed ? ', resuming earlier work' : ''}.\nLog: ${record.logPath}`,
+      reply: `Started run ${record.runId}: issue #${prep.issue.number}${title} in ${ws.alias} on \`${prep.branchName}\`${prep.resumed ? ', resuming earlier work' : ''}${modelSuffix(started.model)}.\nLog: ${record.logPath}`,
       done: settled.then(() => outcome),
     };
   }

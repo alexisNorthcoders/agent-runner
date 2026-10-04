@@ -10,7 +10,8 @@ import { createUsageLimitPause } from '../src/usageLimitPause.js';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
 /** Controllable AgentBackend fake: each start() creates a run you settle by hand. */
-function fakeBackend() {
+/** @param {import('../src/agentBackend/index.js').AgentModelChoice} [modelChoice] */
+function fakeBackend(modelChoice = { name: 'sonnet', source: 'default' }) {
   /** @type {any[]} */
   const starts = [];
   return {
@@ -23,6 +24,7 @@ function fakeBackend() {
         const done = new Promise((r) => (settle = r));
         const run = {
           opts,
+          model: modelChoice,
           stopped: false,
           pid: 900 + starts.length,
           done,
@@ -59,7 +61,7 @@ function setup(overrides = {}) {
   const pause = createPauseFlag({ store });
   const queue = createRunQueue({ store, maxLength: 3 });
   const outbox = createOutbox({ store });
-  const { backend, starts } = fakeBackend();
+  const { backend, starts } = fakeBackend(overrides.modelChoice);
   /** @type {any[]} */
   const history = [];
   /** @type {string[]} */
@@ -143,6 +145,24 @@ function setup(overrides = {}) {
 }
 
 describe('runner: freeform runs', () => {
+  it('says which model a run uses in its acknowledgment and report when it came from the workspace', async () => {
+    const { runner, starts, outboxEntries } = setup({ modelChoice: { name: 'opus', source: 'workspace' } });
+    const { reply } = await runner.handleCommand({ text: 'claude list the repos', replyTo: 'jid-1' });
+    assert.match(reply, /, model opus \(workspace\)\.\nLog:/);
+    starts[0].finish('success', 'Here are the repos');
+    await runner.idle();
+    assert.match(outboxEntries()[0].text, /Here are the repos\nModel: opus \(workspace\)$/);
+  });
+
+  it('leaves replies unchanged for a run on the runner default', async () => {
+    const { runner, starts, outboxEntries } = setup();
+    const { reply } = await runner.handleCommand({ text: 'claude list the repos', replyTo: 'jid-1' });
+    assert.doesNotMatch(reply, /model/);
+    starts[0].finish('success', 'Here are the repos');
+    await runner.idle();
+    assert.doesNotMatch(outboxEntries()[0].text, /Model:/);
+  });
+
   it('starts the agent in the workspace, replies "started", and posts the result to the outbox', async () => {
     const { runner, starts, lock, history, outboxEntries } = setup();
     const { reply } = await runner.handleCommand({ text: 'claude list the repos', replyTo: 'jid-1' });
