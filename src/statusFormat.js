@@ -254,13 +254,13 @@ export function renderHistoryLines(rows, now, c = plain) {
 
 // --- WhatsApp (plain text, one message) ---
 
-/** A scheduled job's run: a command, not an agent, so it has no turns, tokens or cost. @param {{ kind?: string }} r */
+/** A scheduled job's run: a command, not an agent, so it has none of those unless it reported its usage. @param {{ kind?: string }} r */
 const isJob = (r) => r.kind === 'job';
 
 /** @param {HistoryEntry} r @param {number} now */
 const historyLine = (r, now) =>
   `${formatAgo(since(now, r.endedAt))} · ${whatWhere(r, 60)} — ${r.outcome}, ${formatDuration(durationOf(r))}` +
-  (isJob(r) ? '' : `, ${formatCost(r.costUsd)}, ${formatTokens(totalTokens(r.tokens))} tok`);
+  (isJob(r) && !r.tokens ? '' : `, ${formatCost(r.costUsd)}, ${formatTokens(totalTokens(r.tokens))} tok`);
 
 export const STATUS_RECENT_COUNT = 3;
 
