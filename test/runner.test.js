@@ -24,7 +24,7 @@ function fakeBackend(modelChoice = { name: 'sonnet', source: 'default' }) {
         const done = new Promise((r) => (settle = r));
         const run = {
           opts,
-          model: opts.model ? { name: opts.model, source: /** @type {const} */ ('prefix') } : modelChoice,
+          model: opts.model ? { name: opts.model, source: opts.modelSource ?? /** @type {const} */ ('prefix') } : modelChoice,
           stopped: false,
           pid: 900 + starts.length,
           done,
@@ -629,7 +629,7 @@ describe('runner: startup recovery', () => {
  * Fake issue pipeline: `finish` resolves when the test calls `release(result)`, and can run a
  * follow-up agent pass through the `runAgent` it was given.
  */
-function fakeIssues({ prepareError = null } = {}) {
+function fakeIssues({ prepareError = null, labels = [] } = {}) {
   /** @type {any[]} */
   const prepares = [];
   /** @type {any[]} */
@@ -653,6 +653,7 @@ function fakeIssues({ prepareError = null } = {}) {
           defaultBranch: 'main',
           resumed: false,
           preAgentHeadSha: 'sha0',
+          labels,
         };
       },
       finish(p) {
@@ -684,6 +685,56 @@ function issueSetup(opts = {}) {
 }
 
 describe('runner: issue runs', () => {
+  /** @param {string[]} labels @param {'manual' | 'cron'} [trigger] */
+  const labelRun = async (labels, trigger = 'manual') => {
+    const h = issueSetup({ labels });
+    const r = await h.runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger });
+    return { ...h, r };
+  };
+
+  it('runs a labelled issue on that model, autofix included, and says so', async () => {
+    for (const trigger of /** @type {const} */ (['manual', 'cron'])) {
+      const { r, starts, finishes, outboxEntries } = await labelRun([' Model:Opus '], trigger);
+      assert.match(r.reply, /, model opus \(label\)\./);
+      assert.equal(starts[0].opts.model, 'opus');
+      starts[0].finish();
+      await flush();
+      const autofix = finishes[0].runAgent({ prompt: 'fix', label: 'autofix' });
+      await flush();
+      assert.equal(starts[1].opts.model, 'opus');
+      assert.equal(starts[1].opts.modelSource, 'label');
+      starts[1].finish();
+      await autofix;
+      finishes[0].release();
+      await r.done;
+      assert.match(outboxEntries()[0].text, /Model: opus \(label\)$/);
+    }
+  });
+
+  it('lets the label beat the workspace setting', async () => {
+    const { starts } = await labelRun(['model:sonnet']);
+    assert.equal(starts[0].opts.model, 'sonnet');
+    assert.equal(starts[0].opts.modelSource, 'label');
+  });
+
+  it('warns about an unknown model label and runs without a requested model', async () => {
+    const { r, starts } = await labelRun(['model:gpt']);
+    assert.equal(starts[0].opts.model, undefined);
+    assert.match(r.reply, /Ignored unknown model label "model:gpt"/);
+  });
+
+  it('picks the strongest of conflicting model labels and warns', async () => {
+    const { r, starts } = await labelRun(['model:haiku', 'model:opus']);
+    assert.equal(starts[0].opts.model, 'opus');
+    assert.match(r.reply, /Several model labels.*using the strongest, opus/);
+  });
+
+  it('behaves as before for an issue without a model label', async () => {
+    const { r, starts } = await labelRun(['bug']);
+    assert.equal(starts[0].opts.model, undefined);
+    assert.doesNotMatch(r.reply, /model|Ignored/);
+  });
+
   it('prepares the issue, runs the agent with the implement workflow in the repo, then reports once', async () => {
     const { runner, starts, prepares, finishes, lock, history, outboxEntries } = issueSetup();
     const { reply } = await runner.handleCommand({ text: 'claude issue:a:7 add tests', replyTo: 'jid-1' });

@@ -12,6 +12,7 @@ import { pidAlive } from './pidAlive.js';
 import { createWorkspaceInference } from './workspaceInference.js';
 import { formatDuration, renderHistoryText, renderStatusText } from './statusFormat.js';
 import { REQUEUED_NOTE } from './runQueue.js';
+import { modelFromLabels } from './modelLabel.js';
 
 /**
  * The runner: turns a `claude…` command into at most one agent run at a time and reports every
@@ -457,7 +458,7 @@ export function createRunner({
    * @returns {import('./issuePipeline/postRun.js').RunAgent}
    */
   const followUpAgent =
-    (a) =>
+    (a, model) =>
     async ({ prompt, label }) => {
       const logPath = join(logsDir, `${a.record.runId}-${label}.log`);
       if (a.stopRequested) return { outcome: 'stopped', exitCode: null, text: '', stderr: '' };
@@ -465,7 +466,7 @@ export function createRunner({
       // no spending past the usage limit: the pass would only hit it again
       if (await usageLimit.get().catch(() => null)) return { outcome: 'limited', exitCode: null, text: '', stderr: 'the usage-limit pause is set' };
       try {
-        const run = await backend.start({ prompt, preamble, cwd: a.record.workspaceRoot, logPath, onProgress: trackProgress(a.record.runId) });
+        const run = await backend.start({ prompt, preamble, cwd: a.record.workspaceRoot, ...(model ? { model, modelSource: 'label' } : {}), logPath, onProgress: trackProgress(a.record.runId) });
         a.run = run;
         a.passLogPath = logPath;
         setPhase(a, 'agent');
@@ -649,13 +650,16 @@ export function createRunner({
     }
     record.label = `issue ${ws.alias}#${issueNumber}${prep.issue.title ? ` "${oneLine(prep.issue.title, 50)}"` : ''}`;
 
+    const { model: labelModel, warnings: modelWarnings } = modelFromLabels(prep.labels);
+    const warned = modelWarnings.length ? `\n${modelWarnings.join('\n')}` : '';
+
     /** @type {IssueRunOutcome | null} */
     let outcome = null;
     let started;
     // the cron retries on its own after the reset
     const retry = trigger === 'manual' ? queuedRun({ kind: 'issue', issueNumber, alias, extraInstructions }, replyTo) : undefined;
     try {
-      started = await launch(record, { prompt: prep.prompt, implement: true, cwd: ws.root }, async (agent, a) => {
+      started = await launch(record, { prompt: prep.prompt, implement: true, cwd: ws.root, ...(labelModel ? { model: labelModel, modelSource: 'label' } : {}) }, async (agent, a) => {
         const fin = await issues.finish({
           repo: ws.root,
           prompt: prep.prompt,
@@ -663,7 +667,7 @@ export function createRunner({
           agent,
           preAgentHeadSha: prep.preAgentHeadSha,
           logPath: record.logPath,
-          runAgent: followUpAgent(a),
+          runAgent: followUpAgent(a, labelModel),
           trigger,
           requeued: Boolean(a.requeued),
         });
@@ -679,7 +683,7 @@ export function createRunner({
             : null;
         return {
           // cron stays quiet about runs that changed nothing
-          text: trigger === 'cron' && fin.silent ? null : fin.message,
+          text: trigger === 'cron' && fin.silent ? null : `${fin.message}${warned}`,
           history: {
             ...(cutShort ? { outcome: cutShort } : {}),
             trigger,
@@ -700,7 +704,7 @@ export function createRunner({
     }
     const title = prep.issue.title ? ` (${prep.issue.title})` : '';
     return {
-      reply: `Started run ${record.runId}: issue #${prep.issue.number}${title} in ${ws.alias} on \`${prep.branchName}\`${prep.resumed ? ', resuming earlier work' : ''}${modelSuffix(started.model)}.\nLog: ${record.logPath}`,
+      reply: `Started run ${record.runId}: issue #${prep.issue.number}${title} in ${ws.alias} on \`${prep.branchName}\`${prep.resumed ? ', resuming earlier work' : ''}${modelSuffix(started.model)}.${warned}\nLog: ${record.logPath}`,
       done: settled.then(() => outcome),
     };
   }

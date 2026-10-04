@@ -231,7 +231,7 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
      * Fetch the issue and branch in place in `workspaceRoot` (resuming an unfinished branch), and
      * build the agent prompt. Throws an Error whose message is fit to send to the user.
      * @param {{ issueNumber: number, alias: string | null, workspaceRoot: string, extraInstructions?: string }} p
-     * @returns {Promise<{ prompt: string, issue: IssueRef, branchName: string, defaultBranch: string, resumed: boolean, preAgentHeadSha: string | null }>}
+     * @returns {Promise<{ prompt: string, issue: IssueRef, branchName: string, defaultBranch: string, resumed: boolean, preAgentHeadSha: string | null, labels: string[] }>}
      */
     async prepare({ issueNumber, alias, workspaceRoot, extraInstructions = '' }) {
       let fetched;
@@ -253,7 +253,7 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
           })}`;
         }
         const preAgentHeadSha = await git.headSha(workspaceRoot).catch(() => null);
-        return { prompt, issue, branchName: prep.branchName, defaultBranch: prep.defaultBranch, resumed: prep.resumed, preAgentHeadSha };
+        return { prompt, issue, branchName: prep.branchName, defaultBranch: prep.defaultBranch, resumed: prep.resumed, preAgentHeadSha, labels: fetched.labels ?? [] };
       } catch (err) {
         throw new Error(`Git setup for issue #${issueNumber} failed: ${errorMessageFromUnknown(err)}`);
       }

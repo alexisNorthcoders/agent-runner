@@ -143,12 +143,12 @@ export function createClaudeBackend({
   return {
     name: 'claude',
     stopOrphan: (pid) => stopOrphanClaude(pid),
-    async start({ prompt, preamble, implement, model: requested, cwd, logPath, onProgress, onTouch }) {
+    async start({ prompt, preamble, implement, model: requested, modelSource = 'prefix', cwd, logPath, onProgress, onTouch }) {
       await mkdir(dirname(logPath), { recursive: true });
       const workspaceModel = requested ? null : await repoSettingsModel(cwd);
       /** @type {import('./index.js').AgentModelChoice} */
       const choice = requested
-        ? { name: requested, source: 'prefix' }
+        ? { name: requested, source: modelSource }
         : workspaceModel
           ? { name: workspaceModel, source: 'workspace' }
           : { name: pinnedModel, source: 'default' };
