@@ -1068,7 +1068,7 @@ describe('runner: scheduled jobs', () => {
       command: 'npm run cleanup_agent',
       cwd: '/home/u/reddit-bot',
       logPath: '/home/u/reddit-bot/reports/cron-cleanup.log',
-      env: undefined,
+      env: { AGENT_RUNNER_USAGE_FILE: '/runner/logs/agent-runs/run-1.usage.jsonl' },
       timeoutMs: 1_200_000,
     });
     const held = await lock.current();
@@ -1099,8 +1099,109 @@ describe('runner: scheduled jobs', () => {
     const { logFile, ...noLog } = cleanupJob;
     await runner.submitJob({ ...noLog, env: { A: 'b' }, timeoutMinutes: 45 });
     assert.equal(jobStarts[0].opts.logPath, '/runner/logs/agent-runs/run-1.log');
-    assert.deepEqual(jobStarts[0].opts.env, { A: 'b' });
+    assert.deepEqual(jobStarts[0].opts.env, { A: 'b', AGENT_RUNNER_USAGE_FILE: '/runner/logs/agent-runs/run-1.usage.jsonl' });
     assert.equal(jobStarts[0].opts.timeoutMs, 45 * 60_000);
+  });
+
+  describe('usage file', () => {
+    /** A job setup whose usage files live in a map the fake job writes to. */
+    function usageSetup() {
+      /** @type {Map<string, string>} */
+      const files = new Map();
+      const s = jobSetup({
+        overrides: {
+          readUsageFile: async (/** @type {string} */ p) => {
+            if (!files.has(p)) throw Object.assign(new Error('nope'), { code: 'ENOENT' });
+            return /** @type {string} */ (files.get(p));
+          },
+        },
+      });
+      const write = (/** @type {string} */ text) => files.set(s.jobStarts[0].opts.env.AGENT_RUNNER_USAGE_FILE, text);
+      return { ...s, write };
+    }
+    const line = (o) => JSON.stringify(o);
+    const tok = (n) => ({ input: n, output: n * 2, cacheRead: n * 3, cacheCreate: n * 4 });
+
+    it('the job cannot override the usage file variable, and its other env applies', async () => {
+      const { runner, jobStarts } = usageSetup();
+      await runner.submitJob({ ...cleanupJob, env: { A: 'b', AGENT_RUNNER_USAGE_FILE: '/elsewhere' } });
+      assert.equal(jobStarts[0].opts.env.A, 'b');
+      assert.equal(jobStarts[0].opts.env.AGENT_RUNNER_USAGE_FILE, '/runner/logs/agent-runs/run-1.usage.jsonl');
+    });
+
+    it('sums the lines into the history row, with the highest-cost model', async () => {
+      const { runner, jobStarts, history, write } = usageSetup();
+      await runner.submitJob(cleanupJob);
+      write(
+        [
+          line({ model: 'claude-haiku-4-5', turns: 2, costUsd: 0.1, tokens: tok(1) }),
+          line({ model: 'claude-opus-5-5', turns: 3, costUsd: 0.5, tokens: tok(2) }),
+          line({ model: null, turns: 1, costUsd: null }),
+        ].join('\n') + '\n'
+      );
+      jobStarts[0].exit(0);
+      await new Promise((r) => setTimeout(r, 10));
+      const row = history.at(-1);
+      assert.equal(row.model, 'claude-opus-5-5');
+      assert.equal(row.turns, 6);
+      assert.ok(Math.abs(row.costUsd - 0.6) < 1e-9);
+      assert.deepEqual(row.tokens, { input: 3, output: 6, cacheRead: 9, cacheCreate: 12 });
+    });
+
+    it('uses the first model when no line has a cost, and counts missing numbers as 0', async () => {
+      const { runner, jobStarts, history, write } = usageSetup();
+      await runner.submitJob(cleanupJob);
+      write(line({ model: 'a', turns: 1 }) + '\n' + line({ model: 'b' }));
+      jobStarts[0].exit(0);
+      await new Promise((r) => setTimeout(r, 10));
+      const row = history.at(-1);
+      assert.equal(row.model, 'a');
+      assert.equal(row.turns, 1);
+      assert.equal(row.costUsd, null);
+      assert.deepEqual(row.tokens, { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 });
+    });
+
+    it('skips a malformed line without changing the outcome', async () => {
+      const { runner, jobStarts, history, write } = usageSetup();
+      await runner.submitJob(cleanupJob);
+      write('garbage\n' + line({ model: 'a', turns: 2, costUsd: 1, tokens: tok(1) }) + '\n{"x"');
+      jobStarts[0].exit(0);
+      await new Promise((r) => setTimeout(r, 10));
+      const row = history.at(-1);
+      assert.equal(row.outcome, 'success');
+      assert.equal(row.turns, 2);
+    });
+
+    it('leaves the row as it is for no file or an empty one', async () => {
+      for (const text of [null, '', '\n']) {
+        const { runner, jobStarts, history, write } = usageSetup();
+        await runner.submitJob(cleanupJob);
+        if (text != null) write(text);
+        jobStarts[0].exit(0);
+        await new Promise((r) => setTimeout(r, 10));
+        const row = history.at(-1);
+        assert.equal(row.outcome, 'success');
+        for (const k of ['model', 'turns', 'costUsd', 'tokens']) assert.equal(k in row, false, k);
+      }
+    });
+
+    it('records usage for a failed job and a stopped one', async () => {
+      const failed = usageSetup();
+      await failed.runner.submitJob(cleanupJob);
+      failed.write(line({ model: 'a', turns: 4, costUsd: 1 }));
+      failed.jobStarts[0].exit(2);
+      await new Promise((r) => setTimeout(r, 10));
+      assert.equal(failed.history.at(-1).turns, 4);
+      assert.equal(failed.history.at(-1).outcome, 'failed');
+
+      const stopped = usageSetup();
+      await stopped.runner.submitJob(cleanupJob);
+      stopped.write(line({ model: 'a', turns: 5, costUsd: 1 }));
+      stopped.jobStarts[0].stop();
+      await new Promise((r) => setTimeout(r, 10));
+      assert.equal(stopped.history.at(-1).turns, 5);
+      assert.equal(stopped.history.at(-1).outcome, 'stopped');
+    });
   });
 
   it('a failure sends one line to owner', async () => {

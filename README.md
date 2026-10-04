@@ -204,6 +204,16 @@ skipped, and `owner` is told once per change of the errors.
   (`success`, `failed`, `timeout`, `stopped`, `spawn_error`), `exitCode` and `durationMs`. It shows
   in `claude:status`, `claude:history` and `npm run agent:*` as `scheduled job <name>`. A success is
   quiet; anything else sends one line to `owner`.
+- **Usage file**: every job run gets `AGENT_RUNNER_USAGE_FILE`, a per-run path
+  (`logs/agent-runs/<runId>.usage.jsonl`) that the job's `env` can't override. A job that calls an
+  agent may append one JSON line per call:
+  `{ "model": string|null, "turns": number, "costUsd": number|null, "tokens": { "input", "output", "cacheRead", "cacheCreate" } }`.
+  When the job ends, whatever its outcome (failed, timeout and stopped included), the runner adds the
+  lines into the job's history row as `model`, `turns`, `costUsd` and `tokens`, so they show in
+  `claude:history`, `npm run agent:*` and the office. Turns, cost and token counts are summed, a
+  missing number counts as 0, and the model is the one on the highest-cost line (the first line's if
+  none has a cost). A malformed line is skipped with a warning in the runner log and never changes the
+  job's outcome. A missing or empty file leaves the row as it is without usage.
 - **Once a day**: `agent-runner:jobs:last-fired` records the UTC day each job last joined the
   queue, so it fires at most once a day, even across restarts. A job whose time passed while the
   runner was down fires on startup that day. A job new to the config whose time already passed

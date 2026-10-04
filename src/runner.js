@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { stat } from 'fs/promises';
+import { readFile, stat } from 'fs/promises';
 import { join } from 'path';
 import { parseCommand } from './commands.js';
 import { ALL, applyPauseCommand, describeManualPause } from './manualPause.js';
@@ -13,6 +13,7 @@ import { createWorkspaceInference } from './workspaceInference.js';
 import { formatDuration, renderHistoryText, renderStatusText } from './statusFormat.js';
 import { REQUEUED_NOTE } from './runQueue.js';
 import { modelFromLabels } from './modelLabel.js';
+import { sumJobUsage, USAGE_FILE_ENV } from './jobUsage.js';
 
 /**
  * The runner: turns a `claude…` command into at most one agent run at a time and reports every
@@ -145,6 +146,7 @@ export function formatJobResult(rec, r, durationMs) {
  *   issues?: Pick<import('./issuePipeline/index.js').IssuePipeline, 'prepare' | 'finish' | 'commitInterruptedWork'>,
  *   jobs?: Pick<import('./jobProcess.js').JobLauncher, 'start'>,
  *   jobTimeoutMs?: number,
+ *   readUsageFile?: (path: string) => Promise<string>,
  *   workspaceRoot: string,
  *   logsDir: string,
  *   preamble: string,
@@ -186,6 +188,7 @@ export function createRunner({
   isAlive = pidAlive,
   stopOrphanAgent = async (pid) => (backend.stopOrphan ? backend.stopOrphan(pid) : false),
   logSize = async (path) => (await stat(path)).size,
+  readUsageFile = (path) => readFile(path, 'utf8'),
   logger = console,
   onChange = () => {},
 }) {
@@ -571,13 +574,15 @@ export function createRunner({
     if (refused) return { reply: refused.reply, started: false, refused: refused.why };
     // the job's output is what gets appended from here (the live log shows only that)
     const logFrom = job.logFile ? await logSize(job.logFile).catch(() => 0) : undefined;
+    const usagePath = join(logsDir, `${record.runId}.usage.jsonl`);
     let run;
     try {
       run = await jobs.start({
         command: job.command,
         cwd: job.cwd,
         logPath: /** @type {string} */ (record.logPath),
-        env: job.env,
+        // the job's own env can't override the usage file
+        env: { ...job.env, [USAGE_FILE_ENV]: usagePath },
         timeoutMs: job.timeoutMinutes ? job.timeoutMinutes * 60_000 : jobTimeoutMs,
       });
     } catch (err) {
@@ -586,13 +591,32 @@ export function createRunner({
       await outbox.send({ replyTo: OWNER, runId: record.runId, text: reply }).catch((e) => logger.error('job: outbox write failed:', e?.message || e));
       return { reply, started: false };
     }
+    /** The usage the job reported, whatever its outcome; {} for no file, an empty one or a read error. */
+    const jobUsage = async () => {
+      let text;
+      try {
+        text = await readUsageFile(usagePath);
+      } catch (err) {
+        if (err?.code !== 'ENOENT') logger.warn(`job ${job.name}: cannot read usage file ${usagePath}:`, err?.message || err);
+        return {};
+      }
+      const usage = sumJobUsage(text, (line, why) => logger.warn(`job ${job.name}: skipped usage line (${why}): ${oneLine(line, 80)}`));
+      return usage ?? {};
+    };
     /** @param {import('./jobProcess.js').JobResult} result */
-    const jobHistory = (result) => ({ trigger: 'schedule', jobName: job.name, room: job.room, signal: result.signal, ...(result.error ? { error: result.error } : {}) });
+    const jobHistory = async (result) => ({
+      trigger: 'schedule',
+      jobName: job.name,
+      room: job.room,
+      signal: result.signal,
+      ...(result.error ? { error: result.error } : {}),
+      ...(await jobUsage()),
+    });
     await supervise(
       record,
       run,
       'job',
-      async (result) => ({ text: formatJobResult(record, result, now() - Date.parse(/** @type {string} */ (record.startedAt))), history: jobHistory(result) }),
+      async (result) => ({ text: formatJobResult(record, result, now() - Date.parse(/** @type {string} */ (record.startedAt))), history: await jobHistory(result) }),
       // can't throw, so the schedule history row and a failure notice are always written
       (result) => ({
         text: result.outcome === 'success' ? null : `Scheduled job ${job.name} ended: ${result.outcome}.`,
