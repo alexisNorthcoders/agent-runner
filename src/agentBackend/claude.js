@@ -148,7 +148,7 @@ export function createClaudeBackend({
       const workspaceModel = requested ? null : await repoSettingsModel(cwd);
       /** @type {import('./index.js').AgentModelChoice} */
       const choice = requested
-        ? { name: requested, source: 'requested' }
+        ? { name: requested, source: 'prefix' }
         : workspaceModel
           ? { name: workspaceModel, source: 'workspace' }
           : { name: pinnedModel, source: 'default' };

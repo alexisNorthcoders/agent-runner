@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCommand } from '../src/commands.js';
+import { parseCommand, USAGE } from '../src/commands.js';
 
 describe('parseCommand', () => {
   it('parses a freeform instruction', () => {
@@ -22,6 +22,28 @@ describe('parseCommand', () => {
       kind: 'freeform',
       prompt: 'check disk space',
     });
+  });
+
+  it('parses a model prefix on freeform and Joplin requests', () => {
+    assert.deepEqual(parseCommand('claude haiku: restart pm2'), { kind: 'freeform', prompt: 'restart pm2', model: 'haiku' });
+    assert.deepEqual(parseCommand('claude Opus :refactor the queue'), { kind: 'freeform', prompt: 'refactor the queue', model: 'opus' });
+    assert.deepEqual(parseCommand('claude SONNET:  x'), { kind: 'freeform', prompt: 'x', model: 'sonnet' });
+    assert.deepEqual(parseCommand('claude opus: joplin:my-note'), { kind: 'joplin', noteQuery: 'my-note', model: 'opus' });
+  });
+
+  it('leaves anything that is not a model prefix in the prompt', () => {
+    assert.deepEqual(parseCommand('claude opus rocks'), { kind: 'freeform', prompt: 'opus rocks' });
+    assert.deepEqual(parseCommand('claude gpt: fix it'), { kind: 'freeform', prompt: 'gpt: fix it' });
+  });
+
+  it('rejects a model prefix in front of issue: or with nothing after it', () => {
+    assert.match(/** @type {any} */ (parseCommand('claude opus: issue:12')).message, /issue runs/);
+    assert.equal(parseCommand('claude opus: issue:a:12').kind, 'error');
+    assert.equal(parseCommand('claude haiku:').kind, 'error');
+  });
+
+  it('documents the prefix in the usage', () => {
+    assert.match(USAGE, /haiku\|sonnet\|opus:/);
   });
 
   it('parses joplin:<note>', () => {

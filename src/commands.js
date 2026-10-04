@@ -4,8 +4,8 @@ import { ALL, DEFAULT_MANUAL_PAUSE_SECONDS, MAX_MANUAL_PAUSE_SECONDS, parseDurat
  * Parses the raw WhatsApp text the bot forwards (`claude…`) into a runner command. Pure.
  * User-facing commands keep the `claude` prefix even though the runner itself is agent-neutral.
  *
- * @typedef {{ kind: 'freeform', prompt: string }
- *   | { kind: 'joplin', noteQuery: string }
+ * @typedef {{ kind: 'freeform', prompt: string, model?: string }
+ *   | { kind: 'joplin', noteQuery: string, model?: string }
  *   | { kind: 'issue', issueNumber: number, alias: string | null, extraInstructions: string }
  *   | { kind: 'stop' }
  *   | { kind: 'restart' }
@@ -23,6 +23,7 @@ import { ALL, DEFAULT_MANUAL_PAUSE_SECONDS, MAX_MANUAL_PAUSE_SECONDS, parseDurat
 export const USAGE = `Usage:
 claude <instructions>  run the agent in ~/Projects
 claude joplin:<note title or id>  use a Joplin note as the instructions
+claude haiku|sonnet|opus: <instructions or joplin:<note>>  the same, on that model (not for issue runs: they use the issue's label)
 claude issue:<alias>:<n> [extra instructions]  implement GitHub issue <n> in the <alias> workspace, then PR, review and merge
 claude issue:<n> [extra instructions]  the same, in the default issue workspace
 claude:stop  kill the active run (queued requests still run)
@@ -33,6 +34,8 @@ claude:resume [<alias>]  end a pause early (no alias: every pause, the usage lim
 claude:restart  safely restart agent-runner (refused while a run is active)
 claude:status  active run, pause, last cron tick and recent runs
 claude:history [n]  the last n finished runs with cost and tokens`;
+
+const MODEL_PREFIX_USAGE = 'Usage: claude haiku|sonnet|opus: <instructions or joplin:<note>>';
 
 const SUBCOMMANDS = /** @type {const} */ (['stop', 'restart', 'status']);
 
@@ -99,11 +102,20 @@ export function parseCommand(text) {
   const body = rest.replace(/^:/, '').trim();
   if (!body) return { kind: 'error', message: USAGE };
 
-  const joplin = body.match(/^joplin:(.*)$/is);
+  const prefix = body.match(/^(haiku|sonnet|opus)\s*:\s*([\s\S]*)$/i);
+  const model = prefix ? prefix[1].toLowerCase() : null;
+  const task = prefix ? prefix[2].trim() : body;
+  if (prefix) {
+    if (!task) return { kind: 'error', message: MODEL_PREFIX_USAGE };
+    if (/^issue:/i.test(task)) return { kind: 'error', message: `A model prefix doesn't apply to issue runs: they use the model from the issue's label.\n\n${MODEL_PREFIX_USAGE}` };
+  }
+  const withModel = model ? { model } : {};
+
+  const joplin = task.match(/^joplin:(.*)$/is);
   if (joplin) {
     const noteQuery = joplin[1].trim();
     if (!noteQuery) return { kind: 'error', message: 'Usage: claude joplin:<note title or id>' };
-    return { kind: 'joplin', noteQuery };
+    return { kind: 'joplin', noteQuery, ...withModel };
   }
 
   if (/^issue:/i.test(body)) {
@@ -115,5 +127,5 @@ export function parseCommand(text) {
     return { kind: 'issue', issueNumber, alias: m[1] ?? null, extraInstructions: m[3].trim() };
   }
 
-  return { kind: 'freeform', prompt: body };
+  return { kind: 'freeform', prompt: task, ...withModel };
 }
