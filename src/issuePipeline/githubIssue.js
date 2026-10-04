@@ -205,7 +205,7 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
 
     /**
      * @param {{ issueNumber: number, workspaceRoot: string, alias: string | null, extraInstructions?: string }} p
-     * @returns {Promise<{ markdown: string, repo: string, number: number, title: string }>}
+     * @returns {Promise<{ markdown: string, repo: string, number: number, title: string, labels: string[] }>}
      */
     async fetchIssuePrompt({ issueNumber, workspaceRoot, alias, extraInstructions = '' }) {
       const repo = await resolveIssueRepo(workspaceRoot, alias);
@@ -221,6 +221,7 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
         repo,
         number: typeof data.number === 'number' ? data.number : issueNumber,
         title: data.title ?? '',
+        labels: labelNames(data.labels),
       };
     },
   };
