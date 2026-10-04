@@ -94,6 +94,24 @@ describe('claude AgentBackend', () => {
     assert.equal(await modelFor(), 'haiku');
   });
 
+  it('passes a requested model over the repo settings, and reports the model and its source', async () => {
+    const repo = join(dir, 'repo');
+    await mkdir(join(repo, '.claude'), { recursive: true });
+    const b = backend();
+    const start = async (extra = {}) => {
+      child = fakeChild();
+      const run = await b.start({ prompt: 'P', cwd: repo, logPath: join(dir, 's.log'), ...extra });
+      child.emit('close', 0, null);
+      await run.done;
+      const { args } = spawned.at(-1);
+      return { arg: args[args.indexOf('--model') + 1], model: run.model };
+    };
+    assert.deepEqual(await start(), { arg: 'sonnet', model: { name: 'sonnet', source: 'default' } });
+    await writeFile(join(repo, '.claude', 'settings.json'), JSON.stringify({ model: 'haiku' }));
+    assert.deepEqual(await start(), { arg: 'haiku', model: { name: 'haiku', source: 'workspace' } });
+    assert.deepEqual(await start({ model: 'opus' }), { arg: 'opus', model: { name: 'opus', source: 'requested' } });
+  });
+
   it('puts the preamble before the prompt, and /implement before everything for implement runs', async () => {
     const b = backend();
     let run = await b.start({ prompt: 'P', preamble: 'RULES', cwd: '/w', logPath: join(dir, 'a.log') });

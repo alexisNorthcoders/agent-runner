@@ -41,19 +41,25 @@ import { createClaudeBackend } from './claude.js';
  *   realpath'd): the file an edit writes, or the directory a command runs in and the paths it
  *   targets. Reads and searches aren't touches.
  *
+ * @typedef {{ name: string, source: 'requested' | 'workspace' | 'default' }} AgentModelChoice
+ *   The model a run resolved and where it came from: asked for, the workspace's own agent
+ *   settings, or the runner default.
+ *
  * @typedef {{
  *   prompt: string,
  *   preamble?: string,
  *   implement?: boolean,
+ *   model?: string,
  *   cwd: string,
  *   logPath: string,
  *   onProgress?: (p: AgentProgress) => void,
  *   onTouch?: (t: AgentTouch) => void,
  * }} AgentStartOptions
+ *   `model` is the requested model; it beats the workspace's own agent settings.
  *   `implement` runs the agent's issue-implementation workflow (Claude: the `/implement` skill).
  *   `onTouch` hears each edit or command, in order.
  *
- * @typedef {{ pid: number | null, done: Promise<AgentResult>, stop: () => void }} AgentRun
+ * @typedef {{ pid: number | null, model: AgentModelChoice, done: Promise<AgentResult>, stop: () => void }} AgentRun
  *   `done` never rejects: failures come back as an outcome.
  *
  * @typedef {{

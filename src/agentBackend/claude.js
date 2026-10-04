@@ -143,9 +143,16 @@ export function createClaudeBackend({
   return {
     name: 'claude',
     stopOrphan: (pid) => stopOrphanClaude(pid),
-    async start({ prompt, preamble, implement, cwd, logPath, onProgress, onTouch }) {
+    async start({ prompt, preamble, implement, model: requested, cwd, logPath, onProgress, onTouch }) {
       await mkdir(dirname(logPath), { recursive: true });
-      const model = (await repoSettingsModel(cwd)) ?? pinnedModel;
+      const workspaceModel = requested ? null : await repoSettingsModel(cwd);
+      /** @type {import('./index.js').AgentModelChoice} */
+      const choice = requested
+        ? { name: requested, source: 'requested' }
+        : workspaceModel
+          ? { name: workspaceModel, source: 'workspace' }
+          : { name: pinnedModel, source: 'default' };
+      const model = choice.name;
       const log = createWriteStream(logPath, { flags: 'w' });
       // a log failure (disk full…) must not crash the runner or fail the run
       log.on('error', () => {});
@@ -276,6 +283,7 @@ export function createClaudeBackend({
 
       return {
         pid: child.pid ?? null,
+        model: choice,
         done,
         stop() {
           stopped = true;
