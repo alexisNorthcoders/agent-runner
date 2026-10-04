@@ -29,6 +29,10 @@ _Avoid_: target repo, detected workspace
 **Phase**:
 Where the executing run is: `agent` (an agent pass, the first one or the autofix), `post-run` (commit, PR, review, merge), or `job` (a **Scheduled job**'s command).
 
+**Model choice**:
+The model a **Run**'s agent passes use, and where it came from: the run's model prefix (`claude opus: …`, freeform and Joplin runs), its issue's `model:` label, the **Workspace**'s own agent settings, or the runner default (Sonnet), in that order. An issue run's autofix pass keeps it.
+_Avoid_: classifier, orchestrator (nothing decides automatically), model override
+
 **Queue**:
 Run requests waiting for the agent, oldest first, except a manual request the usage limit stopped before it started (0–1 turns), which goes back to the front.
 
