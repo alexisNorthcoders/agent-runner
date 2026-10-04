@@ -503,6 +503,7 @@ sudo nginx -t && sudo systemctl reload nginx     # open http://<pi>/office/
 | `agent-runner:cron:pr-attempts` | hash | `owner/repo#n` → the PR state (`headSha:baseSha`) the cron last worked. Not written when an approved PR's merge failed only on a network error, so the next tick works it again. |
 | `agent-runner:state-changed` | pub/sub channel | The CLIs and safe-restart publish the key of each state write they make, so the runner's office feed pushes. |
 | `agent-runner:cron:park-notices` | hash | `owner/repo#n` → the parked PR state the owner was last told about. |
+| `agent-runner:cron:no-changes` | hash | `owner/repo#n` → consecutive runs that made no changes; at 3 the cron parks the issue. |
 | `agent-runner:jobs:last-fired` | hash | Scheduled job name → the UTC day (`YYYY-MM-DD`) it last joined the queue. `hdel` a field to let a job fire again today. |
 
 ```sh
