@@ -309,6 +309,25 @@ describe('cron tick: progress', () => {
     });
   }
 
+  it('parks an issue after three no_changes runs in a row and tells the owner once', async () => {
+    const h = harness({ issues: { [REPO]: [ready(57)], [REPO_P]: [] }, result: 'no_changes' });
+    await h.tracer.tick();
+    await h.tracer.tick();
+    await h.tracer.tick();
+    assert.deepEqual(await h.tracer.tick(), { kind: 'no_eligible' });
+    assert.deepEqual(h.ran(), ['bot#57', 'bot#57', 'bot#57']);
+    assert.match(h.sent.at(-1).text, /parking .*#57\. It made no changes in 3 runs in a row/);
+    assert.equal(h.sent.length, 3);
+  });
+
+  it('lasting progress resets the no_changes count', async () => {
+    const h = harness({ issues: { [REPO]: [ready(58)], [REPO_P]: [] }, result: 'no_changes' });
+    await h.tracer.tick();
+    h.setResult('pr_open');
+    await h.tracer.tick();
+    assert.deepEqual(await h.state.noChanges(), new Map());
+  });
+
   it('tells the owner when the issue could not be fetched or branched, and retries it later', async () => {
     const h = harness({
       issues: { [REPO]: [ready(4)] },

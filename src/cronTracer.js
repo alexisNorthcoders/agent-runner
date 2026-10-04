@@ -19,6 +19,8 @@ import { errorMessageFromUnknown } from './issuePipeline/index.js';
  *   not progress, so the next tick works it again and post-run retries the merge. A run the usage
  *   limit cut short (result `limited`) records no attempt either, so the issue is worked again
  *   after the reset.
+ * - An issue whose last NO_CHANGES_LIMIT runs all made no changes is parked (skipped), and the
+ *   owner is told once; it likely needs no code. Lasting progress resets the count.
  * - An issue that GitHub's native dependencies report as blocked is skipped.
  * - The usage-limit pause (an agent hit its usage limit) skips the tick until it resets.
  * - The owner's general pause skips the tick; a workspace they paused by hand is skipped, and the
@@ -34,6 +36,8 @@ import { errorMessageFromUnknown } from './issuePipeline/index.js';
 const READY_FOR_AGENT_LABEL = 'ready-for-agent';
 /** Issue run results that count as lasting progress. */
 const PROGRESS = new Set(['merged', 'pr_open', 'pushed']);
+/** Consecutive `no_changes` runs after which the cron sets an issue aside (e.g. work done outside the repo). */
+export const NO_CHANGES_LIMIT = 3;
 
 /**
  * The attempt state of `pr`, given the tips of the base branches.
@@ -235,6 +239,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
         );
       } else if (result && PROGRESS.has(result)) {
         await state.setLastStarted(repo, issue.number);
+        await state.clearNoChanges(repo, issue.number);
         outcome.result = 'progress';
       } else {
         // failed, timeout, limited and no_changes stay distinct in the tick state; none of them is progress
@@ -242,7 +247,13 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
         if (!result) outcome.note = 'no result';
         // a failed or timed-out run has already reported to owner, but an empty one is silent
         if (result === 'no_changes') {
-          await tell(`Cron (${alias}): ${repo}#${issue.number} made no changes, so it doesn't count as progress. The next tick retries it.`);
+          const count = ((await state.noChanges()).get(issueKey(repo, issue.number)) ?? 0) + 1;
+          await state.setNoChanges(repo, issue.number, count);
+          await tell(
+            count >= NO_CHANGES_LIMIT
+              ? `Cron (${alias}): parking ${repo}#${issue.number}. It made no changes in ${count} runs in a row, so it may need no code. Close it or remove its ready-for-agent label.`
+              : `Cron (${alias}): ${repo}#${issue.number} made no changes, so it doesn't count as progress. The next tick retries it.`
+          );
         }
       }
     } catch (err) {
@@ -280,7 +291,10 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
           continue;
         }
         phase = `listing open issues (${alias})`;
-        const rows = await skipParkedPrIssues(alias, repo, await github.listOpenIssues(repo));
+        const noChanges = await state.noChanges();
+        const rows = (await skipParkedPrIssues(alias, repo, await github.listOpenIssues(repo))).filter(
+          (r) => (noChanges.get(issueKey(repo, r.number)) ?? 0) < NO_CHANGES_LIMIT
+        );
         phase = `checking issue dependencies (${alias})`;
         const next = await pickNextRunnableIssue(rows, repo, lastByRepo, github.blockedByCount);
         if (!next) continue;

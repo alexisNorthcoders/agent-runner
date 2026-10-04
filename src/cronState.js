@@ -11,6 +11,8 @@
  *   left in by the last cron attempt. The cron retries a PR only once per state.
  * - `agent-runner:cron:park-notices` (hash `owner/repo#n` → PR state): the parked PR state the owner
  *   was last told about, so they hear about it once.
+ * - `agent-runner:cron:no-changes` (hash `owner/repo#n` → count): consecutive runs of an issue that
+ *   made no changes. At the limit the cron parks the issue; any lasting progress resets it.
  *
  * @typedef {{
  *   kind: 'busy' | 'paused' | 'limited' | 'no_eligible' | 'ran' | 'error' | string,
@@ -33,6 +35,7 @@ export const CRON_STATE_KEY = 'agent-runner:cron:state';
 export const CRON_LAST_STARTED_KEY = 'agent-runner:cron:last-started';
 export const CRON_PR_ATTEMPTS_KEY = 'agent-runner:cron:pr-attempts';
 export const CRON_PARK_NOTICES_KEY = 'agent-runner:cron:park-notices';
+export const CRON_NO_CHANGES_KEY = 'agent-runner:cron:no-changes';
 
 const REPO_SLUG_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const ISSUE_KEY_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+#\d+$/;
@@ -131,6 +134,23 @@ export function createCronState({ store, now = Date.now, pid = process.pid }) {
 
     /** @param {string} repo @param {number} number @param {string} stateKey */
     setParkNotice: (repo, number, stateKey) => store.hashSet(CRON_PARK_NOTICES_KEY, issueKey(repo, number), stateKey),
+
+    /** @returns {Promise<Map<string, number>>} `owner/repo#n` → consecutive no-change runs */
+    async noChanges() {
+      /** @type {Map<string, number>} */
+      const out = new Map();
+      for (const [k, v] of await issueMap(CRON_NO_CHANGES_KEY)) {
+        const n = Number(v);
+        if (Number.isInteger(n) && n >= 1) out.set(k, n);
+      }
+      return out;
+    },
+
+    /** @param {string} repo @param {number} number @param {number} count */
+    setNoChanges: (repo, number, count) => store.hashSet(CRON_NO_CHANGES_KEY, issueKey(repo, number), String(count)),
+
+    /** @param {string} repo @param {number} number */
+    clearNoChanges: (repo, number) => store.hashDelete(CRON_NO_CHANGES_KEY, issueKey(repo, number)),
 
     /** The PR is no longer parked. @param {string} repo @param {number} number */
     clearParkNotice: (repo, number) => store.hashDelete(CRON_PARK_NOTICES_KEY, issueKey(repo, number)),
