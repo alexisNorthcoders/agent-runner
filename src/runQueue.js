@@ -5,8 +5,8 @@
  *
  * @typedef {{
  *   id: string,
- *   cmd: { kind: 'freeform', prompt: string }
- *     | { kind: 'joplin', noteQuery: string }
+ *   cmd: { kind: 'freeform', prompt: string, model?: string }
+ *     | { kind: 'joplin', noteQuery: string, model?: string }
  *     | { kind: 'issue', issueNumber: number, alias: string | null, extraInstructions: string }
  *     | { kind: 'job', job: import('./scheduledJobs.js').ScheduledJob },
  *   replyTo: string,

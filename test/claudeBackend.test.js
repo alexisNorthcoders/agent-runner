@@ -109,7 +109,7 @@ describe('claude AgentBackend', () => {
     assert.deepEqual(await start(), { arg: 'sonnet', model: { name: 'sonnet', source: 'default' } });
     await writeFile(join(repo, '.claude', 'settings.json'), JSON.stringify({ model: 'haiku' }));
     assert.deepEqual(await start(), { arg: 'haiku', model: { name: 'haiku', source: 'workspace' } });
-    assert.deepEqual(await start({ model: 'opus' }), { arg: 'opus', model: { name: 'opus', source: 'requested' } });
+    assert.deepEqual(await start({ model: 'opus' }), { arg: 'opus', model: { name: 'opus', source: 'prefix' } });
   });
 
   it('puts the preamble before the prompt, and /implement before everything for implement runs', async () => {

@@ -24,7 +24,7 @@ function fakeBackend(modelChoice = { name: 'sonnet', source: 'default' }) {
         const done = new Promise((r) => (settle = r));
         const run = {
           opts,
-          model: modelChoice,
+          model: opts.model ? { name: opts.model, source: /** @type {const} */ ('prefix') } : modelChoice,
           stopped: false,
           pid: 900 + starts.length,
           done,
@@ -152,6 +152,47 @@ describe('runner: freeform runs', () => {
     starts[0].finish('success', 'Here are the repos');
     await runner.idle();
     assert.match(outboxEntries()[0].text, /Here are the repos\nModel: opus \(workspace\)$/);
+  });
+
+  it('runs a model-prefixed freeform request on that model and says so', async () => {
+    const { runner, starts, outboxEntries } = setup();
+    const { reply } = await runner.handleCommand({ text: 'claude Haiku : restart pm2', replyTo: 'jid-1' });
+    assert.equal(starts[0].opts.model, 'haiku');
+    assert.equal(starts[0].opts.prompt, 'restart pm2');
+    assert.match(reply, /, model haiku \(prefix\)\.\nLog:/);
+    starts[0].finish('success', 'Done');
+    await runner.idle();
+    assert.match(outboxEntries()[0].text, /Done\nModel: haiku \(prefix\)$/);
+  });
+
+  it('runs a model-prefixed Joplin note on that model', async () => {
+    const { runner, starts } = setup();
+    await runner.handleCommand({ text: 'claude opus: joplin:Plan', replyTo: 'a' });
+    assert.equal(starts[0].opts.model, 'opus');
+  });
+
+  it('keeps no model for a plain request, or one that is not a prefix', async () => {
+    const { runner, starts } = setup();
+    await runner.handleCommand({ text: 'claude opus rocks', replyTo: 'a' });
+    assert.equal('model' in starts[0].opts, false);
+    assert.equal(starts[0].opts.prompt, 'opus rocks');
+  });
+
+  it('a queued request keeps its model choice', async () => {
+    const { runner, starts } = setup();
+    await runner.handleCommand({ text: 'claude one', replyTo: 'a' });
+    await runner.handleCommand({ text: 'claude sonnet: two', replyTo: 'a' });
+    starts[0].finish();
+    await runner.idle();
+    assert.equal(starts[1].opts.model, 'sonnet');
+    assert.equal(starts[1].opts.prompt, 'two');
+  });
+
+  it('rejects a model prefix in front of an issue run', async () => {
+    const { runner, starts } = setup();
+    const { reply } = await runner.handleCommand({ text: 'claude opus: issue:12', replyTo: 'a' });
+    assert.match(reply, /issue runs/);
+    assert.equal(starts.length, 0);
   });
 
   it('leaves replies unchanged for a run on the runner default', async () => {
@@ -1169,6 +1210,18 @@ describe('runner: the usage limit', () => {
     assert.deepEqual(starts.map((s) => s.opts.prompt), ['one', 'two']);
     // no "resumed" message: only the queued request's own "started"
     assert.deepEqual(outboxEntries().slice(sent).map((e) => [e.replyTo, e.text.split(':')[0]]), [['jid-1', 'Queued request "two"']]);
+  });
+
+  it('a model-prefixed request the limit stops before it starts is re-queued with its model', async () => {
+    const { runner, starts, advance } = setup();
+    await runner.handleCommand({ text: 'claude opus: one', replyTo: 'jid-1' });
+    starts[0].hitLimit(LIMIT, 1);
+    await runner.idle();
+    advance(122 * 60_000);
+    await runner.drainQueue();
+    assert.equal(starts.length, 2);
+    assert.equal(starts[1].opts.model, 'opus');
+    assert.equal(starts[1].opts.prompt, 'one');
   });
 
   it("an issue run for owner (the cron) sends one message: the notice, then the run's report; the pause is set before post-run", async () => {

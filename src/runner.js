@@ -506,7 +506,7 @@ export function createRunner({
   }
 
   /**
-   * @param {{ kind: 'freeform', prompt: string } | { kind: 'joplin', noteQuery: string }} cmd
+   * @param {{ kind: 'freeform', prompt: string, model?: string } | { kind: 'joplin', noteQuery: string, model?: string }} cmd
    * @param {string} replyTo
    * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
    */
@@ -544,7 +544,7 @@ export function createRunner({
       const onTouch = cmd.kind === 'freeform' ? inferWorkspace(record.runId) : undefined;
       const started = await launch(
         record,
-        { prompt, preamble: await freeformPreambleNow(), cwd: workspaceRoot, ...(onTouch ? { onTouch } : {}) },
+        { prompt, preamble: await freeformPreambleNow(), cwd: workspaceRoot, ...(cmd.model ? { model: cmd.model } : {}), ...(onTouch ? { onTouch } : {}) },
         async (result, a) => ({ text: `${formatRunResult(record, result)}${a.requeued ? `\n${REQUEUED_NOTE}` : ''}` }),
         queuedRun(cmd, replyTo)
       );
