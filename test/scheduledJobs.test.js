@@ -211,3 +211,53 @@ describe('scheduled jobs: the scheduler', () => {
     assert.equal(s.outboxEntries().length, 2);
   });
 });
+
+describe('scheduled jobs: weekly and monthly', () => {
+  const weekly = { ...report, name: 'insight_week', at: '03:00', weekday: 1 }; // Monday
+  const monthly = { ...report, name: 'insight_month', at: '03:15', monthDay: 1 };
+  const t = (iso) => new Date(iso).toISOString();
+
+  it('accepts weekday or monthDay and rejects both or out-of-range values', () => {
+    const { jobs, errors } = parseJobs([
+      weekly,
+      monthly,
+      { ...report, name: 'a', weekday: 1, monthDay: 1 },
+      { ...report, name: 'b', weekday: 7 },
+      { ...report, name: 'c', weekday: 1.5 },
+      { ...report, name: 'd', monthDay: 29 },
+      { ...report, name: 'e', monthDay: 0 },
+      { ...report, name: 'f', weekday: '1' },
+    ]);
+    assert.deepEqual(jobs, [weekly, monthly]);
+    assert.equal(errors.length, 6);
+    assert.match(errors[0], /not both/);
+  });
+
+  it('fires only on its weekday', () => {
+    const fired = new Map([['insight_week', '2026-09-20']]);
+    assert.equal(decideJobs([weekly], at('2026-09-29T04:00:00Z'), fired).due.length, 0); // Tuesday
+    assert.equal(decideJobs([weekly], at('2026-09-28T02:00:00Z'), fired).due.length, 0); // Monday, early
+    assert.deepEqual(decideJobs([weekly], at('2026-09-28T03:00:00Z'), fired).due, [weekly]);
+    assert.equal(decideJobs([weekly], at('2026-09-28T03:00:30Z'), new Map([['insight_week', '2026-09-28']])).due.length, 0);
+  });
+
+  it('fires only on its day of the month', () => {
+    const fired = new Map([['insight_month', '2026-09-01']]);
+    assert.equal(decideJobs([monthly], at('2026-10-02T04:00:00Z'), fired).due.length, 0);
+    assert.deepEqual(decideJobs([monthly], at('2026-10-01T03:15:00Z'), fired).due, [monthly]);
+  });
+
+  it('adopts a new job on a day it does not run as seen today', () => {
+    const { due, adopt } = decideJobs([weekly], at('2026-09-29T01:00:00Z'), new Map());
+    assert.deepEqual(due, []);
+    assert.equal(adopt.get('insight_week'), '2026-09-29');
+  });
+
+  it('computes the next due time on a matching day', () => {
+    assert.equal(nextDueAt(weekly, at('2026-09-29T01:00:00Z'), '2026-09-28'), t('2026-10-05T03:00:00Z'));
+    assert.equal(nextDueAt(weekly, at('2026-09-28T01:00:00Z'), '2026-09-21'), t('2026-09-28T03:00:00Z'));
+    assert.equal(nextDueAt(weekly, at('2026-09-28T04:00:00Z'), undefined), t('2026-10-05T03:00:00Z'));
+    assert.equal(nextDueAt(monthly, at('2026-10-01T03:20:00Z'), '2026-10-01'), t('2026-11-01T03:15:00Z'));
+    assert.equal(nextDueAt(monthly, at('2026-10-15T00:00:00Z'), '2026-10-01'), t('2026-11-01T03:15:00Z'));
+  });
+});
