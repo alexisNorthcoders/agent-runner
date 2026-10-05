@@ -3,7 +3,7 @@ import { isAbsolute } from 'path';
 import { OWNER } from './outbox.js';
 
 /**
- * Scheduled jobs: commands the runner runs once a day at a fixed UTC time, in place of crontab
+ * Scheduled jobs: commands the runner runs at a fixed UTC time, once a day or on a set weekday or day of the month, in place of crontab
  * lines. A due job joins the run queue as a `job` request and runs as-is under the lock (src/jobProcess.js),
  * without a preamble or post-run.
  *
@@ -25,8 +25,11 @@ import { OWNER } from './outbox.js';
  *   logFile?: string,
  *   env?: Record<string, string>,
  *   timeoutMinutes?: number,
+ *   weekday?: number,
+ *   monthDay?: number,
  * }} ScheduledJob
- *   `at` is the daily time, `HH:MM` UTC. `logFile` gets the command's stdout and stderr appended,
+ *   `at` is the time of day, `HH:MM` UTC. `weekday` (0–6, 0 = Sunday) or `monthDay` (1–28), never both,
+ *   limit the job to that UTC weekday or day of the month; without either it runs daily. `logFile` gets the command's stdout and stderr appended,
  *   like `>> file 2>&1`. `env` is added to the runner's environment.
  */
 
@@ -43,6 +46,14 @@ const AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 export const utcDay = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 const DAY_MS = 864e5;
+
+/** Whether `job` runs at all on the UTC day of `ms`. @param {Pick<ScheduledJob, 'weekday' | 'monthDay'>} job @param {number} ms */
+export function runsOn(job, ms) {
+  const d = new Date(ms);
+  if (job.weekday != null) return d.getUTCDay() === job.weekday;
+  if (job.monthDay != null) return d.getUTCDate() === job.monthDay;
+  return true;
+}
 
 /** The time `job` is due on the UTC day of `ms`. @param {Pick<ScheduledJob, 'at'>} job @param {number} ms */
 export function dueTimeOn(job, ms) {
@@ -79,12 +90,17 @@ export function parseJobs(raw) {
     if (j.timeoutMinutes != null && !(typeof j.timeoutMinutes === 'number' && j.timeoutMinutes > 0 && j.timeoutMinutes <= MAX_JOB_TIMEOUT_MINUTES)) {
       return bad(`timeoutMinutes must be a number from 1 to ${MAX_JOB_TIMEOUT_MINUTES}`);
     }
+    if (j.weekday != null && j.monthDay != null) return bad('set weekday or monthDay, not both');
+    if (j.weekday != null && !(Number.isInteger(j.weekday) && j.weekday >= 0 && j.weekday <= 6)) return bad('weekday must be an integer from 0 (Sunday) to 6');
+    if (j.monthDay != null && !(Number.isInteger(j.monthDay) && j.monthDay >= 1 && j.monthDay <= 28)) return bad('monthDay must be an integer from 1 to 28');
     names.add(j.name);
     /** @type {ScheduledJob} */
     const job = { name: j.name, room: j.room.trim(), cwd: j.cwd, command: j.command.trim(), at: j.at };
     if (j.logFile != null) job.logFile = j.logFile;
     if (j.env != null) job.env = { ...j.env };
     if (j.timeoutMinutes != null) job.timeoutMinutes = j.timeoutMinutes;
+    if (j.weekday != null) job.weekday = j.weekday;
+    if (j.monthDay != null) job.monthDay = j.monthDay;
     jobs.push(job);
   });
   return { jobs, errors };
@@ -124,6 +140,11 @@ export function decideJobs(jobs, now, lastFired) {
   /** @type {Map<string, string>} */
   const adopt = new Map();
   for (const job of jobs) {
+    // a day the job doesn't run on: nothing is due, and a new job is recorded as seen today
+    if (!runsOn(job, now)) {
+      if (!lastFired.has(job.name)) adopt.set(job.name, today);
+      continue;
+    }
     const early = now < dueTimeOn(job, now);
     if (!lastFired.has(job.name)) adopt.set(job.name, early ? utcDay(now - DAY_MS) : today);
     else if (!early && lastFired.get(job.name) !== today) due.push(job);
@@ -134,13 +155,14 @@ export function decideJobs(jobs, now, lastFired) {
 /**
  * When `job` next joins the queue (ISO), as the scheduler decides it: today's time until it has
  * fired today (past, while it waits for the next tick), then tomorrow's. A job with no record yet
- * runs today only if its time hasn't passed (see `decideJobs`).
- * @param {Pick<ScheduledJob, 'at'>} job @param {number} now @param {string | undefined} lastFiredDay
+ * runs today only if its time hasn't passed (see `decideJobs`). Days the job doesn't run on are skipped.
+ * @param {Pick<ScheduledJob, 'at' | 'weekday' | 'monthDay'>} job @param {number} now @param {string | undefined} lastFiredDay
  */
 export function nextDueAt(job, now, lastFiredDay) {
   const today = dueTimeOn(job, now);
-  const tomorrow = lastFiredDay === utcDay(now) || (lastFiredDay == null && now >= today);
-  return new Date(tomorrow ? dueTimeOn(job, now + DAY_MS) : today).toISOString();
+  let day = lastFiredDay === utcDay(now) || (lastFiredDay == null && now >= today) ? 1 : 0;
+  while (!runsOn(job, now + day * DAY_MS)) day++; // monthDay ≤ 28 and weekday ≤ 6 always match within 28 days
+  return new Date(dueTimeOn(job, now + day * DAY_MS)).toISOString();
 }
 
 /**

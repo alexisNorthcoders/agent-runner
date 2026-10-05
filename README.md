@@ -169,7 +169,7 @@ State is in Redis (below) and starts fresh: nothing is migrated from the bot's J
 
 ## Scheduled jobs
 
-Commands the runner runs once a day at a fixed UTC time, in place of crontab lines (the first are
+Commands the runner runs at a fixed UTC time, daily or (with `weekday` / `monthDay`) weekly or monthly, in place of crontab lines (the first are
 reddit-bot's `cleanup_agent` and `report_agent`). They are not agent runs: the command runs as-is,
 with no preamble and no post-run.
 
@@ -185,7 +185,9 @@ skipped, and `owner` is told once per change of the errors.
     "room": "reddit-bot",              // label for the office dashboard
     "cwd": "/home/alexis/Projects/reddit-bot",   // absolute
     "command": "npm run cleanup_agent",          // run with `sh -c` in cwd
-    "at": "02:00",                     // daily, HH:MM UTC
+    "at": "02:00",                     // time of day, HH:MM UTC
+    "weekday": 1,                      // optional: only on this UTC weekday, 0–6 (0 = Sunday)
+    "monthDay": 1,                     // optional, instead of weekday: only on this day of the month, 1–28
     "logFile": "/home/alexis/Projects/reddit-bot/reports/cron-cleanup.log",  // optional
     "env": { "CLAUDE_AGENT_BIN": "/home/alexis/.local/bin/claude" },         // optional, added to the runner's env
     "timeoutMinutes": 30               // optional, 1–60; default 60
