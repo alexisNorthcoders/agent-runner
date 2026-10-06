@@ -254,7 +254,9 @@ export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
         text: typeof ev.result === 'string' ? ev.result : '',
         isError: Boolean(ev.is_error),
         costUsd: typeof ev.total_cost_usd === 'number' ? ev.total_cost_usd : null,
-        turns: ev.num_turns ?? null,
+        // a run with background tasks ends a result per segment (the CLI resumes it when a task
+        // ends), each counting only its own turns: the run's are their sum
+        turns: typeof ev.num_turns === 'number' ? (state.result?.turns ?? 0) + ev.num_turns : (state.result?.turns ?? null),
         durationMs: ev.duration_ms ?? null,
         tokens,
       };

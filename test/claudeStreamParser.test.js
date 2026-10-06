@@ -171,3 +171,22 @@ describe('claudeStreamParser: subagents', () => {
     assert.equal(before.subagents[0].activity, null);
   });
 });
+
+describe('claudeStreamParser: a run resumed by its background tasks', () => {
+  it('adds up the turns of every result, and keeps the last result for the rest', () => {
+    const acc = createStreamAccumulator();
+    const result = (turns, cost, text) => line({ type: 'result', subtype: 'success', is_error: false, num_turns: turns, total_cost_usd: cost, duration_ms: 10, result: text });
+    // the segment that spawned the subagents, the CLI's bookkeeping one, then the final answer
+    acc.push(result(4, 0.0655, 'Both agents are now running') + result(0, 0.0655, '') + result(1, 0.0701, 'Both agents have completed'));
+    const r = acc.snapshot().result;
+    assert.equal(r?.turns, 5);
+    assert.equal(r?.costUsd, 0.0701, 'the cost is already a running total');
+    assert.equal(r?.text, 'Both agents have completed');
+  });
+
+  it('leaves the turns unknown when no result says', () => {
+    const acc = createStreamAccumulator();
+    acc.push(line({ type: 'result', subtype: 'success', total_cost_usd: 0.01 }));
+    assert.equal(acc.snapshot().result?.turns, null);
+  });
+});
