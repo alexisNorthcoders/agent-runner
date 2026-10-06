@@ -6,6 +6,7 @@ import {
   createRepoInsightCursor,
   decideRepoInsightTarget as decide,
   pickNextIdleWorkspace as pick,
+  runRepoInsight,
 } from '../src/repoInsight.js';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
@@ -171,5 +172,58 @@ describe('decideRepoInsightTarget', () => {
     const { calls, deps } = fakes({ cursor: 'a' });
     assert.equal(await decide(deps), null);
     assert.deepEqual(calls, ['idle:b', 'idle:c', 'idle:a']);
+  });
+});
+
+describe('runRepoInsight', () => {
+  /** @type {import('../src/issuePipeline/githubIssue.js').SuggestedIssue[]} */
+  const past = [
+    { number: 3, title: 'Cache the thing', url: 'u3', state: 'open', labels: ['agent-suggested'] },
+    { number: 4, title: 'Drop the widget', url: 'u4', state: 'closed', labels: ['agent-suggested'] },
+  ];
+  const setup = (text = '{"title":"Add retries","body":"Why and how"}') => {
+    const calls = { session: [], issues: [] };
+    return {
+      calls,
+      deps: {
+        target: { alias: 'bot', pastSuggestions: past },
+        resolveWorkspace: async (alias) => ({ root: `/ws/${alias}` }),
+        resolveRepo: async (root, alias) => `me/${alias}-repo`,
+        launchSession: async (p) => (calls.session.push(p), { text }),
+        createIssue: async (repo, p) => (calls.issues.push([repo, p]), { number: 9, url: 'https://github.com/me/bot-repo/issues/9', title: p.title }),
+      },
+    };
+  };
+
+  it('explores the workspace with the past suggestions in the prompt', async () => {
+    const { calls, deps } = setup();
+    await runRepoInsight(deps);
+    assert.equal(calls.session.length, 1);
+    assert.equal(calls.session[0].cwd, '/ws/bot');
+    assert.match(calls.session[0].prompt, /#3 \[open\] Cache the thing/);
+    assert.match(calls.session[0].prompt, /#4 \[closed\] Drop the widget/);
+  });
+
+  it('files exactly one issue with both labels and reports it', async () => {
+    const { calls, deps } = setup('Here you go:\n```json\n{"title":"Add retries","body":"Why and how"}\n```');
+    const line = await runRepoInsight(deps);
+    assert.deepEqual(calls.issues, [['me/bot-repo', { title: 'Add retries', body: 'Why and how', labels: ['agent-suggested', 'needs-triage'] }]]);
+    assert.match(line, /bot/);
+    assert.match(line, /#9/);
+    assert.match(line, /Add retries/);
+  });
+
+  it('with no target prints the outcome and starts nothing', async () => {
+    const { calls, deps } = setup();
+    const line = await runRepoInsight({ ...deps, target: null });
+    assert.match(line, /nothing idle/);
+    assert.equal(calls.session.length, 0);
+    assert.equal(calls.issues.length, 0);
+  });
+
+  it('files nothing when the session returns no usable idea', async () => {
+    const { calls, deps } = setup('I could not decide.');
+    await assert.rejects(runRepoInsight(deps), /no usable/);
+    assert.equal(calls.issues.length, 0);
   });
 });

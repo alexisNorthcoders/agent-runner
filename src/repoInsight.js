@@ -127,3 +127,71 @@ export function createRepoInsightLookups({ workspaces, github, prAttempts }) {
     },
   };
 }
+
+/**
+ * The prompt of the read-only exploration session: the past suggestions go in so it doesn't
+ * repeat one, open or closed.
+ * @param {{ alias: string, pastSuggestions: SuggestedIssue[] }} p
+ */
+export function buildInsightPrompt({ alias, pastSuggestions }) {
+  const past = pastSuggestions.length
+    ? pastSuggestions.map((s) => `- #${s.number} [${s.state}] ${s.title}`).join('\n')
+    : '_(none yet)_';
+  return [
+    `You are exploring the "${alias}" repository (your working directory) to suggest ONE improvement.`,
+    'You are read-only: you can read and search files, nothing else. Do not try to edit, run commands or file anything.',
+    '',
+    'Look around (structure, README, key modules, tests, rough edges), then form a single concrete, well-scoped improvement idea.',
+    'It must not repeat any idea already raised here, whether that issue is still open or was closed:',
+    '',
+    past,
+    '',
+    'Reply with ONLY a JSON object, no other text: {"title": "<short issue title>", "body": "<markdown issue body: the problem, the proposed change, acceptance criteria>"}',
+  ].join('\n');
+}
+
+/**
+ * Pull `{ title, body }` out of the session's final text (which may wrap the JSON in prose or a fence).
+ * @param {string} text
+ * @returns {{ title: string, body: string }}
+ */
+export function parseInsightIdea(text) {
+  const s = String(text ?? '');
+  for (let end = s.lastIndexOf('}'); end > 0; end = s.lastIndexOf('}', end - 1)) {
+    for (let start = s.indexOf('{'); start >= 0 && start < end; start = s.indexOf('{', start + 1)) {
+      try {
+        const o = JSON.parse(s.slice(start, end + 1));
+        const title = typeof o?.title === 'string' ? o.title.trim().replace(/\s+/g, ' ') : '';
+        const body = typeof o?.body === 'string' ? o.body.trim() : '';
+        if (title && body) return { title, body };
+      } catch {
+        /* not this span */
+      }
+    }
+  }
+  throw new Error('the exploration session returned no usable {title, body} idea');
+}
+
+export const REPO_INSIGHT_LABELS = ['agent-suggested', 'needs-triage'];
+
+/**
+ * Today's suggestion: given the decided target (null when nothing was idle), explore it read-only
+ * and file one issue. Returns the final report line, which the Scheduled job prints.
+ * @param {{
+ *   target: { alias: string, pastSuggestions: SuggestedIssue[] } | null,
+ *   resolveWorkspace: (alias: string) => Promise<{ root: string }>,
+ *   resolveRepo: (root: string, alias: string) => Promise<string>,
+ *   launchSession: (p: { cwd: string, prompt: string }) => Promise<{ text: string }>,
+ *   createIssue: (repo: string, p: { title: string, body: string, labels: string[] }) => Promise<{ number: number, url: string, title: string }>,
+ * }} deps
+ * @returns {Promise<string>}
+ */
+export async function runRepoInsight({ target, resolveWorkspace, resolveRepo, launchSession, createIssue }) {
+  if (!target) return 'repo-insight: nothing idle today, no suggestion filed';
+  const { root } = await resolveWorkspace(target.alias);
+  const repo = await resolveRepo(root, target.alias);
+  const { text } = await launchSession({ cwd: root, prompt: buildInsightPrompt(target) });
+  const idea = parseInsightIdea(text);
+  const issue = await createIssue(repo, { ...idea, labels: REPO_INSIGHT_LABELS });
+  return `repo-insight: ${target.alias} → filed #${issue.number} "${issue.title}" (${issue.url})`;
+}

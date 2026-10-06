@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { createWriteStream, existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { mkdir } from 'fs/promises';
@@ -292,4 +292,59 @@ export function createClaudeBackend({
       };
     },
   };
+}
+
+/**
+ * Tools a read-only exploration session may use. `--tools` restricts the built-in set itself, so
+ * editing and shell tools aren't merely refused: they don't exist for the session. The deny list is
+ * a second layer, and the permission mode never prompts, so anything unlisted is refused.
+ */
+export const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob'];
+export const READ_ONLY_DISALLOWED_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'];
+
+/**
+ * @param {{ prompt: string, model?: string }} p
+ * @returns {string[]} argv for a one-shot, read-only `claude -p` session
+ */
+export function readOnlySessionArgs({ prompt, model = process.env.CLAUDE_AGENT_MODEL?.trim() || 'sonnet' }) {
+  return [
+    '-p',
+    '--model', model,
+    '--output-format', 'json',
+    '--permission-mode', 'default',
+    '--tools', READ_ONLY_TOOLS.join(','),
+    '--disallowedTools', READ_ONLY_DISALLOWED_TOOLS.join(','),
+    prompt,
+  ];
+}
+
+/**
+ * Launch a read-only exploration session in `cwd` and return its final text. The same seam shape
+ * as `repoInsight`'s `launchSession`; tests inject a fake instead of spawning the CLI.
+ * @param {{
+ *   bin?: string,
+ *   timeoutMs?: number,
+ *   execFileFn?: typeof import('child_process').execFile,
+ * }} [deps]
+ * @returns {(p: { cwd: string, prompt: string }) => Promise<{ text: string }>}
+ */
+export function createReadOnlySessionLauncher({ bin = resolveClaudeBin(), timeoutMs = 15 * 60_000, execFileFn = execFile } = {}) {
+  return ({ cwd, prompt }) =>
+    new Promise((resolve, reject) => {
+      execFileFn(
+        bin,
+        readOnlySessionArgs({ prompt }),
+        { cwd, env: { ...process.env, PATH: augmentedPathEnv() }, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' },
+        (err, stdout, stderr) => {
+          if (err) return reject(new Error(`exploration session failed: ${String(stderr || '').trim().slice(0, 300) || err.message}`));
+          try {
+            const out = JSON.parse(stdout);
+            if (out?.is_error) return reject(new Error(`exploration session reported an error: ${String(out.result ?? '').slice(0, 300)}`));
+            resolve({ text: String(out?.result ?? '') });
+          } catch {
+            reject(new Error('exploration session printed no JSON result'));
+          }
+        }
+      );
+    });
 }

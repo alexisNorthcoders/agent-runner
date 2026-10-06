@@ -158,3 +158,12 @@ describe('issueNumberFromAgentBranch', () => {
     assert.equal(issueNumberFromAgentBranch('claude/issue-x-1', 'claude/issue'), null);
   });
 });
+
+describe('createIssue', () => {
+  it('files an issue with every label and returns its number', async () => {
+    const { api, calls } = issues(() => 'https://github.com/o/r/issues/42\n');
+    const made = await api.createIssue('o/r', { title: 'T', body: 'B', labels: ['agent-suggested', 'needs-triage'] });
+    assert.deepEqual(made, { number: 42, url: 'https://github.com/o/r/issues/42', title: 'T' });
+    assert.deepEqual(calls[0][1], ['issue', 'create', '--repo', 'o/r', '--title', 'T', '--body', 'B', '--label', 'agent-suggested', '--label', 'needs-triage']);
+  });
+});
