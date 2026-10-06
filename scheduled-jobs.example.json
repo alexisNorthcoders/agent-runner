@@ -6,7 +6,9 @@
     "command": "npm run cleanup_agent",
     "at": "02:00",
     "logFile": "/home/alexis/Projects/reddit-bot/reports/cron-cleanup.log",
-    "env": { "CLAUDE_AGENT_BIN": "/home/alexis/.local/bin/claude" }
+    "env": {
+      "CLAUDE_AGENT_BIN": "/home/alexis/.local/bin/claude"
+    }
   },
   {
     "name": "report_agent",
@@ -15,6 +17,20 @@
     "command": "npm run report_agent",
     "at": "02:30",
     "logFile": "/home/alexis/Projects/reddit-bot/reports/cron-insight.log",
-    "env": { "CLAUDE_AGENT_BIN": "/home/alexis/.local/bin/claude" }
+    "env": {
+      "CLAUDE_AGENT_BIN": "/home/alexis/.local/bin/claude"
+    }
+  },
+  {
+    "name": "repo_insight",
+    "room": "scout",
+    "cwd": "/home/alexis/Projects/agent-runner",
+    "command": "npm run repo-insight",
+    "at": "04:00",
+    "logFile": "/home/alexis/Projects/agent-runner/logs/cron-repo-insight.log",
+    "env": {
+      "CLAUDE_AGENT_BIN": "/home/alexis/.local/bin/claude"
+    },
+    "timeoutMinutes": 30
   }
 ]
