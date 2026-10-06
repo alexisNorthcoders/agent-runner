@@ -195,3 +195,34 @@ export async function runRepoInsight({ target, resolveWorkspace, resolveRepo, la
   const issue = await createIssue(repo, { ...idea, labels: REPO_INSIGHT_LABELS });
   return `repo-insight: ${target.alias} → filed #${issue.number} "${issue.title}" (${issue.url})`;
 }
+
+/**
+ * The one-off bootstrap: visit every workspace in the fixed priority order (not from the cursor),
+ * and run `explore` on each idle one. The cursor follows the sweep (written after each visit,
+ * idle or not), so it ends on the last workspace of the list for the next daily run. A workspace
+ * that fails (idleness check or exploration) is reported and the sweep carries on.
+ * @param {{
+ *   order?: readonly string[],
+ *   cursor: { write: (alias: string) => Promise<unknown> },
+ *   isIdle: (alias: string) => Promise<boolean>,
+ *   pastSuggestions: (alias: string) => Promise<SuggestedIssue[]>,
+ *   explore: (target: { alias: string, pastSuggestions: SuggestedIssue[] }) => Promise<string>,
+ * }} deps `explore`: the explore-and-file step, e.g. `runRepoInsight` with its deps bound
+ * @returns {Promise<{ lines: string[], failed: number }>}
+ */
+export async function sweepRepoInsight({ order = REPO_INSIGHT_PRIORITY, cursor, isIdle, pastSuggestions, explore }) {
+  const lines = [];
+  let failed = 0;
+  for (const alias of order) {
+    try {
+      if (await isIdle(alias)) lines.push(await explore({ alias, pastSuggestions: await pastSuggestions(alias) }));
+      else lines.push(`repo-insight: ${alias} → not idle, skipped`);
+    } catch (err) {
+      failed++;
+      lines.push(`repo-insight: ${alias} → failed (${/** @type {Error} */ (err).message})`);
+    }
+    await cursor.write(alias);
+  }
+  lines.push(`repo-insight: sweep done, cursor on ${order[order.length - 1]}${failed ? `, ${failed} failed` : ''}`);
+  return { lines, failed };
+}

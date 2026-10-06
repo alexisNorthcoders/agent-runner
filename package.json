@@ -17,7 +17,8 @@
     "agent:pause": "node bin/agent-cli.js pause",
     "agent:resume": "node bin/agent-cli.js resume",
     "repo-insight": "node bin/repo-insight.js",
-    "repo-insight:decide": "node bin/repo-insight-dry-run.js"
+    "repo-insight:decide": "node bin/repo-insight-dry-run.js",
+    "repo-insight:bootstrap": "node bin/repo-insight-bootstrap.js"
   },
   "engines": {
     "node": ">=20"

@@ -7,6 +7,7 @@ import {
   decideRepoInsightTarget as decide,
   pickNextIdleWorkspace as pick,
   runRepoInsight,
+  sweepRepoInsight,
 } from '../src/repoInsight.js';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
@@ -225,5 +226,67 @@ describe('runRepoInsight', () => {
     const { calls, deps } = setup('I could not decide.');
     await assert.rejects(runRepoInsight(deps), /no usable/);
     assert.equal(calls.issues.length, 0);
+  });
+});
+
+describe('sweepRepoInsight', () => {
+  const setup = (idleAliases, { failOn } = /** @type {{ failOn?: string }} */ ({})) => {
+    const store = createMemoryStore();
+    const cursor = createRepoInsightCursor({ store });
+    const explored = [];
+    const checked = [];
+    const deps = {
+      cursor,
+      isIdle: async (a) => {
+        checked.push(a);
+        if (a === failOn) throw new Error('boom');
+        return idleAliases.includes(a);
+      },
+      pastSuggestions: async () => [],
+      explore: async ({ alias }) => {
+        explored.push(alias);
+        return `filed in ${alias}`;
+      },
+    };
+    return { deps, cursor, explored, checked };
+  };
+
+  it('checks every workspace in order, ignoring the cursor, and explores only the idle ones', async () => {
+    const { deps, cursor, explored, checked } = setup(['chess-trainer', 'dots']);
+    await cursor.write('platformer');
+    const { lines } = await sweepRepoInsight(deps);
+    assert.deepEqual(checked, ORDER);
+    assert.deepEqual(explored, ['chess-trainer', 'dots']);
+    assert.ok(lines.includes('repo-insight: bot → not idle, skipped'));
+  });
+
+  it('leaves the cursor on the last workspace even when it is not idle', async () => {
+    const { deps, cursor } = setup(['bot']);
+    await sweepRepoInsight(deps);
+    assert.equal(await cursor.read(), 'dots');
+  });
+
+  it('starts no session when nothing is idle', async () => {
+    const { deps, explored, cursor } = setup([]);
+    const { failed } = await sweepRepoInsight(deps);
+    assert.deepEqual(explored, []);
+    assert.equal(failed, 0);
+    assert.equal(await cursor.read(), 'dots');
+  });
+
+  it('reports a failing workspace and carries on', async () => {
+    const { deps, explored, cursor } = setup(['bot', 'dots'], { failOn: 'bot' });
+    const { lines, failed } = await sweepRepoInsight(deps);
+    assert.equal(failed, 1);
+    assert.deepEqual(explored, ['dots']);
+    assert.ok(lines.some((l) => l.includes('bot → failed (boom)')));
+    assert.equal(await cursor.read(), 'dots');
+  });
+
+  it('a second sweep re-checks everything; de-duplication is the explore step\'s job', async () => {
+    const { deps, explored } = setup(['bot']);
+    await sweepRepoInsight(deps);
+    await sweepRepoInsight(deps);
+    assert.deepEqual(explored, ['bot', 'bot']);
   });
 });
