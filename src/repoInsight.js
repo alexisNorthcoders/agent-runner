@@ -5,6 +5,8 @@
  * - `agent-runner:repo-insight:cursor` (string): the alias last visited.
  */
 
+import { classifyReadyIssues } from './cronTracer.js';
+
 export const REPO_INSIGHT_CURSOR_KEY = 'agent-runner:repo-insight:cursor';
 
 export const REPO_INSIGHT_PRIORITY = [
@@ -54,6 +56,43 @@ export function createRepoInsightCursor({ store }) {
     async write(alias) {
       if (typeof alias !== 'string' || !alias) throw new TypeError(`repo insight: invalid alias ${JSON.stringify(alias)}`);
       await store.set(REPO_INSIGHT_CURSOR_KEY, alias);
+    },
+  };
+}
+
+/**
+ * Read-only GitHub lookups for `repo_insight`, behind an injectable `github` (the same shape the
+ * issue scan takes, plus `listAgentSuggestedIssues`).
+ * @param {{
+ *   workspaces: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
+ *   github: Pick<ReturnType<typeof import('./issuePipeline/githubIssue.js').createGithubIssues>,
+ *     'resolveIssueRepo' | 'listOpenIssues' | 'blockedByCount' | 'listOpenAgentPrsByIssue' | 'branchHeadSha' | 'listAgentSuggestedIssues'>,
+ *   prAttempts: () => Promise<Map<string, string>>,
+ * }} deps `prAttempts`: the cron's recorded PR attempts (`cronState.prAttempts`), read only.
+ */
+export function createRepoInsightLookups({ workspaces, github, prAttempts }) {
+  /** @param {string} alias */
+  const repoOf = async (alias) => github.resolveIssueRepo((await workspaces.resolveIssueWorkspace(alias)).root, alias);
+
+  return {
+    /**
+     * Idle: no issue in the cron tracer's `runnable` bucket (ready-for-agent, not blocked, not
+     * parked behind an attempted open PR). Throws when GitHub can't be read.
+     * @param {string} alias
+     */
+    async isIdle(alias) {
+      const repo = await repoOf(alias);
+      const rows = await github.listOpenIssues(repo);
+      const { runnable } = await classifyReadyIssues(github, repo, rows, await prAttempts());
+      return runnable.length === 0;
+    },
+
+    /**
+     * The repo's `agent-suggested` issues, open and closed, so a new suggestion doesn't repeat one.
+     * @param {string} alias
+     */
+    async pastSuggestions(alias) {
+      return github.listAgentSuggestedIssues(await repoOf(alias));
     },
   };
 }

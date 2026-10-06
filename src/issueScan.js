@@ -1,4 +1,4 @@
-import { hasLabel, isBlocked, loadOpenAgentPrs, partitionIssuesWithOpenPr, readyForAgent } from './cronTracer.js';
+import { classifyReadyIssues, hasLabel } from './cronTracer.js';
 import { errorMessageFromUnknown } from './issuePipeline/index.js';
 
 /**
@@ -81,28 +81,19 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
     const ws = await workspaces.resolveIssueWorkspace(alias);
     const repo = await github.resolveIssueRepo(ws.root, alias);
     const rows = await github.listOpenIssues(repo);
-    const { openPrs, baseShaByBranch } = await loadOpenAgentPrs(github, repo);
-    const { rows: kept, parked } = partitionIssuesWithOpenPr(rows, repo, openPrs, baseShaByBranch, await prAttempts());
+    const ready = await classifyReadyIssues(github, repo, rows, await prAttempts());
     /** @param {import('./issuePipeline/githubIssue.js').OpenIssue} r @returns {OfficeIssue} */
     const item = (r) => ({ number: r.number, title: r.title, url: `https://github.com/${repo}/issues/${r.number}` });
     const titles = new Map(rows.map((r) => [r.number, r.title]));
-    /** @type {OfficeIssue[]} */
-    const runnable = [];
-    /** @type {OfficeIssue[]} */
-    const blocked = [];
-    for (const r of readyForAgent(kept).sort(byNumber)) {
-      ((await isBlocked(github.blockedByCount, repo, r.number)) ? blocked : runnable).push(item(r));
-    }
     const labelled = (/** @type {string} */ label) => rows.filter((r) => hasLabel(r, label)).sort(byNumber);
     return {
       alias,
       repo,
       scannedAt,
       stale: false,
-      runnable,
-      blocked,
-      parked: parked
-        .sort(byNumber)
+      runnable: ready.runnable.map(item),
+      blocked: ready.blocked.map(item),
+      parked: ready.parked
         .map((p) => ({ ...item({ number: p.number, title: titles.get(p.number) ?? '', labels: [] }), prUrl: p.url })),
       readyForHuman: labelled(READY_FOR_HUMAN_LABEL).map(item),
       needsTriage: labelled(NEEDS_TRIAGE_LABEL).length,

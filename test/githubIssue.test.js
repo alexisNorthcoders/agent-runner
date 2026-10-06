@@ -103,6 +103,22 @@ describe('cron lookups', () => {
     assert.deepEqual(calls[0][1].slice(0, 6), ['issue', 'list', '--repo', 'o/r', '--state', 'open']);
   });
 
+  it('lists agent-suggested issues in every state', async () => {
+    const rows = [
+      { number: 5, title: 'A', url: 'u5', state: 'OPEN', labels: [{ name: 'agent-suggested' }] },
+      { number: 6, title: 'B', url: 'u6', state: 'CLOSED', labels: [{ name: 'agent-suggested' }, { name: 'wontfix' }] },
+      { number: 0, title: 'junk' },
+    ];
+    const { api, calls } = issues(() => JSON.stringify(rows));
+    assert.deepEqual(await api.listAgentSuggestedIssues('o/r'), [
+      { number: 5, title: 'A', url: 'u5', state: 'open', labels: ['agent-suggested'] },
+      { number: 6, title: 'B', url: 'u6', state: 'closed', labels: ['agent-suggested', 'wontfix'] },
+    ]);
+    const args = calls[0][1];
+    assert.equal(args[args.indexOf('--state') + 1], 'all');
+    assert.equal(args[args.indexOf('--label') + 1], 'agent-suggested');
+  });
+
   it('reads the native blocked_by count', async () => {
     const { api, calls } = issues(() => '2\n');
     assert.equal(await api.blockedByCount('o/r', 9), 2);
