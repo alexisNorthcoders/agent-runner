@@ -184,6 +184,28 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
     },
 
     /**
+     * File a new issue.
+     * @param {string} repo
+     * @param {{ title: string, body: string, labels: string[] }} p
+     * @returns {Promise<{ number: number, url: string, title: string }>}
+     */
+    async createIssue(repo, { title, body, labels }) {
+      const args = ['issue', 'create', '--repo', assertRepoSlug(repo), '--title', title, '--body', body];
+      for (const label of labels) args.push('--label', label);
+      // not retried: a retry after a timed-out success could file a duplicate
+      let stdout;
+      try {
+        stdout = (await exec('gh', args, { maxBuffer: 4 * 1024 * 1024 })).stdout;
+      } catch (e) {
+        throw new Error((typeof e?.stderr === 'string' && e.stderr.trim()) || e?.message || String(e));
+      }
+      const url = stdout.trim().split('\n').pop() ?? '';
+      const m = /\/issues\/(\d+)$/.exec(url);
+      if (!m) throw new Error(`gh issue create printed no issue URL: ${JSON.stringify(stdout.trim().slice(0, 200))}`);
+      return { number: parseInt(m[1], 10), url, title };
+    },
+
+    /**
      * Open blockers of an issue, from GitHub's native issue dependencies (GitHub recomputes it as
      * blockers close).
      * @param {string} repo

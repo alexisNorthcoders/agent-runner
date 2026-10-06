@@ -347,3 +347,22 @@ describe('stopOrphanClaude', () => {
     assert.equal(killed, false);
   });
 });
+
+describe('read-only exploration session', () => {
+  it('disables editing and shell tools by CLI flag, not just the prompt', async () => {
+    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.js');
+    let seen;
+    const launch = createReadOnlySessionLauncher({
+      bin: 'claude',
+      execFileFn: /** @type {any} */ ((bin, args, opts, cb) => {
+        seen = { bin, args, opts };
+        cb(null, JSON.stringify({ result: 'idea' }), '');
+      }),
+    });
+    assert.deepEqual(await launch({ cwd: '/ws/x', prompt: 'explore' }), { text: 'idea' });
+    assert.equal(seen.opts.cwd, '/ws/x');
+    assert.equal(seen.args[seen.args.indexOf('--tools') + 1], 'Read,Grep,Glob');
+    const denied = seen.args[seen.args.indexOf('--disallowedTools') + 1].split(',');
+    for (const t of ['Edit', 'Write', 'NotebookEdit', 'Bash']) assert.ok(denied.includes(t), t);
+  });
+});
