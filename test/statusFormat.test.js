@@ -59,6 +59,20 @@ describe('status formatting helpers', () => {
   });
 });
 
+describe('renderStatusText sessions', () => {
+  const session = (extra) => ({ id: 's', workspaceAlias: 'agent-runner', cwd: '/home/a/agent-runner', branch: 'main', state: 'working', activity: 'Bash: npm test', subagents: 0, since: ago(MIN), lastEntryAt: ago(0), ...extra });
+
+  it('lists the open sessions on one line', () => {
+    const text = renderStatusText(snapshot({ sessions: [session(), session({ id: 't', workspaceAlias: null, cwd: '/home/a/chess-trainer', state: 'waiting' })] }));
+    assert.match(text, /^Sessions \(2\): agent-runner, working \(Bash: npm test\) · chess-trainer, waiting for you$/m);
+  });
+
+  it('leaves the line out when there are none', () => {
+    assert.doesNotMatch(renderStatusText(snapshot({ sessions: [] })), /Sessions/);
+    assert.doesNotMatch(renderStatusText(snapshot()), /Sessions/);
+  });
+});
+
 describe('renderStatusText (WhatsApp)', () => {
   it('shows idle, not paused, no cron, and no recent runs', () => {
     const text = renderStatusText(snapshot());

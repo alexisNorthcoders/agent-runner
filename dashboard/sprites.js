@@ -765,6 +765,37 @@ export function toolTag(ctx, x, y, label, bounds) {
   text(ctx, str, bx + 2, y - 6, PALETTE.signBg);
 }
 
+/**
+ * A visitor's laptop on `desk`, over the desk's monitor: open, its screen lit, and while `typing`
+ * (a frame number) lines of code scrolling across it. `sub`: a `+N` badge beside it for the
+ * session's subagents.
+ * @param {Ctx} ctx @param {Rect} desk @param {number | null} typing @param {number} [sub]
+ */
+export function laptop(ctx, desk, typing, sub = 0) {
+  const x = desk.x + Math.floor(desk.w / 2) - 5;
+  const y = desk.y;
+  ctx.fillStyle = PALETTE.chair;
+  ctx.fillRect(x, y - 6, 10, 7);
+  ctx.fillStyle = typing == null ? PALETTE.monitor : PALETTE.screen;
+  ctx.fillRect(x + 1, y - 5, 8, 4);
+  if (typing != null) {
+    ctx.fillStyle = PALETTE.signText;
+    ctx.fillRect(x + 2, y - 4, 2 + (typing % 3), 1);
+    ctx.fillRect(x + 2, y - 2, 5 - (typing % 3), 1);
+  }
+  ctx.fillStyle = PALETTE.deskEdge;
+  ctx.fillRect(x - 1, y + 1, 12, 2);
+  if (sub > 0) text(ctx, `+${sub}`, x + 12, y - 5, PALETTE.signText);
+}
+
+/** A blinking `?` by a visitor who's waiting for the owner, at (x, y). @param {Ctx} ctx @param {number} x @param {number} y @param {number} frame */
+export function waitingMark(ctx, x, y, frame) {
+  if (frame % 6 >= 4) return;
+  ctx.fillStyle = PALETTE.signBg;
+  ctx.fillRect(x - 1, y - 1, 5, 7);
+  text(ctx, '?', x, y, PALETTE.red);
+}
+
 /** Dots of chatter over someone's head at (x, y), taking turns on the beat. @param {Ctx} ctx @param {number} x @param {number} y @param {number} frame */
 export function chatDots(ctx, x, y, frame) {
   const n = (Math.floor(frame / 3) % 3) + 1;

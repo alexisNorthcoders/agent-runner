@@ -18,6 +18,7 @@ import { pidAlive } from './pidAlive.js';
  *   manualPauses?: import('./manualPause.js').ManualPause[],
  *   usageLimit?: import('./usageLimitPause.js').UsageLimitPause | null,
  *   lock?: import('./runLock.js').RunRecord | null,
+ *   sessions?: import('./sessionWatch.js').OfficeSession[],
  * }} StatusSnapshot
  *   `history` covers the last 7 days, newest first. `lock` is the lock holder (null when free or
  *   unreadable).
@@ -52,6 +53,7 @@ function timeBoxed(read, fallback, ms) {
  *   readQueue?: () => Promise<import('./runQueue.js').QueuedRun[]>,
  *   readManualPauses?: () => Promise<import('./manualPause.js').ManualPause[]>,
  *   readUsageLimit?: () => Promise<import('./usageLimitPause.js').UsageLimitPause | null>,
+ *   readSessions?: () => Promise<import('./sessionWatch.js').OfficeSession[]>,
  *   isAlive?: (pid: number) => boolean,
  *   now?: () => number,
  *   pauseTimeoutMs?: number,
@@ -67,12 +69,13 @@ export async function collectStatus({
   readQueue = async () => [],
   readManualPauses = async () => [],
   readUsageLimit = async () => null,
+  readSessions = async () => [],
   isAlive = pidAlive,
   now = Date.now,
   pauseTimeoutMs = PAUSE_LOOKUP_TIMEOUT_MS,
 }) {
   const t = now();
-  const [active, cron, recent, paused, lock, queue, manualPauses, usageLimit] = await Promise.all([
+  const [active, cron, recent, paused, lock, queue, manualPauses, usageLimit, sessions] = await Promise.all([
     activeRuns.list(),
     timeBoxed(readCron, null, pauseTimeoutMs),
     history.read({ sinceMs: t - WEEK_MS }),
@@ -81,6 +84,7 @@ export async function collectStatus({
     timeBoxed(readQueue, [], pauseTimeoutMs),
     timeBoxed(readManualPauses, [], pauseTimeoutMs),
     timeBoxed(readUsageLimit, null, pauseTimeoutMs),
+    timeBoxed(readSessions, [], pauseTimeoutMs),
   ]);
   if (lock && !active.some((r) => r.runId === lock.runId)) {
     const health = isAlive(lock.ownerPid) ? 'running' : isAlive(lock.agentPid) ? 'orphaned' : 'stale';
@@ -97,5 +101,6 @@ export async function collectStatus({
     manualPauses,
     usageLimit,
     lock,
+    sessions,
   };
 }

@@ -239,6 +239,26 @@ describe('buildOfficeSnapshot', () => {
   });
 });
 
+describe('sessions', () => {
+  /** @returns {import('../src/sessionWatch.js').OfficeSession} */
+  const session = (extra = {}) => ({ id: 's1', workspaceAlias: 'bot', cwd: '/p/bot', branch: 'main', state: /** @type {const} */ ('working'), activity: 'Bash: npm test', subagents: 1, since: '2026-09-24T11:00:00.000Z', lastEntryAt: '2026-09-24T11:59:00.000Z', ...extra });
+  const base = { statusSnapshot: async () => status(), liveRun: async () => ({ activeRun: null }), workspaceAliases: async () => ['bot'] };
+
+  it('carries the open sessions, and none when the watch is off or fails', async () => {
+    const list = [session(), session({ id: 's2', workspaceAlias: null, state: /** @type {const} */ ('waiting') })];
+    assert.deepEqual((await collectOfficeSnapshot({ ...base, sessions: () => list })).sessions, list);
+    assert.deepEqual((await collectOfficeSnapshot(base)).sessions, []);
+    const broken = await collectOfficeSnapshot({ ...base, sessions: () => { throw new Error('boom'); } });
+    assert.deepEqual(broken.sessions, []);
+  });
+
+  it('carries only the documented fields', () => {
+    const s = buildOfficeSnapshot({ status: status(), live: null, workspaces: [], sessions: [/** @type {any} */ ({ ...session(), prompt: 'secret' })] });
+    // (a stray field on the way in, from a looser source, is not passed on)
+    assert.deepEqual(Object.keys(s.sessions[0]), ['id', 'workspaceAlias', 'cwd', 'branch', 'state', 'activity', 'subagents', 'since', 'lastEntryAt']);
+  });
+});
+
 describe('collectOfficeSnapshot', () => {
   it('reads the status, the live run and the allowlist, and still builds when the allowlist fails', async () => {
     const st = status();

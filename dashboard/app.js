@@ -2,7 +2,7 @@
 // floor on a canvas, and renders the panel's Now, Issues, History and Office tabs as text and tables. No
 // build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeSnapshot.js.
 import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, what } from './format.js';
-import { cartSlots, clickFilter, deskAt, fitScene, folderSlots, inTraySlots, inside, layoutOffice, placeName, placeRect, stickyNote, workerRect } from './layout.js';
+import { cartSlots, clickFilter, deskAt, fitScene, folderSlots, inTraySlots, inside, layoutOffice, placeName, placeRect, sessionDesk, stickyNote, workerRect } from './layout.js';
 import { applyLogEvent } from './logPane.js';
 import { drawOffice } from './officeView.js';
 import { lastLine, reduceScene, samePlace } from './scene.js';
@@ -395,10 +395,28 @@ function jobWorkerAt(x, y) {
   return null;
 }
 
-/** What's under the pointer: a subagent's colleague, a letter's label, a pending issue, the cron countdown, or a room (a cubicle's workspace) and its last run. */
+/**
+ * The visitor at (x, y), for the hover: the repo and branch, whether the agent is working or
+ * waiting for the owner, what it's doing, and how long the session has been open.
+ * @param {number} x @param {number} y
+ */
+function visitorAt(x, y) {
+  const sessions = scene.sessions ?? [];
+  for (const v of sessions) {
+    const d = sessionDesk(layout, scene.cubicles, sessions, v.id);
+    if (!d || !inside(workerRect(d), x, y)) continue;
+    const state = v.state === 'waiting' ? 'waiting for you' : `working${v.activity ? `: ${v.activity}` : ''}`;
+    return `Interactive session: ${v.repo}${v.branch ? ` (${v.branch})` : ''}\n${state}\nOpen for ${formatDuration(now() - v.since)}${v.subagents ? `, ${v.subagents} subagent${v.subagents === 1 ? '' : 's'}` : ''}`;
+  }
+  return null;
+}
+
+/** What's under the pointer: a visitor at a laptop, a subagent's colleague, a letter's label, a pending issue, the cron countdown, or a room (a cubicle's workspace) and its last run. */
 function hovered() {
   if (!pointer || !scene || !layout || scene.dark) return null;
   const { x, y } = scenePoint(pointer);
+  const visitor = visitorAt(x, y);
+  if (visitor) return visitor;
   const run = scene.run;
   const desk = run && deskAt(layout, scene.cubicles, run.place);
   if (run && desk && inside(workerRect(desk), x, y)) return `${run.label ?? run.runId}${run.activity ? `: ${run.activity}` : ''}`;

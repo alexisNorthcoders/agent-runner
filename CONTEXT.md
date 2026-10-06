@@ -106,6 +106,10 @@ A **Resident** leaving their desk for a while: to the water cooler in the Freefo
 A colleague standing in for one of the active **Run**'s subagents: the **Resident** of the nearest **Cubicle** (or a temp from the Queue room when none can come), who walks over to the **Worker**'s desk, stands there with a tag naming the tool their subagent is using, and walks back when it's done.
 _Avoid_: subagent (for the figure), assistant
 
+**Visitor**:
+The owner working with an interactive Claude Code session open on the Pi (not a **Run**, which the runner starts itself), read from its transcript by the session watch. They sit at their own laptop at a spare desk in their workspace's **Cubicle**, or in the Freeform room when the session is in none: typing, with a tag naming the tool, while the agent works, and sitting back with a blinking `?` while it waits for them. Each has a look of their own, a `+N` badge counts the session's subagents (no **Helpers** are recruited for them), and their room stays lit at night.
+_Avoid_: session worker, guest
+
 **Night janitor**:
 Who mops up and down the **Aisles** at night, when the **Residents** are home and the lights are down everywhere but where someone's in (the Queue and Review rooms, the active run's room, and rooms with a **Scheduled job**'s worker at their desk). Not a cleanup job's worker.
 

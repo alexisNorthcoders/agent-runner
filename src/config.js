@@ -53,6 +53,13 @@ export function loadConfig(env = process.env) {
     },
     // the office's issue scan (src/issueScan.js)
     issueScan: { intervalMs: int(env.ISSUE_SCAN_INTERVAL_MS, 5 * 60 * 1000) },
+    // the session watch (src/sessionWatch.js): interactive Claude sessions, read from their transcripts
+    sessionWatch: {
+      enabled: !['1', 'true', 'yes'].includes(String(env.SESSION_WATCH_DISABLE || '').trim().toLowerCase()),
+      root: env.CLAUDE_PROJECTS_DIR?.trim() || join(homedir(), '.claude', 'projects'),
+      intervalMs: int(env.SESSION_POLL_MS, 3000),
+      activeMs: int(env.SESSION_ACTIVE_MS, 10 * 60 * 1000),
+    },
     // scheduled jobs (src/scheduledJobs.js): a JSON array, re-read every tick; missing = none
     jobs: { file: env.SCHEDULED_JOBS_FILE?.trim() || join(REPO_ROOT, 'scheduled-jobs.json') },
     joplin: {
