@@ -314,6 +314,8 @@ export function readOnlySessionArgs({ prompt, model = process.env.CLAUDE_AGENT_M
     '--permission-mode', 'default',
     '--tools', READ_ONLY_TOOLS.join(','),
     '--disallowedTools', READ_ONLY_DISALLOWED_TOOLS.join(','),
+    // `--tools` and `--disallowedTools` are variadic: without `--` the prompt is read as a tool name.
+    '--',
     prompt,
   ];
 }
@@ -331,7 +333,7 @@ export function readOnlySessionArgs({ prompt, model = process.env.CLAUDE_AGENT_M
 export function createReadOnlySessionLauncher({ bin = resolveClaudeBin(), timeoutMs = 15 * 60_000, execFileFn = execFile } = {}) {
   return ({ cwd, prompt }) =>
     new Promise((resolve, reject) => {
-      execFileFn(
+      const child = execFileFn(
         bin,
         readOnlySessionArgs({ prompt }),
         { cwd, env: { ...process.env, PATH: augmentedPathEnv() }, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' },
@@ -346,5 +348,7 @@ export function createReadOnlySessionLauncher({ bin = resolveClaudeBin(), timeou
           }
         }
       );
+      // The prompt is an argument; an open stdin pipe makes the CLI wait 3s for input first.
+      child?.stdin?.end();
     });
 }

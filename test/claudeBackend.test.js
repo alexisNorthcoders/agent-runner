@@ -365,4 +365,24 @@ describe('read-only exploration session', () => {
     const denied = seen.args[seen.args.indexOf('--disallowedTools') + 1].split(',');
     for (const t of ['Edit', 'Write', 'NotebookEdit', 'Bash']) assert.ok(denied.includes(t), t);
   });
+
+  it('ends options before the prompt, so the variadic tool lists do not swallow it', async () => {
+    const { readOnlySessionArgs } = await import('../src/agentBackend/claude.js');
+    const args = readOnlySessionArgs({ prompt: 'explore', model: 'sonnet' });
+    assert.deepEqual(args.slice(-2), ['--', 'explore']);
+  });
+
+  it('closes stdin so the CLI does not wait for piped input', async () => {
+    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.js');
+    let ended = false;
+    const launch = createReadOnlySessionLauncher({
+      bin: 'claude',
+      execFileFn: /** @type {any} */ ((_bin, _args, _opts, cb) => {
+        setImmediate(() => cb(null, JSON.stringify({ result: 'idea' }), ''));
+        return { stdin: { end: () => void (ended = true) } };
+      }),
+    });
+    await launch({ cwd: '/ws/x', prompt: 'explore' });
+    assert.equal(ended, true);
+  });
 });
