@@ -190,7 +190,21 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
      * @returns {Promise<{ number: number, url: string, title: string }>}
      */
     async createIssue(repo, { title, body, labels }) {
-      const args = ['issue', 'create', '--repo', assertRepoSlug(repo), '--title', title, '--body', body];
+      assertRepoSlug(repo);
+      // `gh issue create --label` refuses a label the repo doesn't have, so create any missing ones first
+      if (labels.length) {
+        const out = await gh(['label', 'list', '--repo', repo, '--json', 'name', '--limit', '1000']);
+        const have = new Set(labelNames(JSON.parse(out || '[]')).map((name) => name.toLowerCase()));
+        for (const label of labels) {
+          if (have.has(label.toLowerCase())) continue;
+          try {
+            await gh(['label', 'create', label, '--repo', repo]);
+          } catch (e) {
+            if (!/already exists/i.test(/** @type {Error} */ (e).message)) throw new Error(`could not create label ${label}: ${/** @type {Error} */ (e).message}`);
+          }
+        }
+      }
+      const args = ['issue', 'create', '--repo', repo, '--title', title, '--body', body];
       for (const label of labels) args.push('--label', label);
       // not retried: a retry after a timed-out success could file a duplicate
       let stdout;

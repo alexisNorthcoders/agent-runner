@@ -372,6 +372,25 @@ describe('read-only exploration session', () => {
     assert.deepEqual(args.slice(-2), ['--', 'explore']);
   });
 
+  it('runs on Opus by default, whatever model other runs pin, unless REPO_INSIGHT_MODEL says otherwise', async () => {
+    const { readOnlySessionArgs } = await import('../src/agentBackend/claude.js');
+    const saved = { agent: process.env.CLAUDE_AGENT_MODEL, insight: process.env.REPO_INSIGHT_MODEL };
+    try {
+      process.env.CLAUDE_AGENT_MODEL = 'claude-sonnet-5-5';
+      delete process.env.REPO_INSIGHT_MODEL;
+      let args = readOnlySessionArgs({ prompt: 'p' });
+      assert.equal(args[args.indexOf('--model') + 1], 'claude-opus-5-5');
+      process.env.REPO_INSIGHT_MODEL = 'haiku';
+      args = readOnlySessionArgs({ prompt: 'p' });
+      assert.equal(args[args.indexOf('--model') + 1], 'haiku');
+    } finally {
+      for (const [k, v] of [['CLAUDE_AGENT_MODEL', saved.agent], ['REPO_INSIGHT_MODEL', saved.insight]]) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
   it('closes stdin so the CLI does not wait for piped input', async () => {
     const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.js');
     let ended = false;

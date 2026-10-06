@@ -302,11 +302,14 @@ export function createClaudeBackend({
 export const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob'];
 export const READ_ONLY_DISALLOWED_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'];
 
+/** The read-only (repo-insight) session's model unless `REPO_INSIGHT_MODEL` names another; not `CLAUDE_AGENT_MODEL`, which pins every other run. */
+export const READ_ONLY_DEFAULT_MODEL = 'claude-opus-5-5';
+
 /**
  * @param {{ prompt: string, model?: string }} p
  * @returns {string[]} argv for a one-shot, read-only `claude -p` session
  */
-export function readOnlySessionArgs({ prompt, model = process.env.CLAUDE_AGENT_MODEL?.trim() || 'sonnet' }) {
+export function readOnlySessionArgs({ prompt, model = process.env.REPO_INSIGHT_MODEL?.trim() || READ_ONLY_DEFAULT_MODEL }) {
   return [
     '-p',
     '--model', model,

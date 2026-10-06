@@ -105,17 +105,28 @@ export function createRepoInsightLookups({ workspaces, github, prAttempts }) {
   /** @param {string} alias */
   const repoOf = async (alias) => github.resolveIssueRepo((await workspaces.resolveIssueWorkspace(alias)).root, alias);
 
+  /**
+   * The issues in the cron tracer's `runnable` bucket (ready-for-agent, not blocked, not parked
+   * behind an attempted open PR), ascending. Throws when GitHub can't be read.
+   * @param {string} alias
+   * @returns {Promise<number[]>}
+   */
+  async function runnableIssues(alias) {
+    const repo = await repoOf(alias);
+    const rows = await github.listOpenIssues(repo);
+    const { runnable } = await classifyReadyIssues(github, repo, rows, await prAttempts());
+    return runnable.map((r) => r.number);
+  }
+
   return {
+    runnableIssues,
+
     /**
-     * Idle: no issue in the cron tracer's `runnable` bucket (ready-for-agent, not blocked, not
-     * parked behind an attempted open PR). Throws when GitHub can't be read.
+     * Idle: no runnable issue (see `runnableIssues`), whoever is or isn't working on them.
      * @param {string} alias
      */
     async isIdle(alias) {
-      const repo = await repoOf(alias);
-      const rows = await github.listOpenIssues(repo);
-      const { runnable } = await classifyReadyIssues(github, repo, rows, await prAttempts());
-      return runnable.length === 0;
+      return (await runnableIssues(alias)).length === 0;
     },
 
     /**
@@ -204,19 +215,21 @@ export async function runRepoInsight({ target, resolveWorkspace, resolveRepo, la
  * @param {{
  *   order?: readonly string[],
  *   cursor: { write: (alias: string) => Promise<unknown> },
- *   isIdle: (alias: string) => Promise<boolean>,
+ *   runnableIssues: (alias: string) => Promise<number[]>,
  *   pastSuggestions: (alias: string) => Promise<SuggestedIssue[]>,
  *   explore: (target: { alias: string, pastSuggestions: SuggestedIssue[] }) => Promise<string>,
- * }} deps `explore`: the explore-and-file step, e.g. `runRepoInsight` with its deps bound
+ * }} deps `runnableIssues`: none means idle, else the skip line names them. `explore`: the
+ *   explore-and-file step, e.g. `runRepoInsight` with its deps bound
  * @returns {Promise<{ lines: string[], failed: number }>}
  */
-export async function sweepRepoInsight({ order = REPO_INSIGHT_PRIORITY, cursor, isIdle, pastSuggestions, explore }) {
+export async function sweepRepoInsight({ order = REPO_INSIGHT_PRIORITY, cursor, runnableIssues, pastSuggestions, explore }) {
   const lines = [];
   let failed = 0;
   for (const alias of order) {
     try {
-      if (await isIdle(alias)) lines.push(await explore({ alias, pastSuggestions: await pastSuggestions(alias) }));
-      else lines.push(`repo-insight: ${alias} → not idle, skipped`);
+      const runnable = await runnableIssues(alias);
+      if (!runnable.length) lines.push(await explore({ alias, pastSuggestions: await pastSuggestions(alias) }));
+      else lines.push(`repo-insight: ${alias} → not idle (runnable: ${runnable.map((n) => `#${n}`).join(', ')}), skipped`);
     } catch (err) {
       failed++;
       lines.push(`repo-insight: ${alias} → failed (${/** @type {Error} */ (err).message})`);

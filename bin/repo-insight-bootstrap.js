@@ -26,7 +26,7 @@ try {
   const launchSession = createReadOnlySessionLauncher();
   const { lines, failed } = await sweepRepoInsight({
     cursor: createRepoInsightCursor({ store }),
-    isIdle: lookups.isIdle,
+    runnableIssues: lookups.runnableIssues,
     pastSuggestions: lookups.pastSuggestions,
     explore: (target) =>
       runRepoInsight({

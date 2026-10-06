@@ -107,6 +107,11 @@ describe('repo insight lookups', () => {
     assert.equal(await (await setup({ issues: [issue(1, 'ready-for-agent')] })).isIdle('bot'), false);
   });
 
+  it('names the runnable issues, and only those', async () => {
+    const l = await setup({ issues: [issue(3, 'ready-for-agent'), issue(1, 'ready-for-agent'), issue(2, 'ready-for-human'), issue(4, 'ready-for-agent')], blockers: { 4: 1 } });
+    assert.deepEqual(await l.runnableIssues('bot'), [1, 3]);
+  });
+
   it('stays idle when every ready issue is blocked, or its blocker lookup fails', async () => {
     const l = await setup({ issues: [issue(1, 'ready-for-agent'), issue(2, 'ready-for-agent')], blockers: { 1: 1, 2: new Error('gh') } });
     assert.equal(await l.isIdle('bot'), true);
@@ -237,10 +242,10 @@ describe('sweepRepoInsight', () => {
     const checked = [];
     const deps = {
       cursor,
-      isIdle: async (a) => {
+      runnableIssues: async (a) => {
         checked.push(a);
         if (a === failOn) throw new Error('boom');
-        return idleAliases.includes(a);
+        return idleAliases.includes(a) ? [] : [7, 12];
       },
       pastSuggestions: async () => [],
       explore: async ({ alias }) => {
@@ -257,7 +262,7 @@ describe('sweepRepoInsight', () => {
     const { lines } = await sweepRepoInsight(deps);
     assert.deepEqual(checked, ORDER);
     assert.deepEqual(explored, ['chess-trainer', 'dots']);
-    assert.ok(lines.includes('repo-insight: bot → not idle, skipped'));
+    assert.ok(lines.includes('repo-insight: bot → not idle (runnable: #7, #12), skipped'));
   });
 
   it('leaves the cursor on the last workspace even when it is not idle', async () => {

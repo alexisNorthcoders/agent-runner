@@ -160,10 +160,28 @@ describe('issueNumberFromAgentBranch', () => {
 });
 
 describe('createIssue', () => {
+  /** @param {string[]} existing labels the repo already has */
+  const repoWithLabels = (existing) =>
+    issues((_cmd, args) => {
+      if (args[0] === 'label' && args[1] === 'list') return JSON.stringify(existing.map((name) => ({ name })));
+      if (args[0] === 'label' && args[1] === 'create') return '';
+      return 'https://github.com/o/r/issues/42\n';
+    });
+
   it('files an issue with every label and returns its number', async () => {
-    const { api, calls } = issues(() => 'https://github.com/o/r/issues/42\n');
+    const { api, calls } = repoWithLabels(['agent-suggested', 'needs-triage']);
     const made = await api.createIssue('o/r', { title: 'T', body: 'B', labels: ['agent-suggested', 'needs-triage'] });
     assert.deepEqual(made, { number: 42, url: 'https://github.com/o/r/issues/42', title: 'T' });
-    assert.deepEqual(calls[0][1], ['issue', 'create', '--repo', 'o/r', '--title', 'T', '--body', 'B', '--label', 'agent-suggested', '--label', 'needs-triage']);
+    assert.deepEqual(calls.at(-1)?.[1], ['issue', 'create', '--repo', 'o/r', '--title', 'T', '--body', 'B', '--label', 'agent-suggested', '--label', 'needs-triage']);
+    assert.equal(calls.filter(([, a]) => a[0] === 'label' && a[1] === 'create').length, 0);
+  });
+
+  it("creates the labels the repo doesn't have yet before filing", async () => {
+    const { api, calls } = repoWithLabels(['Needs-Triage']);
+    await api.createIssue('o/r', { title: 'T', body: 'B', labels: ['agent-suggested', 'needs-triage'] });
+    const created = calls.filter(([, a]) => a[0] === 'label' && a[1] === 'create').map(([, a]) => a);
+    assert.deepEqual(created, [['label', 'create', 'agent-suggested', '--repo', 'o/r']]);
+    assert.equal(calls.at(-1)?.[1][1], 'create');
+    assert.equal(calls.at(-1)?.[1][0], 'issue');
   });
 });
