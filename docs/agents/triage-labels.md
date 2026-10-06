@@ -14,6 +14,7 @@ When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the 
 
 Edit the right-hand column to match whatever vocabulary you actually use.
 
-Note: no cron polls this repo for `ready-for-agent` today. The label means "ready for a manual
-`claude issue:agent-runner:<n>` run". If the runner's cron is later pointed at this repo, the label
-takes on the same unattended meaning it has in WhatsappBot.
+Note: the runner's cron issue tracer polls this repo (`agent-runner` is in
+`CRON_SECONDARY_WORKSPACE_ALIASES`), so `ready-for-agent` means an unattended run will pick the
+issue up on a coming tick, as in the other workspaces. A manual `claude issue:agent-runner:<n>`
+starts one sooner.

@@ -15,8 +15,7 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 ## Cron picker: dependency ordering
 
-No cron polls this repo today (see `triage-labels.md`). The runner's cron issue tracer, once ported,
-skips a `ready-for-agent` issue whose GitHub native dependencies report an open blocker
+The runner's cron issue tracer polls this repo (see `triage-labels.md`). It skips a `ready-for-agent` issue whose GitHub native dependencies report an open blocker
 (`issue_dependencies_summary.blocked_by > 0`), and treats a lookup failure as blocked. So when you
 file ordered tickets, express the order as blocking edges (see "Blocking" below). Cross-repo edges
 work, e.g. a WhatsappBot issue blocked by one here.
