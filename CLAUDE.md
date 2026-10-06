@@ -27,7 +27,7 @@ pause flag and manual pauses (`claude:pause` / `npm run agent:pause`, general or
 (`src/cronTracer.js`, over `runner.startIssueRun`, with its state in Redis), and the office
 dashboard's feed (`GET /office/feed`, SSE, pushed from `src/stateChanges.js`, with the active run's masked live log from `src/logTail.js`) and plain panel
 (`dashboard/`), with each repo's pending issues from the issue scan (`src/issueScan.js`). Layout, Redis keys and the office snapshot shape are in `README.md`; dashboard terms
-are in `CONTEXT.md`.
+are in `GLOSSARY.md`.
 
 ## Conventions
 
@@ -50,4 +50,4 @@ Default five-role vocabulary: needs-triage, needs-info, ready-for-agent, ready-f
 
 ### Domain docs
 
-Single-context (root `CONTEXT.md` + `docs/adr/`). See `docs/agents/domain.md`.
+Single-context (root `GLOSSARY.md` + `docs/adr/`). See `docs/agents/domain.md`.

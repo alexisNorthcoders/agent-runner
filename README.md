@@ -244,7 +244,7 @@ curl -s localhost:3790/command -H 'content-type: application/json' \
 A LAN page that shows the runner live: a pixel-art office scene, and beside it the **Now**,
 **Issues**, **History** and **Office** tabs as plain text and tables (the plan is #17). The page is static files in
 `dashboard/` with no build step, served by nginx, and it gets everything from the office feed. The
-terms (Office, Cubicle, Queue room, …) are in [`CONTEXT.md`](CONTEXT.md).
+terms (Office, Cubicle, Queue room, …) are in [`GLOSSARY.md`](GLOSSARY.md).
 
 ### Office feed
 
