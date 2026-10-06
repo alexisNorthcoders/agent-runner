@@ -752,6 +752,16 @@ describe('office scene: scheduled jobs', () => {
     ]);
   });
 
+  it('renders repo_insight as an analyst in a dedicated scout cubicle, apart from every workspace', () => {
+    assert.equal(jobWorker('repo_insight'), 'analyst');
+    const scene = reduceScene(snap({ jobs: [{ name: 'repo_insight', room: 'scout', at: '04:00', nextDueAt: iso(1000) }] }), null, up);
+    const scout = scene.cubicles.filter((c) => c.alias === 'scout');
+    assert.equal(scout.length, 1);
+    assert.deepEqual([scout[0].name, scout[0].workspace, scout[0].jobs.map((j) => [j.name, j.worker])], ['scout', false, [['repo_insight', 'analyst']]]);
+    assert.ok(scene.cubicles.filter((c) => c.workspace).every((c) => !c.jobs.length));
+    assert.ok(!scene.cubicles.some((c) => c.alias.endsWith('#scripts')));
+  });
+
   it('has no job rooms when there are no jobs, or the feed is older than the job config', () => {
     assert.ok(reduceScene(snap(), null, up).cubicles.every((c) => c.workspace && !c.jobs.length));
     assert.equal(reduceScene(snap({ jobs: undefined }), null, up).cubicles.length, 3);
