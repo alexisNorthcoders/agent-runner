@@ -26,6 +26,47 @@ function snap(over = {}) {
 const up = { up: true, now: NOW, config: {} };
 const pause = (ms, reason = 'r') => ({ reason, pausedAt: iso(-60_000), until: iso(ms) });
 
+describe('office scene: visitors', () => {
+  const session = (id, extra = {}) => ({ id, workspaceAlias: 'bot', cwd: '/p/bot', branch: 'main', state: 'working', activity: 'Bash: npm test', subagents: 0, since: iso(-60_000), lastEntryAt: iso(-1000), ...extra });
+
+  it('seats each session in its workspace cubicle, oldest first, or in the Freeform room outside every workspace', () => {
+    const scene = reduceScene(snap({ sessions: [session('a'), session('b', { workspaceAlias: 'dots' }), session('c', { workspaceAlias: null, cwd: '/home/a/notes' }), session('d', { workspaceAlias: 'gone' }), session('e')] }), null, up);
+    assert.deepEqual(scene.sessions.map((s) => [s.id, s.place]), [
+      ['a', { room: 'cubicle', alias: 'bot', session: 'a' }],
+      ['b', { room: 'cubicle', alias: 'dots', session: 'b' }],
+      ['c', { room: 'freeform', session: 'c' }],
+      ['d', { room: 'freeform', session: 'd' }],
+      ['e', { room: 'cubicle', alias: 'bot', session: 'e' }],
+    ]);
+    assert.deepEqual(scene.cubicles.map((c) => [c.alias, c.sessions]), [['bot', ['a', 'e']], ['chess-trainer', []], ['dots', ['b']]]);
+    assert.equal(scene.sessions[2].repo, 'notes');
+    assert.equal(scene.sessions[0].repo, 'bot');
+  });
+
+  it("types with the current tool's tag while working, and waits with no tag", () => {
+    const scene = reduceScene(snap({ sessions: [session('a'), session('b', { activity: 'writing…' }), session('c', { activity: 'Read: /x.js' }), session('d', { state: 'waiting' })] }), null, up);
+    assert.deepEqual(scene.sessions.map((s) => [s.state, s.tool]), [['working', 'Bash'], ['working', 'write'], ['working', 'Read'], ['waiting', null]]);
+  });
+
+  it('keeps the subagent count and when the session opened, and no text', () => {
+    const [s] = reduceScene(snap({ sessions: [session('a', { subagents: 3 })] }), null, up).sessions;
+    assert.equal(s.subagents, 3);
+    assert.equal(s.since, NOW - 60_000);
+    assert.deepEqual(Object.keys(s).sort(), ['activity', 'branch', 'id', 'place', 'repo', 'since', 'state', 'subagents', 'tool']);
+  });
+
+  it('has no visitors without sessions, from an older feed, or from junk', () => {
+    assert.deepEqual(reduceScene(snap(), null, up).sessions, []);
+    assert.deepEqual(reduceScene(snap({ sessions: [] }), null, up).sessions, []);
+    assert.deepEqual(reduceScene(snap({ sessions: [null, { id: 3 }, { id: 'x', state: 'odd' }] }), null, up).sessions, []);
+  });
+
+  it("doesn't add a desk for a job room's session, nor recruit residents for subagents", () => {
+    const scene = reduceScene(snap({ sessions: [session('a', { subagents: 2 })] }), null, up);
+    assert.deepEqual(scene.helpers, []);
+  });
+});
+
 describe('office scene: cubicles', () => {
   it('gives every allowlisted workspace a cubicle named by its alias', () => {
     const scene = reduceScene(snap(), null, up);

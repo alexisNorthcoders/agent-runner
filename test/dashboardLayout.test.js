@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { drawOffice } from '../dashboard/officeView.js';
 import { PALETTE } from '../dashboard/sprites.js';
-import { CART_CAPACITY, DOORWAY_TOP, THRESHOLD, WALL, FOLDERS_MAX, cartSlots, folderSlots, inTraySlots, stickyNote, clickFilter, cubicleDesk, cubicleDesks, deskAt, fitScene, inside, layoutOffice, placeName, placeRect, workerRect } from '../dashboard/layout.js';
+import { CART_CAPACITY, DOORWAY_TOP, THRESHOLD, WALL, FOLDERS_MAX, cartSlots, folderSlots, inTraySlots, stickyNote, clickFilter, cubicleDesk, cubicleDesks, deskAt, deskOwners, FREEFORM_SEATS, fitScene, inside, layoutOffice, placeName, placeRect, sessionDesk, workerRect } from '../dashboard/layout.js';
 
 /** @param {{ x: number, y: number, w: number, h: number }} a @param {{ x: number, y: number, w: number, h: number }} b */
 const within = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
@@ -375,6 +375,67 @@ describe('the corridor lane, aisles and doorways (narrow)', () => {
         // walkers aside (the carrier at the front desk and the boss at theirs are nowhere near)
         for (const p of after.slice(door)) assert.ok(!overlap(p, framed), `${width} ${id}: ${JSON.stringify(p)} over the doorway ${JSON.stringify(d)}`);
       }
+    }
+  });
+});
+
+describe('visitor desks', () => {
+  const cubicles = [
+    { alias: 'bot', workspace: true, jobs: [{ name: 'backup' }], sessions: ['s1', 's2'] },
+    { alias: 'dots', workspace: true, jobs: [], sessions: [] },
+  ];
+
+  it("counts a laptop spot per session after the workspace's and its jobs' desks", () => {
+    assert.deepEqual(deskOwners(cubicles[0]), [null, 'backup', 'session:s1', 'session:s2']);
+    assert.deepEqual(deskOwners(cubicles[1]), [null]);
+    assert.deepEqual(deskOwners({ alias: 'x', workspace: false, jobs: [{ name: 'j' }] }), ['j']);
+  });
+
+  it("seats a visitor in their cubicle, clear of the resident's and the job's desks", () => {
+    for (const [mode, width] of /** @type {const} */ ([['wide', 560], ['wide', 720], ['narrow', 300]])) {
+      const l = layoutOffice(2, mode, width);
+      const at = (/** @type {import('../dashboard/scene.js').Place} */ p) => /** @type {import('../dashboard/layout.js').Rect} */ (deskAt(l, cubicles, p));
+      const resident = workerRect(at({ room: 'cubicle', alias: 'bot' }));
+      const job = workerRect(at({ room: 'cubicle', alias: 'bot', job: 'backup' }));
+      const s1 = at({ room: 'cubicle', alias: 'bot', session: 's1' });
+      const s2 = at({ room: 'cubicle', alias: 'bot', session: 's2' });
+      assert.deepEqual(s1, cubicleDesks(l.cubicles[0], 4)[2]);
+      assert.deepEqual(s2, cubicleDesks(l.cubicles[0], 4)[3]);
+      for (const w of [workerRect(s1), workerRect(s2)]) {
+        assert.ok(within(w, l.cubicles[0]), `${mode} ${width}`);
+        assert.ok(!overlap(w, resident) && !overlap(w, job), `${mode} ${width}`);
+      }
+      assert.equal(at({ room: 'cubicle', alias: 'bot', session: 'gone' }), null);
+      assert.equal(at({ room: 'cubicle', alias: 'dots', session: 's1' }), null);
+    }
+  });
+
+  it('seats a visitor outside every workspace in the Freeform room, up to its seats', () => {
+    const l = layoutOffice(2, 'wide', 640);
+    /** @type {Array<{ id: string, place: import('../dashboard/scene.js').Place }>} */
+    const sessions = Array.from({ length: FREEFORM_SEATS + 1 }, (_, i) => ({ id: `f${i}`, place: { room: 'freeform', session: `f${i}` } }));
+    sessions.splice(1, 0, { id: 'c', place: { room: 'cubicle', alias: 'dots', session: 'c' } });
+    const seats = sessions.slice(0, 1).concat(sessions.slice(2, FREEFORM_SEATS + 1)).map((x) => sessionDesk(l, cubicles, sessions, x.id));
+    for (const seat of seats) {
+      assert.ok(seat && within(seat, l.rooms.freeform.rect) && within(workerRect(seat), l.rooms.freeform.rect));
+    }
+    assert.equal(new Set(seats.map((x) => x?.x)).size, seats.length);
+    assert.equal(sessionDesk(l, cubicles, sessions, `f${FREEFORM_SEATS}`), null);
+    assert.equal(sessionDesk(l, cubicles, sessions, 'nobody'), null);
+  });
+
+  it('draws visitors without trouble, in every layout', () => {
+    for (const [mode, width] of /** @type {const} */ ([['wide', 640], ['narrow', 300]])) {
+      const l = layoutOffice(2, mode, width);
+      const ctx = { fillStyle: '', fillRect() {}, clearRect() {}, save() {}, restore() {}, scale() {}, translate() {}, beginPath() {}, rect() {}, fill() {}, clip() {} };
+      const sessions = [
+        { id: 's1', place: /** @type {const} */ ({ room: 'cubicle', alias: 'bot', session: 's1' }), repo: 'bot', branch: 'main', state: /** @type {const} */ ('working'), activity: 'Bash: ls', tool: 'Bash', subagents: 2, since: 0 },
+        { id: 's2', place: /** @type {const} */ ({ room: 'cubicle', alias: 'bot', session: 's2' }), repo: 'bot', branch: null, state: /** @type {const} */ ('waiting'), activity: null, tool: null, subagents: 0, since: 0 },
+        { id: 'f', place: /** @type {const} */ ({ room: 'freeform', session: 'f' }), repo: 'x', branch: null, state: /** @type {const} */ ('working'), activity: 'writing…', tool: 'write', subagents: 0, since: 0 },
+      ];
+      const scene = { dark: false, backInFive: false, cubicles: cubicles.map((c) => ({ ...c, name: c.alias, doNotDisturb: false, inTray: [], sticky: [], quiet: false })), queueRoom: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [], parked: [], mail: [], trayKnown: null, helpers: [], sessions };
+      assert.doesNotThrow(() => drawOffice(/** @type {any} */ (ctx), l, /** @type {any} */ (scene), { t: 1234 }));
+      assert.doesNotThrow(() => drawOffice(/** @type {any} */ (ctx), l, /** @type {any} */ (scene), { t: 1234, ambient: { tzOffsetMin: 0 } }));
     }
   });
 });

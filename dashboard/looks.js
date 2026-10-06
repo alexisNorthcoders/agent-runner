@@ -70,15 +70,18 @@ export function looksFor(keys) {
  * a job's desk, else the room's own worker.
  * @param {Place} p
  */
-export const lookKey = (p) => (p.room === 'cubicle' ? (p.job ? `job:${p.job}` : `ws:${p.alias}`) : `room:${p.room}`);
+export const lookKey = (p) => (p.session ? `session:${p.session}` : p.room === 'cubicle' ? (p.job ? `job:${p.job}` : `ws:${p.alias}`) : `room:${p.room}`);
 
 /**
  * Everyone who can be on the floor in an office with `cubicles`: each workspace's resident, each
  * job's worker, the Freeform and Joplin rooms' own workers, and the temps (`temp:<slot>`) who help
- * with subagents when no resident can.
+ * with subagents when no resident can, and each visitor (`session:<id>`): the owner at an
+ * interactive session.
  * @param {Array<{ alias: string, workspace?: boolean, jobs: Array<{ name: string }> }>} cubicles
+ * @param {Array<{ id: string }>} [sessions]
  */
-export const workerKeys = (cubicles) => [
+export const workerKeys = (cubicles, sessions = []) => [
+  ...sessions.map((s) => `session:${s.id}`),
   ...cubicles.flatMap((c) => [...(c.workspace === false ? [] : [`ws:${c.alias}`]), ...c.jobs.map((j) => `job:${j.name}`)]),
   'room:freeform',
   'room:joplin',

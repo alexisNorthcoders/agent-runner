@@ -207,6 +207,9 @@ export function renderStatus(d, c = plain) {
   }
   out.push('');
 
+  const sessions = sessionsText(d);
+  if (sessions) out.push(`${c.bold('SESSIONS')} ${clip(sessions, 240)}`, '');
+
   const byHand = byHandText(d);
   const limited = usageLimitText(d);
   if (d.paused === 'unknown') out.push(`${c.bold('PAUSED')}  ${c.dim('unknown (Redis unreachable)')}`);
@@ -280,6 +283,20 @@ function subagentsText(r) {
 }
 
 /**
+ * The interactive sessions open, e.g. `Sessions (2): agent-runner, working (Bash: npm test) · chess-trainer, waiting for you`, or ''.
+ * @param {StatusSnapshot} d
+ */
+function sessionsText(d) {
+  const list = d.sessions ?? [];
+  if (!list.length) return '';
+  const one = (/** @type {import('./sessionWatch.js').OfficeSession} */ s) => {
+    const where = s.workspaceAlias ?? (s.cwd.split('/').filter(Boolean).pop() || s.cwd);
+    return `${where}, ${s.state === 'waiting' ? 'waiting for you' : `working${s.activity ? ` (${clip(s.activity, 40)})` : ''}`}`;
+  };
+  return `Sessions (${list.length}): ${list.map(one).join(' · ')}`;
+}
+
+/**
  * `claude:status`: active run, pause, last cron tick, today's spend and the last few runs.
  * @param {StatusSnapshot} d
  */
@@ -297,6 +314,9 @@ export function renderStatusText(d) {
       if (subs) out.push(clip(subs, 200));
     }
   }
+
+  const sessions = sessionsText(d);
+  if (sessions) out.push(clip(sessions, 240));
 
   const byHand = byHandText(d);
   const limited = usageLimitText(d);

@@ -8,6 +8,19 @@ const cubicles = [
   { alias: 'reddit-bot#scripts', workspace: false, jobs: [{ name: 'dashboard_export' }, { name: 'cron_digest' }] },
 ];
 
+describe('visitor looks', () => {
+  it("gives each session its own key and look, unique among everyone's", () => {
+    const sessions = [{ id: 'a1' }, { id: 'b2' }, { id: 'c3' }];
+    const keys = workerKeys(cubicles, sessions);
+    assert.equal(keys.length, workerKeys(cubicles).length + 3);
+    assert.ok(keys.includes('session:a1') && keys.includes('session:c3'));
+    const looks = [...looksFor(keys).values()];
+    assert.equal(new Set(looks.map((l) => `${l.shirt} ${l.hair}`)).size, looks.length);
+    assert.equal(lookKey({ room: 'cubicle', alias: 'bot', session: 'a1' }), 'session:a1');
+    assert.equal(lookKey({ room: 'freeform', session: 'a1' }), 'session:a1');
+  });
+});
+
 describe('worker looks', () => {
   it('has a worker for each resident, each job, the Freeform and Joplin rooms, and the temps', () => {
     const keys = workerKeys(cubicles);

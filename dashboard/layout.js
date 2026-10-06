@@ -147,17 +147,21 @@ export function cubicleDesks(r, n) {
 }
 
 /**
- * @typedef {{ alias: string, workspace?: boolean, jobs?: Array<{ name: string }> }} CubicleDesks
+ * @typedef {{ alias: string, workspace?: boolean, jobs?: Array<{ name: string }>, sessions?: string[] }} CubicleDesks
  *   A scene cubicle, as far as its desks go: the workspace's own (unless `workspace` is false), then
- *   one per scheduled job.
+ *   one per scheduled job, then a laptop spot for each open interactive session (by id).
  */
 
+/** The owner key of a session's spot at a cubicle's desks (see deskOwners). @param {string} id */
+export const sessionOwner = (id) => `session:${id}`;
+
 /**
- * Who sits at each of a cubicle's desks, in order: null for the workspace's own worker, else a job's name.
+ * Who sits at each of a cubicle's desks, in order: null for the workspace's own worker, a job's
+ * name, then `session:<id>` (sessionOwner) for each visitor working with an interactive session.
  * @param {CubicleDesks} c
  * @returns {Array<string | null>}
  */
-export const deskOwners = (c) => [...(c.workspace === false ? [] : [null]), ...(c.jobs ?? []).map((j) => j.name)];
+export const deskOwners = (c) => [...(c.workspace === false ? [] : [null]), ...(c.jobs ?? []).map((j) => j.name), ...(c.sessions ?? []).map(sessionOwner)];
 
 /**
  * The desk a worker sits behind, or null when `place` names a cubicle (or a job's desk) the
@@ -172,8 +176,37 @@ export function deskAt(layout, cubicles, place) {
   const r = layout.cubicles[i];
   if (!r) return null;
   const owners = deskOwners(cubicles[i]);
-  const at = owners.indexOf(place.job ?? null);
+  const at = owners.indexOf(place.session ? sessionOwner(place.session) : (place.job ?? null));
   return at < 0 ? null : cubicleDesks(r, owners.length)[at];
+}
+
+/** How many visitors' laptops the Freeform room has room for. */
+export const FREEFORM_SEATS = 4;
+
+/**
+ * The spot of the `i`th visitor (an interactive session outside every workspace) in the Freeform
+ * room: a small table on its floor, in front of the room's desk. Null past FREEFORM_SEATS.
+ * @param {Layout} layout @param {number} i
+ * @returns {Rect | null}
+ */
+export function freeformSeat(layout, i) {
+  if (i < 0 || i >= FREEFORM_SEATS) return null;
+  const r = layout.rooms.freeform.rect;
+  return { x: r.x + 22 + i * 30, y: r.y + WALL + 42, w: 26, h: 13 };
+}
+
+/**
+ * Where a visitor sits: their desk in the workspace's cubicle, or a seat in the Freeform room.
+ * @param {Layout} layout @param {CubicleDesks[]} cubicles
+ * @param {Array<{ id: string, place: import('./scene.js').Place }>} sessions every open session, oldest first
+ * @param {string} id
+ * @returns {Rect | null}
+ */
+export function sessionDesk(layout, cubicles, sessions, id) {
+  const s = sessions.find((x) => x.id === id);
+  if (!s) return null;
+  if (s.place.room === 'cubicle') return deskAt(layout, cubicles, { ...s.place, session: id });
+  return freeformSeat(layout, sessions.filter((x) => x.place.room === 'freeform').findIndex((x) => x.id === id));
 }
 
 /**

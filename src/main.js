@@ -28,6 +28,7 @@ import { createLogTail } from './logTail.js';
 import { createJobLauncher } from './jobProcess.js';
 import { createJobScheduler, jobSchedule, loadJobsFile } from './scheduledJobs.js';
 import { createIssueScan } from './issueScan.js';
+import { createSessionWatch } from './sessionWatch.js';
 
 const config = loadConfig();
 const QUEUE_POLL_MS = 15_000;
@@ -68,8 +69,17 @@ const cronState = createCronState({ store });
 const workspaces = createWorkspaceAllowlist();
 const issues = createIssuePipeline({ settings: config.pipeline });
 
+// the interactive sessions open on the Pi, from their transcripts (started below, once the feed exists)
+const sessionWatch = createSessionWatch({
+  root: config.sessionWatch.root,
+  workspaces,
+  intervalMs: config.sessionWatch.intervalMs,
+  activeMs: config.sessionWatch.activeMs,
+  onChange: changes.notify,
+});
+
 const statusSnapshot = () =>
-  collectStatus({ activeRuns, history, readCron: cronState.read, readPause: pause.get, readLock: lock.current, readQueue: queue.list, readManualPauses: manualPause.list, readUsageLimit: usageLimit.get });
+  collectStatus({ readSessions: async () => sessionWatch.current(), activeRuns, history, readCron: cronState.read, readPause: pause.get, readLock: lock.current, readQueue: queue.list, readManualPauses: manualPause.list, readUsageLimit: usageLimit.get });
 
 const runner = createRunner({
   lock,
@@ -113,6 +123,8 @@ changes.subscribe((reason) => {
   if (reason === 'run-ended') void issueScan.scan();
 });
 issueScan.start();
+if (config.sessionWatch.enabled) sessionWatch.start();
+else console.log('agent-runner: session watch disabled (SESSION_WATCH_DISABLE)');
 
 const officeFeed = createOfficeFeed({
   snapshot: () =>
@@ -121,6 +133,7 @@ const officeFeed = createOfficeFeed({
       liveRun: runner.status,
       workspaceAliases: workspaces.aliases,
       issues: issueScan.current,
+      sessions: sessionWatch.current,
       jobs: () => jobSchedule({ loadJobs: () => loadJobsFile(config.jobs.file), store }),
     }),
   subscribe: changes.subscribe,
@@ -192,6 +205,7 @@ for (const sig of /** @type {const} */ (['SIGINT', 'SIGTERM'])) {
   process.once(sig, () => {
     cron.stop();
     issueScan.stop();
+    sessionWatch.stop();
     scheduler.stop();
     clearInterval(queueTimer);
     officeFeed.close();

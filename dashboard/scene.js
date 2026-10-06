@@ -23,6 +23,7 @@
  *   sticky: Array<{ number: number, title: string }>,
  *   jobs: SceneJobDesk[],
  *   quiet: boolean,
+ *   sessions?: string[],
  * }} SceneCubicle
  *   One per allowlisted workspace (`workspace`), then one per scheduled-job room that isn't one
  *   (named and keyed by its room label), then a scripts room per room with clerk jobs (`<name>
@@ -30,7 +31,8 @@
  *   issues, then its blocked ones, but the one being worked at its desk. `sticky`: its
  *   `ready-for-human` issues, a sticky note on the cubicle while there are any. `jobs`: the
  *   scheduled jobs whose room it is, in config order, each at its own desk after the workspace's
- *   (a clerk's job in its room's scripts room). `quiet`: a workspace with no run started in the
+ *   (a clerk's job in its room's scripts room). `sessions`: the ids of the visitors at their own
+ *   desks after those, oldest first. `quiet`: a workspace with no run started in the
  *   last QUIET_MS, so its resident dozes off more.
  *
  * @typedef {{ alias: string, number: number, title: string, prUrl: string }} SceneParked
@@ -59,9 +61,26 @@
  * @typedef {{ id: string, label: string }} SceneLetter
  *   A queued request, as a letter on the mail cart.
  *
- * @typedef {{ room: 'cubicle', alias: string, job?: string } | { room: 'freeform' | 'joplin' }} Place
+ * @typedef {{ room: 'cubicle', alias: string, job?: string, session?: string } | { room: 'freeform' | 'joplin', session?: string }} Place
  *   Where a worker sits: a cubicle (at the desk of its scheduled job `job`, else the workspace's
- *   own), the Freeform room or the Joplin room.
+ *   own), the Freeform room or the Joplin room. A visitor (`session`: an interactive session's id)
+ *   sits at their own laptop spot in a cubicle or the Freeform room.
+ *
+ * @typedef {{
+ *   id: string,
+ *   place: Place,
+ *   repo: string,
+ *   branch: string | null,
+ *   state: 'working' | 'waiting',
+ *   activity: string | null,
+ *   tool: string | null,
+ *   subagents: number,
+ *   since: number,
+ * }} SceneSession
+ *   An open interactive session (the owner working with the agent), a visitor at a laptop in its
+ *   workspace's cubicle, or in the Freeform room when it's in none. `repo`: its workspace's alias,
+ *   else the folder it's in. `tool`: what the current tool is called on the tag (`Bash`, `Read`,
+ *   `write`), null while waiting. `since` on the snapshot's clock.
  *
  * @typedef {{
  *   runId: string,
@@ -127,6 +146,7 @@
  *   mail: SceneMail[],
  *   trayKnown: Record<string, number[]> | null,
  *   helpers: SceneHelper[],
+ *   sessions?: SceneSession[],
  * }} Scene
  *   `dark`: the runner is down. `backInFive`: the owner's general pause, as a sign on the front
  *   door. `countdownMs`: time to the next cron tick, null when there's no cron to count down to.
@@ -136,14 +156,15 @@
  *   in-tray letters for the mail carrier to hand out, newest last, for MAIL_KEEP_MS. `trayKnown`:
  *   each cubicle's letters seen so far (null before the first scan), so only a new one is mail.
  *   `helpers`: the active run's subagents, each a colleague called over to its desk, and for
- *   HELPER_KEEP_MS after they're done, while they walk back.
+ *   HELPER_KEEP_MS after they're done, while they walk back. `sessions`: the open interactive
+ *   sessions, oldest first.
  *
  * @typedef {{ cubicles?: Array<{ alias: string, name?: string }> }} OfficeConfig
  *   `dashboard/office.json`: cubicle names and order, by workspace alias.
  */
 
 /** @type {Scene} */
-const EMPTY = { dark: false, backInFive: false, cubicles: [], queueRoom: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [], parked: [], mail: [], trayKnown: null, helpers: [] };
+const EMPTY = { dark: false, backInFive: false, cubicles: [], queueRoom: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [], parked: [], mail: [], trayKnown: null, helpers: [], sessions: [] };
 
 /** The most sheets a desk's pile holds. */
 export const PILE_MAX = 16;
@@ -421,8 +442,10 @@ export function reduceScene(snap, prev, { up, now, config, log }) {
       ),
       sticky: (repo?.readyForHuman ?? []).map((i) => ({ number: i.number, title: i.title })),
       quiet: c.workspace && !busy.has(c.alias),
+      sessions: /** @type {string[]} */ ([]),
     };
   });
+  const sessions = reduceSessions(snap, cubicles);
   const run = reduceRun(snap, prev?.run ?? null, cubicles, now, log);
   return {
     dark: false,
@@ -438,7 +461,40 @@ export function reduceScene(snap, prev, { up, now, config, log }) {
     parked: cubicles.flatMap((c) => (repos.get(c.alias)?.parked ?? []).map((p) => ({ alias: c.alias, number: p.number, title: p.title, prUrl: p.prUrl }))),
     ...reduceMail(!!snap.issues, prev, cubicles, working, now),
     helpers: reduceHelpers(prev, run, r, now),
+    sessions,
   };
+}
+
+/** The tool a session's activity names (`Bash: git diff` → `Bash`), or `write` while it's writing. @param {string | null} activity */
+export const toolOf = (activity) => (!activity ? null : activity.startsWith('writing') ? 'write' : activity.split(':')[0].trim());
+
+/**
+ * The visitors: one per open interactive session, oldest first, each in its workspace's cubicle
+ * (whose `sessions` this fills in) or, in none, the Freeform room.
+ * @param {import('../src/officeSnapshot.js').OfficeSnapshot} snap @param {SceneCubicle[]} cubicles
+ * @returns {SceneSession[]}
+ */
+function reduceSessions(snap, cubicles) {
+  /** @type {SceneSession[]} */
+  const out = [];
+  for (const s of Array.isArray(snap.sessions) ? snap.sessions : []) {
+    if (typeof s?.id !== 'string' || (s.state !== 'working' && s.state !== 'waiting')) continue;
+    const c = s.workspaceAlias ? cubicles.find((x) => x.workspace && x.alias === s.workspaceAlias) : null;
+    if (c) (c.sessions ??= []).push(s.id);
+    const since = Date.parse(s.since);
+    out.push({
+      id: s.id,
+      place: c ? { room: 'cubicle', alias: c.alias, session: s.id } : { room: 'freeform', session: s.id },
+      repo: s.workspaceAlias ?? (String(s.cwd ?? '').split('/').filter(Boolean).pop() || 'session'),
+      branch: s.branch ?? null,
+      state: s.state,
+      activity: s.activity ?? null,
+      tool: s.state === 'working' ? (toolOf(s.activity ?? null) ?? 'write') : null,
+      subagents: Number.isFinite(s.subagents) ? s.subagents : 0,
+      since: Number.isFinite(since) ? since : 0,
+    });
+  }
+  return out;
 }
 
 /**

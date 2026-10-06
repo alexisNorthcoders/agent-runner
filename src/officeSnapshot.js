@@ -122,6 +122,7 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  *   workspaces: string[],
  *   issues: import('./issueScan.js').OfficeIssues | null,
  *   jobs: import('./scheduledJobs.js').JobScheduleEntry[],
+ *   sessions: import('./sessionWatch.js').OfficeSession[],
  * }} OfficeSnapshot
  *   `at`: when the snapshot was taken (ISO). `activeRun`: the run this runner is executing, if any.
  *   `active`: every in-flight run `agent:status` lists, including orphaned and stale ones, oldest
@@ -129,11 +130,23 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  *   local midnight) and the last 7 days. `workspaces`: the allowlisted aliases, sorted. `issues`:
  *   the issue scan's latest result (src/issueScan.js), null before its first scan ends. `jobs`: the
  *   scheduled jobs' config (src/scheduledJobs.js) with each one's next due time, in config order.
+ *   `sessions`: the interactive agent sessions open on the machine (src/sessionWatch.js), oldest
+ *   first, with the allowlisted workspace each is in (null outside any); `[]` when the watch is off
+ *   or fails. They carry no prompt or reply text.
  *
  * @typedef {{ runId: string, phase?: 'agent' | 'post-run' | 'job', inferredWorkspace?: string } & Partial<import('./agentBackend/index.js').AgentProgress>} LiveRun
  *   What this process knows about the run it's executing (from `runner.status()`), fresher than
  *   the throttled active-run file.
  */
+
+/** The sessions, or none if reading them fails. @param {() => import('./sessionWatch.js').OfficeSession[]} read */
+const safely = (read) => {
+  try {
+    return read();
+  } catch {
+    return [];
+  }
+};
 
 /** @param {string | null | undefined} iso @param {number} now */
 const elapsedSince = (iso, now) => (iso && Number.isFinite(Date.parse(iso)) ? now - Date.parse(iso) : null);
@@ -219,10 +232,11 @@ const manualPause = (p) => ({ reason: p.reason, pausedAt: p.pausedAt, until: p.u
  *   workspaces: string[],
  *   issues?: import('./issueScan.js').OfficeIssues | null,
  *   jobs?: import('./scheduledJobs.js').JobScheduleEntry[],
+ *   sessions?: import('./sessionWatch.js').OfficeSession[],
  * }} p
  * @returns {OfficeSnapshot}
  */
-export function buildOfficeSnapshot({ status: d, live, workspaces, issues = null, jobs = [] }) {
+export function buildOfficeSnapshot({ status: d, live, workspaces, issues = null, jobs = [], sessions = [] }) {
   const active = d.active.map((r) => officeRun(r, live, d.now));
   const manual = d.manualPauses ?? [];
   const general = manual.find((p) => p.scope === ALL);
@@ -272,6 +286,7 @@ export function buildOfficeSnapshot({ status: d, live, workspaces, issues = null
     workspaces,
     issues,
     jobs,
+    sessions: sessions.map((s) => ({ id: s.id, workspaceAlias: s.workspaceAlias, cwd: s.cwd, branch: s.branch, state: s.state, activity: s.activity, subagents: s.subagents, since: s.since, lastEntryAt: s.lastEntryAt })),
   };
 }
 
@@ -284,15 +299,16 @@ export function buildOfficeSnapshot({ status: d, live, workspaces, issues = null
  *   workspaceAliases: () => Promise<string[]>,
  *   issues?: () => import('./issueScan.js').OfficeIssues | null,
  *   jobs?: () => Promise<import('./scheduledJobs.js').JobScheduleEntry[]>,
+ *   sessions?: () => import('./sessionWatch.js').OfficeSession[],
  * }} deps
  * @returns {Promise<OfficeSnapshot>}
  */
-export async function collectOfficeSnapshot({ statusSnapshot, liveRun, workspaceAliases, issues = () => null, jobs = async () => [] }) {
+export async function collectOfficeSnapshot({ statusSnapshot, liveRun, workspaceAliases, issues = () => null, jobs = async () => [], sessions = () => [] }) {
   const [status, live, workspaces, schedule] = await Promise.all([
     statusSnapshot(),
     liveRun().then((s) => s.activeRun, () => null),
     workspaceAliases().catch(() => []),
     jobs().catch(() => []),
   ]);
-  return buildOfficeSnapshot({ status, live, workspaces, issues: issues(), jobs: schedule });
+  return buildOfficeSnapshot({ status, live, workspaces, issues: issues(), jobs: schedule, sessions: safely(sessions) });
 }

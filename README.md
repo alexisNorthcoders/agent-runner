@@ -301,7 +301,8 @@ curl -sN localhost:3790/office/feed
 
 `OfficeSnapshot` in `src/officeSnapshot.js` (JSDoc-typed) is the contract. It is built from the
 same status snapshot as `npm run agent:status`, plus the live phase and progress the runner holds
-in memory, so the numbers match. It carries no paths, reply addresses or prompts.
+in memory, so the numbers match. It carries no reply addresses or prompts, and no paths but each
+interactive session's `cwd`.
 
 ```jsonc
 {
@@ -362,11 +363,40 @@ in memory, so the numbers match. It carries no paths, reply addresses or prompts
   "jobs": [                            // the scheduled jobs' config, in config order ([] if unreadable)
     { "name": "cleanup_agent", "room": "Research & Archives", "at": "02:00",
       "nextDueAt": "…" }               // when it next joins the queue
+  ],
+  "sessions": [                        // interactive agent sessions open on the Pi, oldest first ([] if the watch is off)
+    { "id": "…", "workspaceAlias": "bot",   // null outside every allowlisted workspace
+      "cwd": "/home/…/bot", "branch": "main",
+      "state": "working",              // "working" | "waiting" (for the owner)
+      "activity": "Bash: npm test",    // the last tool call, or "writing…"
+      "subagents": 0,                  // best effort, from recent subagent writes
+      "since": "…", "lastEntryAt": "…" }   // first seen open; latest transcript entry
   ]
 }
 ```
 
 Add fields freely; bump `version` for anything that breaks a reader.
+
+### Session watch
+
+`src/sessionWatch.js` shows the interactive Claude Code sessions the owner has open in a terminal
+(the `sessions` above, `claude:status`'s `Sessions (n): …` line, and a visitor with a laptop in the
+workspace's cubicle, or the Freeform room, on the dashboard). It reads the transcripts Claude Code
+already writes, `~/.claude/projects/<folder>/<session-id>.jsonl`, so sessions pay no tokens and no
+latency, and it uses no hooks and changes no Claude settings. The parsing is
+`src/agentBackend/claudeTranscripts.js`, and relies on a handful of fields of Claude Code's internal
+format (`entrypoint`, `isSidechain`, `cwd`, `gitBranch`, the content blocks): a line without them is skipped.
+
+- Every `SESSION_POLL_MS` (3000) it `stat`s every transcript, but opens only those written in the last
+  `SESSION_ACTIVE_MS` (10 min), reading just the bytes appended since the last poll (a file seen for
+  the first time from its last 64 KB). A truncated or replaced file is read again from the start.
+- A session is open when its transcript is that recent and a `claude` process runs in its cwd
+  (`/proc/*/comm`, `/proc/<pid>/cwd`), so one whose process exited drops off within a poll. Only
+  `entrypoint: "cli"` counts: the runner's own headless runs (`sdk-cli`) never show twice. A headless run in the same directory
+  can keep a closed interactive session looking open until it's been quiet for `SESSION_ACTIVE_MS`.
+- `working` while the last main-thread entry is a prompt, a tool call or result, or thinking;
+  `waiting` once it's a reply with no tool call after it. No prompt or reply text is kept.
+- `CLAUDE_PROJECTS_DIR` moves the root. `SESSION_WATCH_DISABLE=1` turns it off.
 
 ### The page
 
@@ -441,6 +471,13 @@ A live run plays out on the floor:
   tool their subagent is using (`BASH`, `READ`, `WRITE` while it writes), and walk back once it's
   done (or the run moves on to post-run). Up to 4 stand at a desk. Hover one for what it was asked
   and is doing. `claude:status` lists the subagents too.
+- **Visitors:** each open interactive session (see [Session watch](#session-watch)) is the owner at
+  a laptop, at a spare desk after the workspace's and its jobs' in the workspace's cubicle (a
+  session in no workspace sits in the Freeform room, up to 4 there). While the agent works the
+  visitor types, with a tag naming the tool (`BASH`, `READ`, `WRITE`); while it waits for the owner
+  they sit back with a blinking `?`. A `+N` badge counts its subagents (no residents are recruited
+  for them). Each visitor has a look of their own, and their room stays lit at night. Hover one for
+  the repo, branch, state, activity and how long the session has been open.
 - **Post-run** (issue runs): the boss walks over (out of the Review room's doorway, along the
   corridor and aisle, and round the nearer end of the desk) and, once there, reads over the worker's
   shoulder during the review (from the start of post-run: the snapshot can't tell the review from
