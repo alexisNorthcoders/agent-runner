@@ -4,6 +4,7 @@ import {
   REPO_INSIGHT_CURSOR_KEY,
   REPO_INSIGHT_PRIORITY as ORDER,
   createRepoInsightCursor,
+  decideRepoInsightTarget as decide,
   pickNextIdleWorkspace as pick,
 } from '../src/repoInsight.js';
 import { createMemoryStore } from './helpers/memoryStore.js';
@@ -123,5 +124,52 @@ describe('repo insight lookups', () => {
     const l = await setup();
     assert.deepEqual(await l.pastSuggestions('bot'), suggested);
     assert.deepEqual(await l.pastSuggestions('dots'), []);
+  });
+});
+
+describe('decideRepoInsightTarget', () => {
+  /** @returns {any} */
+  const fakes = ({ cursor = null, idle = [], past = {} } = {}) => {
+    const calls = [];
+    return {
+      calls,
+      deps: {
+        order: ['a', 'b', 'c'],
+        cursor: { read: async () => cursor, write: async (alias) => calls.push(`write:${alias}`) },
+        isIdle: async (alias) => (calls.push(`idle:${alias}`), idle.includes(alias)),
+        pastSuggestions: async (alias) => (calls.push(`past:${alias}`), past[alias] ?? []),
+      },
+    };
+  };
+
+  it('checks from just after the cursor, wrapping, and stops at the first idle one', async () => {
+    const { calls, deps } = fakes({ cursor: 'b', idle: ['a', 'c'] });
+    const r = await decide(deps);
+    assert.equal(r.alias, 'c');
+    assert.deepEqual(calls, ['idle:c', 'write:c', 'past:c']);
+  });
+
+  it('wraps around the end', async () => {
+    const { calls, deps } = fakes({ cursor: 'b', idle: ['a'] });
+    assert.equal((await decide(deps)).alias, 'a');
+    assert.deepEqual(calls.slice(0, 3), ['idle:c', 'idle:a', 'write:a']);
+  });
+
+  it('persists the cursor before fetching past suggestions, even if that fails', async () => {
+    const { calls, deps } = fakes({ idle: ['b'] });
+    deps.pastSuggestions = async () => { throw new Error('gh down'); };
+    await assert.rejects(decide(deps), /gh down/);
+    assert.deepEqual(calls, ['idle:a', 'idle:b', 'write:b']);
+  });
+
+  it('returns the past suggestions alongside the alias', async () => {
+    const { deps } = fakes({ idle: ['a'], past: { a: [3] } });
+    assert.deepEqual(await decide(deps), { alias: 'a', pastSuggestions: [3] });
+  });
+
+  it('leaves the cursor alone and returns null when nothing is idle', async () => {
+    const { calls, deps } = fakes({ cursor: 'a' });
+    assert.equal(await decide(deps), null);
+    assert.deepEqual(calls, ['idle:b', 'idle:c', 'idle:a']);
   });
 });

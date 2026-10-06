@@ -7,6 +7,8 @@
 
 import { classifyReadyIssues } from './cronTracer.js';
 
+/** @typedef {import('./issuePipeline/githubIssue.js').SuggestedIssue} SuggestedIssue */
+
 export const REPO_INSIGHT_CURSOR_KEY = 'agent-runner:repo-insight:cursor';
 
 export const REPO_INSIGHT_PRIORITY = [
@@ -35,10 +37,39 @@ export const REPO_INSIGHT_PRIORITY = [
  */
 export function pickNextIdleWorkspace(order, idle, cursor) {
   const isIdle = (/** @type {string} */ alias) => (idle instanceof Map ? idle.get(alias) : /** @type {any} */ (idle)[alias]) === true;
+  return rotationFrom(order, cursor).find(isIdle) ?? null;
+}
+
+/**
+ * The order the picker visits workspaces in: just after the cursor, wrapping, the cursor last.
+ * A cursor that isn't in the order (or is null) starts from the top.
+ * @param {readonly string[]} order
+ * @param {string | null} cursor
+ * @returns {string[]}
+ */
+export function rotationFrom(order, cursor) {
   const start = cursor == null ? -1 : order.indexOf(cursor);
-  for (let i = 1; i <= order.length; i++) {
-    const alias = order[(start + i) % order.length];
-    if (isIdle(alias)) return alias;
+  return order.map((_, i) => order[(start + 1 + i) % order.length]);
+}
+
+/**
+ * Today's target: check workspaces in rotation order, lazily, until one is idle. The cursor is
+ * persisted the moment one is found, before its past suggestions are fetched, so a later failure
+ * doesn't skip it next time. Nothing idle leaves the cursor alone. Takes no agent action and
+ * writes nothing to GitHub.
+ * @param {{
+ *   order?: readonly string[],
+ *   cursor: { read: () => Promise<string | null>, write: (alias: string) => Promise<unknown> },
+ *   isIdle: (alias: string) => Promise<boolean>,
+ *   pastSuggestions: (alias: string) => Promise<SuggestedIssue[]>,
+ * }} deps
+ * @returns {Promise<{ alias: string, pastSuggestions: SuggestedIssue[] } | null>} null when nothing is idle
+ */
+export async function decideRepoInsightTarget({ order = REPO_INSIGHT_PRIORITY, cursor, isIdle, pastSuggestions }) {
+  for (const alias of rotationFrom(order, await cursor.read())) {
+    if (!(await isIdle(alias))) continue;
+    await cursor.write(alias);
+    return { alias, pastSuggestions: await pastSuggestions(alias) };
   }
   return null;
 }
