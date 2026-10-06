@@ -149,15 +149,23 @@ export function buildInsightPrompt({ alias, pastSuggestions }) {
     ? pastSuggestions.map((s) => `- #${s.number} [${s.state}] ${s.title}`).join('\n')
     : '_(none yet)_';
   return [
-    `You are exploring the "${alias}" repository (your working directory) to suggest ONE improvement.`,
+    `You are exploring the "${alias}" repository (your working directory) to pitch ONE idea that would make it more exciting.`,
     'You are read-only: you can read and search files, nothing else. Do not try to edit, run commands or file anything.',
     '',
-    'Look around (structure, README, key modules, tests, rough edges), then form a single concrete, well-scoped improvement idea.',
-    'It must not repeat any idea already raised here, whether that issue is still open or was closed:',
+    'This is a personal side project. The owner wants ideas that make them say "oh, that would be cool": new features,',
+    'new capabilities, delightful UX, clever uses of the data it already has, or integrations that open up something new.',
+    'Do NOT suggest tests, CI, input validation, error handling, refactors, logging or other hardening; those are not wanted here.',
+    '',
+    'First work out what the project is for and who uses it (README, entry points, key modules). Then brainstorm five ideas,',
+    'each from a different angle: a new feature, a UX or delight upgrade, something built on data or state the project already has,',
+    'an integration, and one ambitious stretch idea. Pick the most exciting one that a coding agent could still ship in a single pull request.',
+    '',
+    'It must not repeat any idea already raised here, whether that issue is still open or was closed, and should steer away from the themes they cover:',
     '',
     past,
     '',
-    'Reply with ONLY a JSON object, no other text: {"title": "<short issue title>", "body": "<markdown issue body: the problem, the proposed change, acceptance criteria>"}',
+    'You may think out loud briefly, but end your reply with a JSON object:',
+    '{"title": "<short, specific issue title>", "body": "<markdown issue body: why it would be exciting, what it would look like to use, the proposed change grounded in the current code, acceptance criteria>"}',
   ].join('\n');
 }
 
