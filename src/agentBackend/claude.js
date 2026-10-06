@@ -264,7 +264,7 @@ export function createClaudeBackend({
             }, resultExitGraceMs);
             resultTimer.unref();
           }
-          onProgress?.({ model: s.model, turns: s.turns, outputTokens: s.outputTokens, contextTokens: s.contextTokens, lastActivity: s.lastActivity });
+          onProgress?.({ model: s.model, turns: s.turns, outputTokens: s.outputTokens, contextTokens: s.contextTokens, lastActivity: s.lastActivity, subagents: s.subagents });
         });
         child.stderr.on('data', (d) => {
           if (stderr.length < MAX_STDERR_BYTES) stderr += d.toString('utf8');

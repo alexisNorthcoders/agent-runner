@@ -97,3 +97,77 @@ describe('claudeStreamParser', () => {
     assert.equal(describeToolUse('Bash', { command: 'x'.repeat(200) }).length, 'Bash: '.length + 80);
   });
 });
+
+describe('claudeStreamParser: subagents', () => {
+  /** The main agent spawning a subagent by tool call `id`. */
+  const spawn = (msg, id, description) => ({
+    type: 'assistant',
+    parent_tool_use_id: null,
+    message: { id: msg, usage: { input_tokens: 10, cache_read_input_tokens: 1000, output_tokens: 5 }, content: [{ type: 'tool_use', id, name: 'Agent', input: { description, prompt: 'p', subagent_type: 'general-purpose' } }] },
+  });
+  const started = (taskId, id, description) => ({ type: 'system', subtype: 'task_started', task_id: taskId, tool_use_id: id, description, subagent_type: 'general-purpose', is_backgrounded: true, task_type: 'local_agent' });
+  const launched = (id) => ({ type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: id }] }, tool_use_result: { isAsync: true, status: 'async_launched' } });
+  /** A subagent's message: its own tool call or text. */
+  const says = (parent, msg, block, description) => ({
+    type: 'assistant',
+    parent_tool_use_id: parent,
+    task_description: description,
+    subagent_type: 'general-purpose',
+    message: { id: msg, usage: { input_tokens: 3, cache_read_input_tokens: 50_000, output_tokens: 20 }, content: [block] },
+  });
+
+  it('tracks background subagents from spawn to done, apart from the main agent', () => {
+    const acc = createStreamAccumulator();
+    acc.push(line(spawn('m1', 'tu1', 'Spec review')) + line(started('task1', 'tu1', 'Spec review')) + line(launched('tu1')));
+    acc.push(line(spawn('m1', 'tu2', 'Standards review')) + line(started('task2', 'tu2', 'Standards review')) + line(launched('tu2')));
+    let s = acc.snapshot();
+    assert.deepEqual(s.subagents, [
+      { id: 'tu1', description: 'Spec review', type: 'general-purpose', activity: null },
+      { id: 'tu2', description: 'Standards review', type: 'general-purpose', activity: null },
+    ]);
+    assert.equal(s.lastActivity, 'Agent: Standards review');
+
+    const lines = acc.push(line(says('tu1', 's1', { type: 'tool_use', name: 'Bash', input: { command: 'git diff' } }, 'Spec review')));
+    assert.deepEqual(lines, ['[Spec review] → Bash: git diff']);
+    s = acc.snapshot();
+    assert.equal(s.subagents[0].activity, 'Bash: git diff');
+    // the main agent's own figures stay its own
+    assert.deepEqual([s.turns, s.contextTokens, s.lastActivity], [1, 1010, 'Agent: Standards review']);
+    assert.equal(s.outputTokens, 25, 'but the subagent output counts');
+
+    acc.push(line({ type: 'system', subtype: 'task_updated', task_id: 'task1', patch: { status: 'completed', end_time: 1 } }));
+    assert.deepEqual(acc.snapshot().subagents.map((a) => a.id), ['tu2']);
+    acc.push(line({ type: 'system', subtype: 'task_notification', task_id: 'task2', tool_use_id: 'tu2', status: 'completed', summary: 'ok' }));
+    assert.deepEqual(acc.snapshot().subagents, []);
+  });
+
+  it('drops a background subagent no longer listed, however its end was missed', () => {
+    const acc = createStreamAccumulator();
+    acc.push(line(spawn('m1', 'tu1', 'A')) + line(started('task1', 'tu1', 'A')) + line(spawn('m1', 'tu2', 'B')) + line(started('task2', 'tu2', 'B')));
+    acc.push(line({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'task2', task_type: 'local_agent' }] }));
+    assert.deepEqual(acc.snapshot().subagents.map((a) => a.id), ['tu2']);
+  });
+
+  it('ends a foreground subagent when its tool call returns', () => {
+    const acc = createStreamAccumulator();
+    acc.push(line(spawn('m1', 'tu1', 'Explore')));
+    acc.push(line(says('tu1', 's1', { type: 'text', text: 'found it' }, 'Explore')));
+    assert.equal(acc.snapshot().subagents[0].activity, 'writing…');
+    acc.push(line({ type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'found it' }] } }));
+    assert.deepEqual(acc.snapshot().subagents, []);
+  });
+
+  it("picks up a subagent it never saw spawned from its messages, and a subagent's own", () => {
+    const acc = createStreamAccumulator();
+    acc.push(line(says('tuX', 's1', { type: 'tool_use', id: 'tuY', name: 'Task', input: { description: 'Nested' } }, 'Outer')));
+    assert.deepEqual(acc.snapshot().subagents.map((a) => [a.id, a.description]), [['tuX', 'Outer'], ['tuY', 'Nested']]);
+  });
+
+  it('copies the subagents out, so a snapshot never changes after the fact', () => {
+    const acc = createStreamAccumulator();
+    acc.push(line(spawn('m1', 'tu1', 'A')));
+    const before = acc.snapshot();
+    acc.push(line(says('tu1', 's1', { type: 'text', text: 'hi' }, 'A')));
+    assert.equal(before.subagents[0].activity, null);
+  });
+});

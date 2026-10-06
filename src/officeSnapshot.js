@@ -30,6 +30,7 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  *   outputTokens: number,
  *   contextTokens: number,
  *   lastActivity: string | null,
+ *   subagents: Array<{ id: string, description: string, type: string | null, activity: string | null }>,
  *   startedAt: string | null,
  *   elapsedMs: number | null,
  *   agentPid: number | null,
@@ -38,7 +39,8 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  *   job (`kind: job`, with its `room` and `jobName`), else `manual` (WhatsApp or HTTP). `inferredWorkspace`: the
  *   allowlisted workspace a freeform run turned out to work in, once its first edit or command
  *   there is seen (null until then, and for other kinds). A job's phase is `job`. `phase` is known only for the run this process is executing (null for an orphaned or
- *   stale one). `elapsedMs` is as of the snapshot's `at`.
+ *   stale one). `elapsedMs` is as of the snapshot's `at`. `subagents`: the subagents the
+ *   agent has running now, oldest first (only for the run this process is executing).
  *
  * @typedef {{
  *   runId: string,
@@ -174,6 +176,7 @@ function officeRun(r, live, now) {
     outputTokens: p.outputTokens ?? 0,
     contextTokens: p.contextTokens ?? 0,
     lastActivity: p.lastActivity ?? null,
+    subagents: (Array.isArray(mine?.subagents) ? mine.subagents : []).map((a) => ({ id: a.id, description: a.description, type: a.type ?? null, activity: a.activity ?? null })),
     startedAt: r.startedAt ?? null,
     elapsedMs: elapsedSince(r.startedAt, now),
     agentPid: r.agentPid ?? null,

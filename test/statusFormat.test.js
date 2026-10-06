@@ -78,6 +78,15 @@ describe('renderStatusText (WhatsApp)', () => {
     assert.match(text, /^Phase: Bash: npm test$/m);
   });
 
+  it("lists the active run's subagents and what each is doing", () => {
+    const subagents = [
+      { id: 'a', description: 'Spec review', type: 'general-purpose', activity: 'Bash: git diff' },
+      { id: 'b', description: 'Standards review', type: 'general-purpose', activity: null },
+    ];
+    const text = renderStatusText(snapshot({ active: [{ runId: 'r9', label: 'fix', startedAt: ago(MIN), health: 'running', lastActivity: 'Agent: Standards review', subagents }] }));
+    assert.match(text, /^Subagents \(2\): Spec review \(Bash: git diff\); Standards review$/m);
+  });
+
   it('flags orphaned and stale runs', () => {
     const text = renderStatusText(
       snapshot({

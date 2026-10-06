@@ -18,7 +18,13 @@ import { createClaudeBackend } from './claude.js';
  *   outputTokens: number,
  *   contextTokens: number,
  *   lastActivity: string | null,
+ *   subagents?: AgentSubagent[],
  * }} AgentProgress
+ *   `subagents`: the subagents the agent has running now, oldest first (none when left out).
+ *
+ * @typedef {{ id: string, description: string, type: string | null, activity: string | null }} AgentSubagent
+ *   A subagent the agent spawned: its `description` (what the agent asked of it), its `type` (e.g.
+ *   `general-purpose`), and what it's doing now (`Bash: git diff`, `writing…`), null until it starts.
  *
  * @typedef {{
  *   outcome: AgentOutcome,

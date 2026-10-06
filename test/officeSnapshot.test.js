@@ -67,7 +67,7 @@ describe('buildOfficeSnapshot', () => {
   it('describes the active run with its live phase and progress, and how long it has run', () => {
     const s = buildOfficeSnapshot({
       status: status(),
-      live: { runId: 'r1', phase: 'post-run', turns: 6, lastActivity: 'Edit src/a.js' },
+      live: { runId: 'r1', phase: 'post-run', turns: 6, lastActivity: 'Edit src/a.js', subagents: [{ id: 'tu1', description: 'Spec review', type: 'general-purpose', activity: 'Bash: git diff' }] },
       workspaces: ['bot', 'chess'],
     });
     assert.equal(s.version, 1);
@@ -89,6 +89,7 @@ describe('buildOfficeSnapshot', () => {
       outputTokens: 900,
       contextTokens: 20_000,
       lastActivity: 'Edit src/a.js',
+      subagents: [{ id: 'tu1', description: 'Spec review', type: 'general-purpose', activity: 'Bash: git diff' }],
       startedAt: '2026-09-24T11:50:00Z',
       elapsedMs: 600_000,
       agentPid: 2,

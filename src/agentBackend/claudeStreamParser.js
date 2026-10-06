@@ -53,6 +53,7 @@ function primaryModel(modelUsage) {
  *   rejectedResetsAt: number | null,
  *   rateLimited: boolean,
  *   assistantText: string,
+ *   subagents: import('./index.js').AgentSubagent[],
  *   result: null | {
  *     text: string,
  *     isError: boolean,
@@ -65,7 +66,16 @@ function primaryModel(modelUsage) {
  *   `rejectedResetsAt` is the reset epoch of a rate-limit event that rejected the run (the usage
  *   limit), when one came. `rateLimited` is whether the stream signalled the usage limit: that
  *   rejected event, or the CLI's synthetic assistant message flagged `error: "rate_limit"`.
+ *   `subagents`: the subagents running now, oldest first. Their messages (tagged with the
+ *   `parent_tool_use_id` of the tool call that spawned them) count toward `outputTokens` but not
+ *   the main agent's `turns`, `contextTokens` or `lastActivity`, and their log lines are prefixed
+ *   with their description.
  */
+
+/** The tool calls that spawn a subagent (the CLI's older and newer names for it). */
+const SPAWN_TOOLS = new Set(['Agent', 'Task']);
+/** A task's statuses once it's over. */
+const TASK_OVER = new Set(['completed', 'failed', 'killed', 'stopped', 'cancelled', 'error']);
 
 /**
  * @param {{ cwd?: string, onTouch?: (t: import('./index.js').AgentTouch) => void }} [o] `onTouch`
@@ -87,10 +97,58 @@ export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
     rejectedResetsAt: null,
     rateLimited: false,
     assistantText: '',
+    subagents: [],
     result: null,
   };
   /** message id -> output tokens (assistant events repeat per content block; count each id once) */
   const outputByMessage = new Map();
+  /** A background task's id -> the tool call (its subagent's id) that spawned it. @type {Map<string, string>} */
+  const taskTool = new Map();
+
+  /** @param {string} id */
+  const subagent = (id) => state.subagents.find((a) => a.id === id);
+  /** A subagent spawned by tool call `id`, unless it's already known. @param {string} id @param {{ description?: unknown, subagent_type?: unknown }} input */
+  function spawned(id, input) {
+    const known = subagent(id);
+    const description = typeof input.description === 'string' && input.description.trim() ? truncate(input.description, 60) : 'subagent';
+    const type = typeof input.subagent_type === 'string' ? input.subagent_type : null;
+    if (known) {
+      known.description = description;
+      known.type = type ?? known.type;
+    } else state.subagents = [...state.subagents, { id, description, type, activity: null }];
+  }
+  /** The subagent spawned by tool call `id` is done. @param {string | undefined} id */
+  function finished(id) {
+    if (id) state.subagents = state.subagents.filter((a) => a.id !== id);
+  }
+
+  /**
+   * A subagent's message: its output tokens count, its tool calls and text are its own activity,
+   * and its log lines say whose they are. One the parser never saw spawned is picked up here.
+   * @returns {string[]}
+   */
+  function subagentSays(ev) {
+    const m = ev.message;
+    if (m.id && m.usage) {
+      outputByMessage.set(m.id, m.usage.output_tokens || 0);
+      state.outputTokens = [...outputByMessage.values()].reduce((a, b) => a + b, 0);
+    }
+    if (!subagent(ev.parent_tool_use_id)) spawned(ev.parent_tool_use_id, { description: ev.task_description, subagent_type: ev.subagent_type });
+    const who = /** @type {import('./index.js').AgentSubagent} */ (subagent(ev.parent_tool_use_id));
+    const lines = [];
+    for (const block of m.content || []) {
+      if (block.type === 'tool_use') {
+        who.activity = describeToolUse(block.name, block.input);
+        lines.push(`[${who.description}] → ${who.activity}`);
+        // a subagent spawning its own
+        if (SPAWN_TOOLS.has(block.name) && typeof block.id === 'string') spawned(block.id, block.input ?? {});
+      } else if (block.type === 'text' && block.text?.trim()) {
+        who.activity = 'writing…';
+        lines.push(`[${who.description}] ${truncate(block.text, 300)}`);
+      }
+    }
+    return lines;
+  }
 
   /** @returns {string[]} log lines for this event */
   function handle(ev) {
@@ -98,6 +156,37 @@ export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
 
     if (ev.type === 'system' && ev.subtype === 'init') {
       if (ev.model) state.model = ev.model;
+      return [];
+    }
+
+    if (ev.type === 'system' && ev.subtype === 'task_started' && typeof ev.tool_use_id === 'string') {
+      if (typeof ev.task_id === 'string') taskTool.set(ev.task_id, ev.tool_use_id);
+      spawned(ev.tool_use_id, ev);
+      return [];
+    }
+    if (ev.type === 'system' && ev.subtype === 'task_updated' && TASK_OVER.has(ev.patch?.status)) {
+      finished(taskTool.get(ev.task_id));
+      return [];
+    }
+    if (ev.type === 'system' && ev.subtype === 'task_notification') {
+      finished(typeof ev.tool_use_id === 'string' ? ev.tool_use_id : taskTool.get(ev.task_id));
+      return [];
+    }
+    if (ev.type === 'system' && ev.subtype === 'background_tasks_changed' && Array.isArray(ev.tasks)) {
+      // a background subagent no longer listed is over, however its end was missed
+      const live = new Set(ev.tasks.map((x) => taskTool.get(x?.task_id)).filter(Boolean));
+      const background = new Set(taskTool.values());
+      state.subagents = state.subagents.filter((a) => !background.has(a.id) || live.has(a.id));
+      return [];
+    }
+
+    // a foreground subagent's tool call returns when it's done (a background one's straight away, launched)
+    if (ev.type === 'user' && !ev.parent_tool_use_id && Array.isArray(ev.message?.content)) {
+      for (const block of ev.message.content) {
+        if (block?.type !== 'tool_result' || !subagent(block.tool_use_id)) continue;
+        if (ev.tool_use_result?.status === 'async_launched' || ev.tool_use_result?.isAsync) continue;
+        finished(block.tool_use_id);
+      }
       return [];
     }
 
@@ -116,6 +205,8 @@ export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
       }
       return [];
     }
+
+    if (ev.type === 'assistant' && ev.message && typeof ev.parent_tool_use_id === 'string') return subagentSays(ev);
 
     if (ev.type === 'assistant' && ev.message) {
       if (ev.error === 'rate_limit') state.rateLimited = true;
@@ -137,6 +228,7 @@ export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
         if (block.type === 'tool_use') {
           state.lastActivity = describeToolUse(block.name, block.input);
           lines.push(`→ ${state.lastActivity}`);
+          if (SPAWN_TOOLS.has(block.name) && typeof block.id === 'string') spawned(block.id, block.input ?? {});
           const touch = touches?.read(block.name, block.input);
           if (touch) onTouch?.(touch);
         } else if (block.type === 'text' && block.text?.trim()) {
@@ -202,7 +294,7 @@ export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
     },
     /** @returns {StreamSnapshot} */
     snapshot() {
-      return { ...state, rateLimits: state.rateLimits ? { ...state.rateLimits } : null };
+      return { ...state, rateLimits: state.rateLimits ? { ...state.rateLimits } : null, subagents: state.subagents.map((a) => ({ ...a })) };
     },
   };
 }

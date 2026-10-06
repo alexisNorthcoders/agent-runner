@@ -198,7 +198,11 @@ export function renderStatus(d, c = plain) {
     for (const r of d.active) {
       if (r.health === 'orphaned') out.push(c.red(`  ${r.runId}: runner died but agent pid ${r.agentPid} is still running; nothing will report its result`));
       else if (r.health === 'stale') out.push(c.yellow(`  ${r.runId}: leftover from a crash (no live process); removed on the next cron tick`));
-      else if (r.lastActivity) out.push(c.dim(`  ↳ ${r.lastActivity}`));
+      else {
+        if (r.lastActivity) out.push(c.dim(`  ↳ ${r.lastActivity}`));
+        const subs = subagentsText(r);
+        if (subs) out.push(c.dim(`  ↳ ${subs}`));
+      }
     }
   }
   out.push('');
@@ -265,6 +269,17 @@ const historyLine = (r, now) =>
 export const STATUS_RECENT_COUNT = 3;
 
 /**
+ * The subagents a run has going, each with what it's doing: `Subagents (2): Spec review (Bash: git diff); Standards review`.
+ * Empty when none.
+ * @param {{ subagents?: import('./agentBackend/index.js').AgentSubagent[] }} r
+ */
+function subagentsText(r) {
+  const subs = Array.isArray(r.subagents) ? r.subagents : [];
+  if (!subs.length) return '';
+  return `Subagents (${subs.length}): ${subs.map((a) => (a.activity ? `${a.description} (${a.activity})` : a.description)).join('; ')}`;
+}
+
+/**
  * `claude:status`: active run, pause, last cron tick, today's spend and the last few runs.
  * @param {StatusSnapshot} d
  */
@@ -276,7 +291,11 @@ export function renderStatusText(d) {
     out.push(`${isJob(r) ? 'Job' : 'Agent'}: ${whatWhere(r, 60)} (${r.health}, ${formatDuration(since(d.now, r.startedAt))}${progress})`);
     if (r.health === 'orphaned') out.push(`⚠ Orphaned: agent-runner restarted but agent pid ${r.agentPid} is still running; nothing will report its result.`);
     else if (r.health === 'stale') out.push('⚠ Stale: leftover from a crash (no live process).');
-    else if (r.lastActivity) out.push(`Phase: ${clip(r.lastActivity, 100)}`);
+    else {
+      if (r.lastActivity) out.push(`Phase: ${clip(r.lastActivity, 100)}`);
+      const subs = subagentsText(r);
+      if (subs) out.push(clip(subs, 200));
+    }
   }
 
   const byHand = byHandText(d);
