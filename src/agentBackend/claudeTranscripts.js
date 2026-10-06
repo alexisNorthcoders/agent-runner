@@ -78,7 +78,9 @@ export function applyTranscriptLines(state, lines) {
     state.sessionId = str(entry.sessionId) ?? state.sessionId;
     state.cwd = str(entry.cwd) ?? state.cwd;
     state.branch = str(entry.gitBranch) ?? state.branch;
-    if (typeof entry.entrypoint === 'string') state.interactive = entry.entrypoint === 'cli';
+    // decided per entry: one `cli` entry makes the session interactive for good
+    if (entry.entrypoint === 'cli') state.interactive = true;
+    else if (typeof entry.entrypoint === 'string' && state.interactive !== true) state.interactive = false;
     const at = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN;
     if (Number.isFinite(at)) state.lastEntryAt = Math.max(state.lastEntryAt ?? 0, at);
     if (entry.isSidechain === true) {

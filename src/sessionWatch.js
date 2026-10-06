@@ -12,8 +12,8 @@ import { canonicalPath, workspaceOfPaths } from './workspaceInference.js';
  *
  * Every `intervalMs` it `stat`s every transcript but opens only those written in the last
  * `activeMs`, and reads only the bytes appended since the last poll (a file seen for the first time
- * from its tail). A session is open when its transcript is that recent and an agent process runs
- * in its cwd. Prompts and replies are never kept.
+ * from its tail). A session is open while its transcript is that recent; running agent processes
+ * (`/proc`, best effort) only cap the sessions counted per cwd. Prompts and replies are never kept.
  *
  * @typedef {{
  *   id: string,
@@ -196,7 +196,8 @@ export function createSessionWatch({
     let procs;
     let roots;
     if (interactive.length) {
-      procs = await processesByCwd(await claudeCwds());
+      // best effort: /proc can be unavailable or name the process differently, which hides nothing
+      procs = await processesByCwd(await claudeCwds().catch(() => []));
       roots = await workspaces.list().catch(() => []);
     } else {
       procs = new Map();
@@ -212,8 +213,8 @@ export function createSessionWatch({
     const open = [];
     const openPaths = new Set();
     for (const [cwd, group] of byCwd) {
-      // one open session per agent process in the directory: the most recently written
-      const keep = group.sort((a, b) => (b.tr.transcript.lastEntryAt ?? b.file.mtimeMs) - (a.tr.transcript.lastEntryAt ?? a.file.mtimeMs)).slice(0, procs.get(cwd) ?? 0);
+      // with agent processes found in the directory, one session each (the most recently written); with none found, all
+      const keep = group.sort((a, b) => (b.tr.transcript.lastEntryAt ?? b.file.mtimeMs) - (a.tr.transcript.lastEntryAt ?? a.file.mtimeMs)).slice(0, procs.get(cwd) || group.length);
       for (const { file, tr } of keep) {
         const x = tr.transcript;
         tr.openSince ??= t;

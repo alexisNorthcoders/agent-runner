@@ -97,7 +97,7 @@ describe('session watch', () => {
     assert.equal(w2.watch.current()[0].workspaceAlias, 'sub');
   });
 
-  it('drops a session within a poll of its process exiting, and after the active window without writes', async () => {
+  it('keeps a session visible without a process in its cwd, and drops it after the active window without writes', async () => {
     const { fs, watch, state, at } = setup();
     fs.write('/projects/a/s1.jsonl', `${prompt(0, 's1', '/p/bot')}\n`, T0);
     await watch.poll();
@@ -105,13 +105,17 @@ describe('session watch', () => {
     state.cwds = [];
     at(3000);
     await watch.poll();
-    assert.deepEqual(watch.current(), []);
-    assert.equal(state.changes.length, 2);
-    // the process is back, but the transcript has been quiet for the whole window
-    state.cwds = ['/p/bot'];
+    assert.equal(watch.current().length, 1);
     at(11 * MIN);
     await watch.poll();
     assert.deepEqual(watch.current(), []);
+  });
+
+  it('keeps a transcript that starts headless and later has interactive entries', async () => {
+    const { fs, watch } = setup();
+    fs.write('/projects/a/m.jsonl', `${prompt(0, 'm', '/p/bot', { entrypoint: 'sdk-cli' })}\n${prompt(1000, 'm', '/p/bot')}\n`, T0 + 1000);
+    await watch.poll();
+    assert.deepEqual(watch.current().map((s) => s.id), ['m']);
   });
 
   it('counts one session per process in a directory, the most recently written', async () => {
