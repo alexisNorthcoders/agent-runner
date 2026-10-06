@@ -1,4 +1,5 @@
-import { basename } from 'path';
+import { readFile } from 'fs/promises';
+import { basename, join } from 'path';
 import { autoMergeAllowedByReviewGate, ghMessageLooksLikePrAlreadyExists, normalizePrReviewComment, parseAutofixNoChanges, pickPrResultAfterGhFlow } from './decisionLogic.js';
 import { runPostReviewAutofixMergeFlow } from './reviewFollowUp.js';
 import { githubMergeMethodSummaryLabel } from './githubPr.js';
@@ -335,7 +336,8 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
       }
     }
 
-    const llmOut = await llm.review(diff, userPrompt);
+    const codingStandards = await readFile(join(repo, 'CODING_STANDARDS.md'), 'utf8').catch(() => '');
+    const llmOut = await llm.review(diff, userPrompt, codingStandards);
     const { fullComment: review, verdict: reviewVerdict, bodyMarkdown } = normalizePrReviewComment(llmOut.text);
     const reviewOutcome = llmOut.outcome;
     log('LLM review', { outcome: reviewOutcome, reviewVerdict, model: llmOut.model, tokens: llmOut.usage.total });
