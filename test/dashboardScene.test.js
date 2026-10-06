@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { PILE_MAX, jobWorker, reduceScene, restingState } from '../dashboard/scene.js';
+import { HELPER_KEEP_MS, MAIL_KEEP_MS, PILE_MAX, jobWorker, reduceScene, restingState } from '../dashboard/scene.js';
 
 const NOW = Date.parse('2026-09-26T12:00:00Z');
 const iso = (ms) => new Date(NOW + ms).toISOString();
@@ -545,6 +545,101 @@ describe('office scene: pending issues', () => {
     const stale = reduceScene(snap({ issues: issues(repo('bot', { stale: true, runnable: [item(1)] })) }), null, up);
     assert.equal(stale.cubicles[0].inTray.length, 1);
   });
+
+  describe('mail', () => {
+    const tray = (bot = [], dots = []) => snap({ issues: issues(repo('bot', { runnable: bot.map(item) }), repo('dots', { runnable: dots.map(item) })) });
+
+    it("hands out nothing the page found when it opened, nor before the first scan", () => {
+      const [none, first, again] = play([
+        [snap(), NOW],
+        [tray([1, 2], [3]), NOW + 1000],
+        [tray([1, 2], [3]), NOW + 2000],
+      ]);
+      assert.deepEqual([none.mail, none.trayKnown], [[], null]);
+      assert.deepEqual(first.mail, []);
+      assert.deepEqual(first.trayKnown, { bot: [1, 2], 'chess-trainer': [], dots: [3] });
+      assert.deepEqual(again.mail, []);
+    });
+
+    it('makes a round of the letters that turn up, by cubicle in order, and keeps it MAIL_KEEP_MS', () => {
+      const [, round, later, gone] = play([
+        [tray([1], []), NOW],
+        [tray([1, 4], [5, 6]), NOW + 1000],
+        [tray([1, 4], [5, 6]), NOW + 2000],
+        [tray([1, 4], [5, 6]), NOW + 1000 + MAIL_KEEP_MS],
+      ]);
+      assert.deepEqual(round.mail, [{ id: `mail-${NOW + 1000}`, at: NOW + 1000, drops: [{ alias: 'bot', numbers: [4] }, { alias: 'dots', numbers: [5, 6] }] }]);
+      assert.deepEqual(later.mail, round.mail, 'one round, not one a scene');
+      assert.deepEqual(gone.mail, []);
+    });
+
+    it('makes a new round for each new batch', () => {
+      const scenes = play([
+        [tray([1]), NOW],
+        [tray([1, 2]), NOW + 1000],
+        [tray([1, 2, 3]), NOW + 5000],
+      ]);
+      assert.deepEqual(scenes[2].mail.map((m) => m.drops), [[{ alias: 'bot', numbers: [2] }], [{ alias: 'bot', numbers: [3] }]]);
+    });
+
+    it("doesn't hand out a letter coming back from the desk, or one blocked or unblocked", () => {
+      const working = { ...tray([1]), activeRun: run({ workspaceAlias: 'bot', issueNumber: 9 }), active: [run({ workspaceAlias: 'bot', issueNumber: 9 })] };
+      const blocked = snap({ issues: issues(repo('bot', { runnable: [item(1)], blocked: [item(9)] }), repo('dots')) });
+      const scenes = play([
+        [working, NOW],
+        [tray([1, 9]), NOW + 1000],
+        [blocked, NOW + 2000],
+      ]);
+      assert.deepEqual(scenes.map((sc) => sc.mail), [[], [], []]);
+    });
+  });
+});
+
+describe('office scene: subagent helpers', () => {
+  const sub = (id, activity = null) => ({ id, description: `Task ${id}`, type: 'general-purpose', activity });
+  const withSubs = (...subagents) => running({ subagents });
+
+  it('calls a colleague over for each subagent, in the lowest free slot', () => {
+    const [, one, two, three] = play([
+      [running(), NOW],
+      [withSubs(sub('a')), NOW + 1000],
+      [withSubs(sub('a', 'Bash: ls'), sub('b')), NOW + 2000],
+      [withSubs(sub('b')), NOW + 3000],
+    ]);
+    assert.deepEqual(one.helpers, [{ id: 'a', description: 'Task a', activity: null, slot: 0, place: { room: 'cubicle', alias: 'dots' }, since: NOW + 1000, until: null }]);
+    assert.deepEqual(two.helpers.map((h) => [h.id, h.slot, h.activity]), [['a', 0, 'Bash: ls'], ['b', 1, null]]);
+    // a's done: it walks back in its slot, and b keeps its own
+    assert.deepEqual(three.helpers.map((h) => [h.id, h.slot, h.until]), [['a', 0, NOW + 3000], ['b', 1, null]]);
+  });
+
+  it('keeps a done one for its walk back, then lets the slot go', () => {
+    const scenes = play([
+      [withSubs(sub('a')), NOW],
+      [withSubs(sub('a')), NOW + 1000],
+      [running(), NOW + 2000],
+      [withSubs(sub('c')), NOW + 3000],
+      [withSubs(sub('c')), NOW + 2000 + HELPER_KEEP_MS],
+    ]);
+    assert.deepEqual(scenes[3].helpers.map((h) => [h.id, h.slot]), [['a', 0], ['c', 1]], 'a still walking back');
+    assert.deepEqual(scenes[4].helpers.map((h) => h.id), ['c']);
+  });
+
+  it('has those already helping when the page opens already there', () => {
+    assert.equal(reduceScene(withSubs(sub('a')), null, up).helpers[0].since, 0);
+  });
+
+  it('sends everyone back when the run moves on to post-run or ends', () => {
+    const [, post] = play([
+      [withSubs(sub('a')), NOW],
+      [running({ phase: 'post-run', subagents: [sub('a')] }), NOW + 1000],
+    ]);
+    assert.equal(post.helpers[0].until, NOW + 1000);
+    const [, ended] = play([
+      [withSubs(sub('a')), NOW],
+      [snap(), NOW + 1000],
+    ]);
+    assert.equal(ended.helpers[0].until, NOW + 1000);
+  });
 });
 
 describe('office scene: scheduled jobs', () => {
@@ -569,12 +664,29 @@ describe('office scene: scheduled jobs', () => {
     assert.deepEqual(
       scene.cubicles.map((c) => [c.alias, c.name, c.workspace, c.jobs.map((j) => j.name)]),
       [
-        ['bot', 'bot', true, ['backup']],
+        ['bot', 'bot', true, []],
         ['chess-trainer', 'chess-trainer', true, []],
         ['dots', 'dots', true, []],
         [RA, RA, false, ['cleanup_agent', 'report_agent']],
+        ['bot#scripts', 'bot scripts', false, ['backup']],
       ]
     );
+  });
+
+  it("puts a room's clerk jobs (plain scripts) in a scripts room of its own, after the job rooms", () => {
+    const at = (name) => ({ name, room: RA, at: '02:00', nextDueAt: iso(1000) });
+    const scene = reduceScene(snap({ jobs: [at('cleanup_agent'), at('dashboard_export'), at('report_agent'), at('cron_digest')] }), null, up);
+    assert.deepEqual(scene.cubicles.slice(3).map((c) => [c.alias, c.name, c.workspace, c.jobs.map((j) => j.name)]), [
+      [RA, RA, false, ['cleanup_agent', 'report_agent']],
+      [`${RA}#scripts`, `${RA} scripts`, false, ['dashboard_export', 'cron_digest']],
+    ]);
+    // a room with only scripts gets no empty cubicle of its own
+    const only = reduceScene(snap({ jobs: [at('cron_digest')] }), null, up);
+    assert.deepEqual(only.cubicles.slice(3).map((c) => c.alias), [`${RA}#scripts`]);
+    // and a script runs at its desk there
+    const r = run({ runId: 'j2', kind: 'job', trigger: 'schedule', label: 'scheduled job cron_digest', workspaceAlias: null, issueNumber: null, room: RA, jobName: 'cron_digest', phase: 'job', model: null });
+    const running = reduceScene(snap({ jobs: [at('cron_digest')], activeRun: r, active: [r] }), null, up);
+    assert.deepEqual(running.run?.place, { room: 'cubicle', alias: `${RA}#scripts`, job: 'cron_digest' });
   });
 
   it("puts a job room named after a workspace's department sign in that workspace's cubicle", () => {

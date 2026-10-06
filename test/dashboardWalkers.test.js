@@ -1,12 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { WALL, cubicleDesks, deskAt, deskOwners, inside, layoutOffice, workerRect } from '../dashboard/layout.js';
-import { BOSS_FEET, HAND_MS, RING_MS, WORKER_FEET, feet, walkers } from '../dashboard/walkers.js';
+import { BOSS_FEET, HAND_MS, RING_MS, WORKER_FEET, feet, trayNow, walkers } from '../dashboard/walkers.js';
 
 /** @typedef {import('../dashboard/scene.js').Scene} Scene */
 /** @typedef {import('../dashboard/scene.js').SceneRun} SceneRun */
 
-const cubicles = ['bot', 'dots'].map((alias) => ({ alias, name: alias, workspace: true, doNotDisturb: false, inTray: [], sticky: [], jobs: [] }));
+const cubicles = ['bot', 'dots'].map((alias) => ({ alias, name: alias, workspace: true, doNotDisturb: false, inTray: [], sticky: [], jobs: [], quiet: false }));
 const layout = layoutOffice(cubicles.length, 'wide', 640);
 /** @type {import('../dashboard/scene.js').Place} */
 const BOT = { room: 'cubicle', alias: 'bot' };
@@ -38,6 +38,9 @@ const scene = (over = {}) => ({
   boss: { at: null, from: null, since: 0 },
   outcomes: [],
   parked: [],
+  mail: [],
+  trayKnown: null,
+  helpers: [],
   ...over,
 });
 
@@ -168,12 +171,12 @@ describe('office walkers: the carrier walks the corridors and aisles', () => {
 
   it('arrives sooner at a nearer cubicle', () => {
     const l = wide(many.length);
-    // the Queue room is on the right: d is the front row's rightmost cubicle, a its leftmost, e behind them
+    // the Queue room is top left: a is the front row's leftmost cubicle, d further along it, e behind a
     const [a, d, e] = ['a', 'd', 'e'].map((alias) => arrival(delivering({ room: 'cubicle', alias }), look(l)));
-    assert.ok(d < a, `d ${d} before a ${a}`);
+    assert.ok(a < d, `a ${a} before d ${d}`);
     assert.ok(a < e, `a ${a} before e ${e}`);
     const joplin = arrival(delivering({ room: 'joplin' }), look(l));
-    assert.ok(joplin > a, 'the Joplin room is across the office');
+    assert.ok(joplin > a, 'the Joplin room is at the far end of the corridor');
   });
 
   it('faces the way they walk', () => {
@@ -595,6 +598,55 @@ describe('office walkers: the narrow layout\'s lane', () => {
         }
       }
     });
+  });
+});
+
+describe('office walkers: the mail', () => {
+  const letter = (number) => ({ number, title: `Task ${number}`, blocked: false });
+  const withTrays = cubicles.map((c) => ({ ...c, inTray: c.alias === 'bot' ? [letter(1), letter(4)] : [letter(5)] }));
+  /** @type {Scene['mail'][number]} */
+  const round = { id: 'm1', at: 1000, drops: [{ alias: 'bot', numbers: [4] }, { alias: 'dots', numbers: [5] }] };
+  const mailed = (over = {}) => scene({ cubicles: withTrays, mail: [round], ...over });
+  /** The letters on show in each tray at `t`. @param {Scene} sc @param {number} t */
+  const trays = (sc, t) => sc.cubicles.map((c) => trayNow(c, at(sc, t).undelivered).map((l) => l.number));
+
+  it('keeps new letters in the bag until the carrier drops them in their trays, one cubicle after the other', () => {
+    const sc = mailed();
+    assert.deepEqual(trays(sc, 1000), [[1], []]);
+    const bot = firstWhen((t) => trays(sc, t)[0].includes(4), 1000);
+    const dots = firstWhen((t) => trays(sc, t)[1].includes(5), 1000);
+    assert.ok(bot < dots, `bot ${bot} before dots ${dots}`);
+    assert.deepEqual(trays(sc, dots), [[1, 4], [5]]);
+  });
+
+  it('walks the round with the bundle, stops at each tray, and comes back empty-handed', () => {
+    const sc = mailed();
+    const out = at(sc, 1500).carrier;
+    assert.deepEqual([out.pose, out.carrying], ['walking', 'mail']);
+    const bot = firstWhen((t) => trays(sc, t)[0].includes(4), 1000);
+    assert.equal(at(sc, bot - 1).carrier.still, true, 'stopped at the tray');
+    const dots = firstWhen((t) => trays(sc, t)[1].includes(5), 1000);
+    const back = firstWhen((t) => at(sc, t).carrier.pose === 'standing', dots);
+    assert.equal(at(sc, back - 50).carrier.carrying, null);
+    assert.equal(at(sc, back - 1).animating, true);
+    assert.equal(at(sc, back).animating, false);
+  });
+
+  it('holds a run until the carrier is back from a round, and the worker sits down later for it', () => {
+    const plain = arrival(scene({ run: run({ delivery: { by: 'envelope', at: 1500 } }) }));
+    const sc = mailed({ run: run({ delivery: { by: 'envelope', at: 1500 } }) });
+    assert.equal(at(sc, 1600).carrier.carrying, 'mail', 'out on the round');
+    const dots = firstWhen((t) => trays(sc, t)[1].includes(5), 1000);
+    const late = arrival(sc);
+    assert.ok(late > plain && late > dots, `arrives at ${late}, after the round (last drop ${dots})`);
+  });
+
+  it('rings the phone at the front desk while a manual run waits, not while the carrier is out', () => {
+    const sc = mailed({ run: run({ delivery: { by: 'phone', at: 900 } }) });
+    // the run came in first: it goes out first, and the mail waits
+    assert.equal(at(sc, 950).carrier.carrying, 'phone');
+    assert.equal(at(sc, 900 + RING_MS + 10).carrier.carrying, 'phone', 'out with the run');
+    assert.deepEqual(trays(sc, 900 + RING_MS + 10), [[1], []], 'the mail still in the bag');
   });
 });
 

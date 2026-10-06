@@ -64,7 +64,7 @@ _Avoid_: map, canvas (for the concept)
 The open-plan middle of the office, where the **Cubicles** are, in rows with an **Aisle** in front of each.
 
 **Corridor**:
-The hallway between a side column of rooms and the **Bullpen** (in the stacked layout, the lane down its edge). It opens straight into the Bullpen's **Aisles**; the side rooms open onto it through their **Doors**. Everyone who walks the office (the **Mail carrier**, the boss, a **Worker** moving desks) goes by Corridor and Aisle, never through a wall.
+The hallway between the column of side rooms and the **Bullpen** (in the stacked layout, the lane down its edge). It opens straight into the Bullpen's **Aisles**; the side rooms open onto it through their **Doors**. Everyone who walks the office (the **Mail carrier**, the boss, a **Worker** moving desks, a **Resident** on a **Break**, the **Night janitor**) goes by Corridor and Aisle, never through a wall.
 _Avoid_: hallway, path
 
 **Aisle**:
@@ -77,7 +77,7 @@ A side room's door onto its **Corridor**, which swings open as someone walks thr
 The door in the **Queue room**'s back wall, out of the office. Nobody walks through it; it carries the **BACK IN 5** sign and the EXIT sign.
 
 **Cubicle**:
-A **Workspace**'s desk in the office bullpen, one per allowlisted alias, where its issue runs are worked, and freeform runs whose **Inferred workspace** it is. A **Scheduled job**'s room label that isn't a workspace's alias or **Department sign** gets a cubicle of its own; each job has its own desk in its room's cubicle.
+A **Workspace**'s desk in the office bullpen, one per allowlisted alias, where its issue runs are worked, and freeform runs whose **Inferred workspace** it is. A **Scheduled job**'s room label that isn't a workspace's alias or **Department sign** gets a cubicle of its own; each job has its own desk in its room's cubicle. A job that's a plain script (a clerk's, not a janitor's or an analyst's) sits instead in its room's scripts room, a cubicle of its own signed `<room> scripts`.
 
 **Department sign**:
 The name on a **Cubicle**: its **Workspace**'s alias, unless the dashboard config (`dashboard/office.json`), which also sets the cubicles' order, gives it another name.
@@ -93,7 +93,21 @@ The corner office, signed REVIEW, where the boss sits. During an issue run's pos
 _Avoid_: boss's office
 
 **Worker**:
-The figure at a desk working the active **Run**: typing in the `agent` phase, still while the boss reads during post-run, scribbling during the autofix. Beside them are their **Paper pile** and a speech bubble with the run's last activity (a **Scheduled job**'s latest output line). Each **Scheduled job** has its own worker at its desk: a janitor (cleanup), an analyst (insight, report) or a clerk.
+The figure at a desk working the active **Run**: typing in the `agent` phase, still while the boss reads during post-run, scribbling during the autofix. Beside them are their **Paper pile** and a speech bubble with the run's last activity (a **Scheduled job**'s latest output line). Each **Scheduled job** has its own worker at its desk: a janitor (cleanup), an analyst (insight, report) or a clerk. Everyone has a look of their own (skin, hair, shirt, tie, glasses or a beard), the same on every page: no two in the office share both shirt and hair colour. A **Workspace**'s **Resident** and the Worker on its runs are the same person, and so look the same.
+
+**Resident**:
+A **Workspace**'s own figure at its **Cubicle**'s desk while no **Run** is worked there: in through the morning, day and evening on the viewer's clock, home at night. They idle (sitting still, sipping coffee, stretching, dozing off, far more in a quiet cubicle with no run for three days) and react to what's really going on: flicking through their in-tray, peering at the cubicle next door where a run is being worked, cheering a merge in their cubicle or clapping one next door. Now and then one takes a **Break**. A resident never types, piles up papers or speaks in a bubble: that's the **Worker**'s, so a real run stands out. When the run's Worker arrives at their desk, the Worker is them, at work.
+_Avoid_: idle worker, NPC
+
+**Break**:
+A **Resident** leaving their desk for a while: to the water cooler in the Freeform room, the Joplin room's bookshelf, or a neighbour's **Cubicle** for a chat, by **Corridor** and **Aisle**, and back. A couple at most at once, never someone on Do Not Disturb, and the same on every page.
+
+**Helper**:
+A colleague standing in for one of the active **Run**'s subagents: the **Resident** of the nearest **Cubicle** (or a temp from the Queue room when none can come), who walks over to the **Worker**'s desk, stands there with a tag naming the tool their subagent is using, and walks back when it's done.
+_Avoid_: subagent (for the figure), assistant
+
+**Night janitor**:
+Who mops up and down the **Aisles** at night, when the **Residents** are home and the lights are down everywhere but where someone's in (the Queue and Review rooms, the active run's room, and rooms with a **Scheduled job**'s worker at their desk). Not a cleanup job's worker.
 
 **Paper pile**:
 The sheets on the **Worker**'s desk: one per few turns and per few minutes, to a cap, and never shrinking during a run.
@@ -137,7 +151,7 @@ The room signed JOPLIN, for Joplin runs, whose instructions come from a Joplin n
 _Avoid_: library
 
 **Mail carrier**:
-The figure who delivers each run to its room: an interoffice envelope for a cron run, a ringing phone first for a manual (WhatsApp) one.
+The figure who delivers each run to its room: an interoffice envelope for a cron run, a ringing phone first for a manual (WhatsApp) one. They also hand out the mail: a new issue's letter (one the page hasn't seen in that **Cubicle**'s in-tray before) stays in their bag until they walk a round of the cubicles with new letters and drop it in the in-tray. Runs and rounds of mail queue for them in the order they came in, so a run that comes in mid-round waits until they're back.
 
 ## Relationships
 

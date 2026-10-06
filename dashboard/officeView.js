@@ -5,10 +5,12 @@
 // comes from walkers.js; typing and the ends of runs (the stamp coming down, the papers to the out
 // tray) are tweened here from when the run ended, so the reducer only says what happens and when.
 import { formatClock } from './format.js';
-import { SIDE_ROOMS, WALL, backWallDoorway, cartSlots, cubicleDesks, deskAt, deskOwners, folderSlots, inTrayRect, inTraySlots, placeRect, roomAt, stickyNote, workerRect } from './layout.js';
+import { SIDE_ROOMS, WALL, backWallDoorway, breakSpots, cartSlots, cubicleDesks, deskAt, deskOwners, folderSlots, inTrayRect, inTraySlots, placeRect, roomAt, stickyNote, workerRect } from './layout.js';
+import { WORKER_STATES } from './ambient.js';
+import { PLAIN, TEMPS, lookKey, looksFor, workerKeys } from './looks.js';
 import { samePlace } from './scene.js';
 import * as s from './sprites.js';
-import { STAMP_MS, TRAY_MS, lerp, walkers } from './walkers.js';
+import { STAMP_MS, TRAY_MS, lerp, trayNow, walkers } from './walkers.js';
 
 /** @typedef {import('./sprites.js').Ctx} Ctx */
 /** @typedef {import('./layout.js').Rect} Rect */
@@ -26,8 +28,6 @@ const TRAY_SHEETS = 6;
 /** A tumbleweed rolls through a quiet room this often, taking this long. */
 const TUMBLE_EVERY_MS = 9000;
 const TUMBLE_MS = 3000;
-/** Resting states in which drawOutcomes draws the worker at their desk (or sends them home). */
-const WORKER_STATES = new Set(['injured', 'asleep', 'dizzy', 'shrug', 'home']);
 
 /**
  * Where a side room's back wall and the floor under it end on the right: at its doorway when that's
@@ -39,11 +39,11 @@ function clearRight(layout, id) {
   return backWallDoorway(layout, id)?.x ?? r.x + r.w;
 }
 
-/** @param {Ctx} ctx @param {Layout} layout */
-function drawBoss(ctx, layout) {
+/** @param {Ctx} ctx @param {Layout} layout @param {import('./ambient.js').DayPart} part */
+function drawBoss(ctx, layout, part) {
   const r = layout.rooms.review.rect;
   const d = layout.desks.review;
-  s.wallWindow(ctx, r.x + 12, r.y + 6, 36);
+  s.wallWindow(ctx, r.x + 12, r.y + 6, 36, part);
   s.bossDesk(ctx, d.x, d.y);
   s.plant(ctx, r.x + 6, r.y + WALL + 4);
   s.cabinets(ctx, clearRight(layout, 'review') - 26, r.y + WALL + 2, 2);
@@ -59,14 +59,15 @@ function drawJoplinRoom(ctx, layout) {
   s.plant(ctx, r.x + 6, r.y + r.h - 16);
 }
 
-/** @param {Ctx} ctx @param {Layout} layout */
-function drawFreeformRoom(ctx, layout) {
+/** @param {Ctx} ctx @param {Layout} layout @param {import('./ambient.js').DayPart} part */
+function drawFreeformRoom(ctx, layout, part) {
   const r = layout.rooms.freeform.rect;
   const d = layout.desks.freeform;
-  s.wallWindow(ctx, r.x + 8, r.y + 6, 30);
+  s.wallWindow(ctx, r.x + 8, r.y + 6, 30, part);
   s.desk(ctx, d.x, d.y, d.w);
   s.cabinets(ctx, clearRight(layout, 'freeform') - 36, r.y + WALL + 2, 3);
-  s.waterCooler(ctx, r.x + 6, r.y + WALL + 4);
+  const cooler = breakSpots(layout).waterCooler;
+  s.waterCooler(ctx, cooler.x, cooler.y);
 }
 
 /**
@@ -79,8 +80,10 @@ function drawRun(ctx, layout, scene, t, { carrier, worker: p }) {
   const run = scene.run;
   if (!run) return;
   const frame = Math.floor(t / FRAME_MS);
+  // whoever works the run's room, all along (a freeform run moving to a cubicle is its resident)
+  const look = lookAt(scene, run.place);
   if (carrier.pose === 'standing' && carrier.carrying === 'phone') s.phoneRinging(ctx, layout.desk, frame);
-  if (p?.pose === 'walking') s.walkingWorker(ctx, p.x, p.y, frame, p.pile, p.facing);
+  if (p?.pose === 'walking') s.walkingWorker(ctx, p.x, p.y, frame, p.pile, p.facing, look);
   // seated at the desk they're at: a freeform worker's old one until they move
   const desk = p?.at && deskAt(layout, scene.cubicles, p.at);
   if (p?.at && desk) {
@@ -88,14 +91,37 @@ function drawRun(ctx, layout, scene, t, { carrier, worker: p }) {
     const typing = run.work === 'typing';
     const scribbling = run.work === 'scribbling';
     const beat = scribbling ? Math.floor(t / SCRIBBLE_MS) : frame;
-    s.worker(ctx, w, typing || scribbling ? /** @type {1 | 2} */ ((beat % 2) + 1) : 0);
+    s.worker(ctx, w, typing || scribbling ? /** @type {1 | 2} */ ((beat % 2) + 1) : 0, look);
     if (run.worker) s.jobGear(ctx, run.worker, w, desk, frame);
     if (scribbling) s.scribbles(ctx, w, beat);
     s.paperPile(ctx, desk.x + 2, desk.y + 3, p.pile);
     const bounds = roomAt(layout, p.at).rect;
     if (run.bubble) s.speechBubble(ctx, w.x + 5, w.y - 1, run.bubble, Math.min(120, bounds.w - 4), bounds);
   }
-  if (carrier.pose === 'walking') s.walkingCarrier(ctx, carrier.x, carrier.y, frame, carrier.carrying, carrier.facing);
+}
+
+/**
+ * The mail carrier out on foot: delivering a run or on a round of mail, stopped at a cubicle while
+ * they drop its letters.
+ * @param {Ctx} ctx @param {number} t @param {Walkers['carrier']} carrier
+ */
+function drawCarrierOut(ctx, t, carrier) {
+  if (carrier.pose === 'walking') s.walkingCarrier(ctx, carrier.x, carrier.y, carrier.still ? 0 : Math.floor(t / FRAME_MS), carrier.carrying, carrier.facing);
+}
+
+/** The office's looks, for the cubicles they were worked out for. @type {{ key: string, looks: Map<string, import('./looks.js').Look> } | null} */
+let looksMade = null;
+
+/**
+ * The look of whoever works at `place` (looks.js), or of the temp in helper slot `temp`:
+ * everyone in the office has their own.
+ * @param {Scene} scene @param {import('./scene.js').Place} place @param {number | null} [temp]
+ */
+function lookAt(scene, place, temp = null) {
+  const keys = workerKeys(scene.cubicles);
+  const key = keys.join('|');
+  if (looksMade?.key !== key) looksMade = { key, looks: looksFor(keys) };
+  return looksMade.looks.get(temp != null ? `temp:${temp % TEMPS}` : lookKey(place)) ?? PLAIN;
 }
 
 /** The scheduled job whose desk `place` is, by name. @param {import('./scene.js').Place} p */
@@ -132,10 +158,69 @@ function drawJobWorkers(ctx, layout, scene, walking) {
       const o = scene.outcomes.find((x) => samePlace(x.place, place));
       if (o && WORKER_STATES.has(o.state) && (o.state === 'home' || jobOf(o.place) === j.name)) continue;
       const w = workerRect(desk);
-      s.worker(ctx, w, 0);
+      s.worker(ctx, w, 0, lookAt(scene, place));
       s.jobGear(ctx, j.worker, w, desk, null);
     }
   }
+}
+
+/**
+ * The office's ambient life: the residents at their desks in their idle poses, those out on a
+ * break (on their way with a mug back from the water cooler), and the night janitor.
+ * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {number} t @param {Walkers} walking
+ */
+function drawAmbient(ctx, layout, scene, t, walking) {
+  const frame = Math.floor(t / FRAME_MS);
+  const beat = Math.floor(t / 300);
+  for (const r of walking.residents) {
+    /** @type {import('./scene.js').Place} */
+    const place = { room: 'cubicle', alias: r.alias };
+    const desk = deskAt(layout, scene.cubicles, place);
+    if (desk) s.resident(ctx, workerRect(desk), r.pose, r.facing, beat, lookAt(scene, place));
+  }
+  for (const w of walking.strollers) {
+    const back = w.pose === 'walking' && w.to.kind === 'cooler' && w.facing === 'right';
+    s.strollingWorker(ctx, w.x, w.y, w.pose === 'walking' ? frame : null, w.facing, { mug: back }, lookAt(scene, { room: 'cubicle', alias: w.alias }));
+    if (w.pose === 'standing' && w.to.kind === 'chat') s.chatDots(ctx, w.x - 6, w.y + 2, beat + 4);
+  }
+  if (walking.janitor) s.nightJanitor(ctx, walking.janitor.x, walking.janitor.y, Math.floor(t / 400), walking.janitor.facing);
+}
+
+/**
+ * The colleagues helping the active run with its subagents: walking over (or back), or standing at
+ * the run's desk facing the worker, with a tag saying which tool their subagent is using.
+ * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {number} t @param {Walkers} walking
+ */
+function drawHelpers(ctx, layout, scene, t, walking) {
+  const frame = Math.floor(t / FRAME_MS);
+  for (const h of walking.helpers) {
+    const look = lookAt(scene, { room: 'cubicle', alias: h.recruit ?? '' }, h.recruit ? null : h.slot);
+    s.strollingWorker(ctx, h.x, h.y, h.pose === 'walking' ? frame : null, h.facing, { lanyard: !h.recruit }, look);
+    if (h.pose === 'standing' && h.activity) {
+      const bounds = placeRect(layout, scene.cubicles, /** @type {import('./scene.js').SceneHelper} */ (scene.helpers.find((x) => x.id === h.id)).place) ?? layout.rooms.bullpen.rect;
+      s.toolTag(ctx, h.x + 5, h.y - 1, toolOf(h.activity), bounds);
+    }
+  }
+}
+
+/** The tool in a subagent's activity (`Bash: git diff` → `Bash`), or that it's writing. @param {string} activity */
+const toolOf = (activity) => (activity.startsWith('writing') ? 'write' : activity.split(':')[0].trim());
+
+/**
+ * At night, the lights down everywhere but where someone's in: the Queue room and the Review room
+ * (the carrier and the boss work late), the active run's room, and each room with a worker at
+ * their desk (a scheduled job's, or one its last run left there).
+ * @param {Ctx} ctx @param {Layout} layout @param {Scene} scene @param {Walkers} walking
+ */
+function drawLightsDown(ctx, layout, scene, walking) {
+  /** @type {Array<Rect | null>} */
+  const lit = [layout.rooms.queueRoom.rect, layout.rooms.review.rect];
+  if (walking.worker?.at) lit.push(placeRect(layout, scene.cubicles, walking.worker.at));
+  scene.cubicles.forEach((c, i) => {
+    if (c.jobs.length) lit.push(layout.cubicles[i] ?? null);
+  });
+  for (const o of scene.outcomes) if (WORKER_STATES.has(o.state) && o.state !== 'home') lit.push(placeRect(layout, scene.cubicles, o.place));
+  s.lightsDown(ctx, layout.width, layout.height, /** @type {Rect[]} */ (lit.filter(Boolean)));
 }
 
 /**
@@ -152,6 +237,7 @@ function drawOutcomes(ctx, layout, scene, t) {
     const w = workerRect(desk);
     const since = t - o.endedAt;
     const gear = jobAt(scene, o.place)?.worker;
+    const look = lookAt(scene, o.place);
     switch (o.state) {
       case 'stamped': {
         const sheet = { x: desk.x + 2, y: desk.y + 1 };
@@ -172,24 +258,24 @@ function drawOutcomes(ctx, layout, scene, t) {
         break;
       }
       case 'injured':
-        s.worker(ctx, w, 0);
+        s.worker(ctx, w, 0, look);
         s.bandage(ctx, w);
         if (gear) s.jobGear(ctx, gear, w, desk, null);
         break;
       case 'asleep':
-        s.sleepingWorker(ctx, w, desk.y);
+        s.sleepingWorker(ctx, w, desk.y, look);
         s.zzz(ctx, w.x + 9, desk.y - 12, Math.floor(t / 500));
         break;
       case 'dizzy': {
         const sway = { ...w, x: w.x + (Math.floor(t / 400) % 2) };
-        s.worker(ctx, sway, 0);
+        s.worker(ctx, sway, 0, look);
         if (gear) s.jobGear(ctx, gear, sway, desk, null);
         s.flushed(ctx, sway);
         s.dizzyStars(ctx, sway.x + 1, sway.y - 4, Math.floor(t / 200));
         break;
       }
       case 'shrug': {
-        s.shruggingWorker(ctx, w);
+        s.shruggingWorker(ctx, w, look);
         const roll = since % TUMBLE_EVERY_MS;
         if (roll >= 0 && roll < TUMBLE_MS) {
           const floorY = area.y + area.h - 3;
@@ -215,13 +301,15 @@ function drawFolders(ctx, layout, scene) {
 
 /**
  * A cubicle's pending issues: letters in its in-tray (a padlock on a blocked one; a slot holding
- * the overflow is a pile), and a sticky note while issues wait for a human.
- * @param {Ctx} ctx @param {Rect} r the cubicle @param {import('./scene.js').SceneCubicle} c
+ * the overflow is a pile), but those the mail carrier hasn't dropped yet, and a sticky note while
+ * issues wait for a human.
+ * @param {Ctx} ctx @param {Rect} r the cubicle @param {import('./scene.js').SceneCubicle} c @param {Map<string, Set<number>>} undelivered
  */
-function drawPending(ctx, r, c) {
-  if (c.inTray.length) {
+function drawPending(ctx, r, c, undelivered) {
+  const letters = trayNow(c, undelivered);
+  if (letters.length) {
     s.inTray(ctx, inTrayRect(r));
-    for (const slot of inTraySlots(r, c.inTray)) {
+    for (const slot of inTraySlots(r, letters)) {
       s.letter(ctx, slot.rect, slot.letters.length);
       if (slot.letters.every((l) => l.blocked)) s.padlock(ctx, slot.rect);
     }
@@ -243,17 +331,19 @@ function drawBossFigure(ctx, t, p) {
  * @param {Ctx} ctx
  * @param {Layout} layout
  * @param {Scene} scene
- * @param {{ t: number, filter?: string | null }} o `t`: now on the scene's clock, for the
- *   animations. `filter`: the workspace the panel is filtered to, outlined.
+ * @param {{ t: number, filter?: string | null, ambient?: { tzOffsetMin: number } }} o `t`: now on the
+ *   scene's clock, for the animations. `filter`: the workspace the panel is filtered to, outlined.
+ *   `ambient`: bring the office to life (walkers.js), on the viewer's clock.
  */
-export function drawOffice(ctx, layout, scene, { t, filter = null }) {
+export function drawOffice(ctx, layout, scene, { t, filter = null, ambient }) {
   const { rooms } = layout;
-  const walking = walkers(layout, scene.cubicles, scene, t);
+  const walking = walkers(layout, scene.cubicles, scene, t, { ambient });
+  const part = walking.part;
   ctx.clearRect(0, 0, layout.width, layout.height);
   for (const [id, floor] of /** @type {const} */ ([['review', 'wood'], ['joplin', 'wood'], ['freeform', 'carpet'], ['queueRoom', 'tile']])) {
     s.room(ctx, rooms[id].rect, rooms[id].name, floor, WALL, { plateRight: backWallDoorway(layout, id)?.x });
   }
-  // the bullpen opens straight onto the corridors, and the side rooms onto them by their doorways
+  // the bullpen opens straight onto the corridor, and the side rooms onto it by their doorways
   s.room(ctx, rooms.bullpen.rect, rooms.bullpen.name, 'carpet', WALL, { open: true });
   for (const c of layout.corridors) s.corridor(ctx, c, WALL);
   for (const id of SIDE_ROOMS) {
@@ -270,17 +360,17 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
       s.door(ctx, d, open, d.x > r.x ? -1 : 1);
     }
   }
-  drawBoss(ctx, layout);
+  drawBoss(ctx, layout, part);
   drawJoplinRoom(ctx, layout);
-  drawFreeformRoom(ctx, layout);
+  drawFreeformRoom(ctx, layout, part);
 
   const b = rooms.bullpen.rect;
-  s.wallWindow(ctx, b.x + 10, b.y + 6, 40);
+  s.wallWindow(ctx, b.x + 10, b.y + 6, 40, part);
   scene.cubicles.forEach((c, i) => {
     const r = layout.cubicles[i];
     if (!r) return;
     s.cubicle(ctx, r, cubicleDesks(r, deskOwners(c).length), c.name);
-    drawPending(ctx, r, c);
+    drawPending(ctx, r, c, walking.undelivered);
     if (c.doNotDisturb) s.doNotDisturb(ctx, r);
     if (c.alias === filter) s.selected(ctx, r);
   });
@@ -295,7 +385,11 @@ export function drawOffice(ctx, layout, scene, { t, filter = null }) {
   s.plant(ctx, clearRight(layout, 'queueRoom') - 14, rooms.queueRoom.rect.y + WALL + 4);
   drawJobWorkers(ctx, layout, scene, walking);
   drawOutcomes(ctx, layout, scene, t);
+  drawAmbient(ctx, layout, scene, t, walking);
+  drawHelpers(ctx, layout, scene, t, walking);
+  if (part === 'night' && ambient && !scene.dark) drawLightsDown(ctx, layout, scene, walking);
   drawRun(ctx, layout, scene, t, walking);
+  drawCarrierOut(ctx, t, walking.carrier);
   drawBossFigure(ctx, t, walking.boss);
   drawFolders(ctx, layout, scene);
 

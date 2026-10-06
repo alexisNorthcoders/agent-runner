@@ -22,15 +22,39 @@
  *   inTray: SceneTrayLetter[],
  *   sticky: Array<{ number: number, title: string }>,
  *   jobs: SceneJobDesk[],
+ *   quiet: boolean,
  * }} SceneCubicle
  *   One per allowlisted workspace (`workspace`), then one per scheduled-job room that isn't one
- *   (named and keyed by its room label). `name` is its department sign. `inTray`: its repo's runnable
+ *   (named and keyed by its room label), then a scripts room per room with clerk jobs (`<name>
+ *   scripts`, keyed `<alias>#scripts`). `name` is its department sign. `inTray`: its repo's runnable
  *   issues, then its blocked ones, but the one being worked at its desk. `sticky`: its
  *   `ready-for-human` issues, a sticky note on the cubicle while there are any. `jobs`: the
- *   scheduled jobs whose room it is, in config order, each at its own desk after the workspace's.
+ *   scheduled jobs whose room it is, in config order, each at its own desk after the workspace's
+ *   (a clerk's job in its room's scripts room). `quiet`: a workspace with no run started in the
+ *   last QUIET_MS, so its resident dozes off more.
  *
  * @typedef {{ alias: string, number: number, title: string, prUrl: string }} SceneParked
  *   An open agent PR the cron has parked: a folder on the boss's desk.
+ *
+ * @typedef {{ id: string, at: number, drops: Array<{ alias: string, numbers: number[] }> }} SceneMail
+ *   A round of mail: the in-tray letters (issue numbers) that turned up in the issue scan at `at`
+ *   on the snapshot's clock, by cubicle, in the scene's order. Each is hidden from its tray until
+ *   the mail carrier drops it there (walkers.js).
+ *
+ * @typedef {{
+ *   id: string,
+ *   description: string,
+ *   activity: string | null,
+ *   slot: number,
+ *   place: Place,
+ *   since: number,
+ *   until: number | null,
+ * }} SceneHelper
+ *   One of the active run's subagents, played by a colleague called over to the run's desk at
+ *   `place`: what it was asked to do and is doing now, its `slot` at the desk (the lowest free
+ *   when it started, kept while it walks back), called at `since` and done at `until` (null while
+ *   it runs), on the snapshot's clock. Those already helping when the page opened are already there
+ *   (`since` 0).
  *
  * @typedef {{ id: string, label: string }} SceneLetter
  *   A queued request, as a letter on the mail cart.
@@ -100,19 +124,26 @@
  *   boss: SceneBoss,
  *   outcomes: SceneOutcome[],
  *   parked: SceneParked[],
+ *   mail: SceneMail[],
+ *   trayKnown: Record<string, number[]> | null,
+ *   helpers: SceneHelper[],
  * }} Scene
  *   `dark`: the runner is down. `backInFive`: the owner's general pause, as a sign on the front
  *   door. `countdownMs`: time to the next cron tick, null when there's no cron to count down to.
  *   `run`: the active run's worker, if any. `outcomes`: each room's last run, but the active run's
  *   room. `parked`: the parked PRs of the workspaces with a cubicle. Pending issues come from the
- *   feed's issue scan, stale or not, and are empty before its first scan.
+ *   feed's issue scan, stale or not, and are empty before its first scan. `mail`: the rounds of new
+ *   in-tray letters for the mail carrier to hand out, newest last, for MAIL_KEEP_MS. `trayKnown`:
+ *   each cubicle's letters seen so far (null before the first scan), so only a new one is mail.
+ *   `helpers`: the active run's subagents, each a colleague called over to its desk, and for
+ *   HELPER_KEEP_MS after they're done, while they walk back.
  *
  * @typedef {{ cubicles?: Array<{ alias: string, name?: string }> }} OfficeConfig
  *   `dashboard/office.json`: cubicle names and order, by workspace alias.
  */
 
 /** @type {Scene} */
-const EMPTY = { dark: false, backInFive: false, cubicles: [], queueRoom: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [], parked: [] };
+const EMPTY = { dark: false, backInFive: false, cubicles: [], queueRoom: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [], parked: [], mail: [], trayKnown: null, helpers: [] };
 
 /** The most sheets a desk's pile holds. */
 export const PILE_MAX = 16;
@@ -121,6 +152,12 @@ const TURNS_PER_SHEET = 5;
 const MS_PER_SHEET = 3 * 60_000;
 /** A run shorter than this gets just a quick stamp. */
 const QUICK_MS = 5 * 60_000;
+/** A workspace with no run started in this long is quiet. */
+export const QUIET_MS = 3 * 24 * 3_600_000;
+/** A done subagent's colleague stays in the scene this long, for their walk back. */
+export const HELPER_KEEP_MS = 2 * 60_000;
+/** A round of mail stays in the scene this long, long after it's handed out. */
+export const MAIL_KEEP_MS = 10 * 60_000;
 /** The speech bubble's longest text, before the view fits it to the room. */
 const BUBBLE_CHARS = 48;
 
@@ -135,24 +172,38 @@ export function jobWorker(name) {
   return 'clerk';
 }
 
+/** A scripts room's alias: its room's, with this after it. */
+const SCRIPTS_SUFFIX = '#scripts';
+
 /**
  * The cubicles: the workspaces' (see cubicleOrder), then a room per scheduled-job room label that
- * isn't one of theirs, in config order. A label matching a workspace's alias or department sign is
- * that workspace's cubicle. Each gets its jobs' desks.
+ * isn't one of theirs, in config order, then the scripts rooms. A label matching a workspace's alias
+ * or department sign is that workspace's cubicle. Each gets its jobs' desks, but a clerk's job (a
+ * plain script, not an agent) sits in its room's scripts room (`<room> scripts`) instead.
  * @param {Array<{ alias: string, name: string }>} workspaces
  * @param {unknown} jobs the snapshot's job schedule
  * @returns {Array<{ alias: string, name: string, workspace: boolean, jobs: SceneJobDesk[] }>}
  */
 function withJobRooms(workspaces, jobs) {
   const rooms = workspaces.map((c) => ({ ...c, workspace: true, jobs: /** @type {SceneJobDesk[]} */ ([]) }));
+  /** @type {typeof rooms} */
+  const scriptRooms = [];
   for (const j of Array.isArray(jobs) ? jobs : []) {
     if (typeof j?.name !== 'string' || typeof j.room !== 'string') continue;
+    const worker = jobWorker(j.name);
     let room = rooms.find((c) => c.alias === j.room || c.name === j.room);
     if (!room) rooms.push((room = { alias: j.room, name: j.room, workspace: false, jobs: [] }));
+    if (worker === 'clerk') {
+      const alias = `${room.alias}${SCRIPTS_SUFFIX}`;
+      const home = room;
+      room = scriptRooms.find((c) => c.alias === alias);
+      if (!room) scriptRooms.push((room = { alias, name: `${home.name} scripts`, workspace: false, jobs: [] }));
+    }
     const due = typeof j.nextDueAt === 'string' ? Date.parse(j.nextDueAt) : NaN;
-    room.jobs.push({ name: j.name, worker: jobWorker(j.name), at: typeof j.at === 'string' ? j.at : '', nextDueAt: Number.isFinite(due) ? due : null });
+    room.jobs.push({ name: j.name, worker, at: typeof j.at === 'string' ? j.at : '', nextDueAt: Number.isFinite(due) ? due : null });
   }
-  return rooms;
+  // A job room left with only scripts has no desks of its own.
+  return [...rooms.filter((c) => c.workspace || c.jobs.length), ...scriptRooms];
 }
 
 /** The last line of `lines` with anything on it. @param {string[]} lines */
@@ -352,6 +403,12 @@ export function reduceScene(snap, prev, { up, now, config, log }) {
   const repos = new Map((snap.issues?.repos ?? []).map((r) => [r.alias, r]));
   const r = snap.activeRun;
   const working = r?.kind === 'issue' ? { alias: r.workspaceAlias, number: r.issueNumber } : null;
+  /** The workspaces with a run started in the last QUIET_MS, or running now. */
+  const busy = new Set(
+    [...snap.history, ...(r ? [r] : [])]
+      .filter((h) => !(now - Date.parse(h.startedAt) > QUIET_MS))
+      .map((h) => (h.kind === 'issue' ? h.workspaceAlias : h.kind === 'freeform' ? h.inferredWorkspace : null))
+  );
   const cubicles = withJobRooms(cubicleOrder(snap.workspaces, config), snap.jobs).map((c) => {
     const repo = repos.get(c.alias);
     /** @param {{ number: number, title: string }} i @param {boolean} blocked */
@@ -363,6 +420,7 @@ export function reduceScene(snap, prev, { up, now, config, log }) {
         (l) => !(working?.alias === c.alias && working.number === l.number)
       ),
       sticky: (repo?.readyForHuman ?? []).map((i) => ({ number: i.number, title: i.title })),
+      quiet: c.workspace && !busy.has(c.alias),
     };
   });
   const run = reduceRun(snap, prev?.run ?? null, cubicles, now, log);
@@ -378,5 +436,65 @@ export function reduceScene(snap, prev, { up, now, config, log }) {
     boss: reduceBoss(run, prev, now),
     outcomes: reduceOutcomes(snap.history, run, cubicles),
     parked: cubicles.flatMap((c) => (repos.get(c.alias)?.parked ?? []).map((p) => ({ alias: c.alias, number: p.number, title: p.title, prUrl: p.prUrl }))),
+    ...reduceMail(!!snap.issues, prev, cubicles, working, now),
+    helpers: reduceHelpers(prev, run, r, now),
   };
+}
+
+/**
+ * The colleagues helping the active run, one per subagent it has running: a new one called over
+ * at `now` (already there when the page has just opened), a done one walking back for HELPER_KEEP_MS.
+ * @param {Scene | null} prev @param {SceneRun | null} run the scene's
+ * @param {{ phase?: string | null, subagents?: Array<{ id: string, description: string, activity: string | null }> } | null} r the snapshot's active run
+ * @param {number} now
+ * @returns {SceneHelper[]}
+ */
+function reduceHelpers(prev, run, r, now) {
+  const live = run && r && r.phase !== 'post-run' && Array.isArray(r.subagents) ? r.subagents : [];
+  /** @type {SceneHelper[]} */
+  const helpers = [];
+  for (const h of prev?.helpers ?? []) {
+    if (h.until != null) {
+      if (now - h.until < HELPER_KEEP_MS) helpers.push(h);
+      continue;
+    }
+    const a = live.find((x) => x.id === h.id);
+    helpers.push(a ? { ...h, description: a.description, activity: a.activity } : { ...h, until: now });
+  }
+  for (const a of live) {
+    if (!run || helpers.some((h) => h.id === a.id)) continue;
+    let slot = 0;
+    while (helpers.some((h) => h.slot === slot)) slot++;
+    helpers.push({ id: a.id, description: a.description, activity: a.activity, slot, place: run.place, since: prev ? now : 0, until: null });
+  }
+  return helpers;
+}
+
+/**
+ * The mail: a new round when in-tray letters turn up that the scene hasn't seen in that cubicle
+ * before (not one coming back from the desk, nor any the page found there when it opened or saw
+ * the first scan), and the rounds of the last MAIL_KEEP_MS.
+ * @param {boolean} scanned the snapshot has the issue scan
+ * @param {Scene | null} prev
+ * @param {SceneCubicle[]} cubicles
+ * @param {{ alias: string | null, number: number | null } | null} working the issue at a desk
+ * @param {number} now
+ * @returns {{ mail: SceneMail[], trayKnown: Record<string, number[]> | null }}
+ */
+function reduceMail(scanned, prev, cubicles, working, now) {
+  const kept = (prev?.mail ?? []).filter((m) => now - m.at < MAIL_KEEP_MS);
+  if (!scanned) return { mail: kept, trayKnown: prev?.trayKnown ?? null };
+  const known = prev?.trayKnown ?? null;
+  /** @type {Record<string, number[]>} */
+  const next = { ...(known ?? {}) };
+  /** @type {SceneMail['drops']} */
+  const drops = [];
+  for (const c of cubicles) {
+    const here = [...c.inTray.map((l) => l.number), ...(working?.alias === c.alias && working.number != null ? [working.number] : [])];
+    const seen = new Set(known?.[c.alias] ?? []);
+    const fresh = c.inTray.map((l) => l.number).filter((n) => !seen.has(n));
+    if (known && fresh.length) drops.push({ alias: c.alias, numbers: fresh });
+    next[c.alias] = [...new Set([...seen, ...here])];
+  }
+  return { mail: drops.length ? [...kept, { id: `mail-${now}`, at: now, drops }] : kept, trayKnown: next };
 }

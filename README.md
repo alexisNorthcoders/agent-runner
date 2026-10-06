@@ -380,11 +380,12 @@ can't connect (or has been silent for 75s), reconnecting by itself every 3s.
 ### The office scene
 
 The office floor is drawn on a `<canvas>` next to the panel: an open-plan bullpen with one cubicle
-per allowlisted workspace (then one per scheduled-job room that isn't one), the Review room (the
-boss's office) and the Joplin room on the left, and the Queue room (by the front door) and the
-Freeform room on the right. In the wide layout a tiled corridor runs down each side of the bullpen,
-an aisle runs in front of each row of cubicles from corridor to corridor, and each side room has a
-doorway onto its corridor. In the narrow layout (a phone), the rooms are stacked with a tiled
+per allowlisted workspace (then one per scheduled-job room that isn't one, then a `<room> scripts` cubicle
+for each room's plain-script jobs, its clerks'), and the side rooms: the Queue room (by the front
+door), the Review room (the boss's office), the Freeform room and the Joplin room. In the wide
+layout the side rooms are stacked down the left, a tiled corridor runs between them and the bullpen,
+an aisle runs in front of each row of cubicles from the corridor across the bullpen (as many
+cubicles to a row as fit, at least 4), and each side room has a doorway onto the corridor. In the narrow layout (a phone), the rooms are stacked with a tiled
 corridor lane down their right edge: each side room's doorway is at the lane's end of its back
 wall, and the bullpen and its aisles open straight onto the lane. It shows the office-level state:
 
@@ -400,6 +401,12 @@ wall, and the bullpen and its aisles open straight onto the lane. It shows the o
   with its issue number, after the rooms' PR-open folders. A cubicle whose repo has `ready-for-human`
   issues has a sticky note on its monitor with how many. Hover any of them for the issues; a full
   tray or desk piles the rest into its last slot. Triage counts are only in the Issues tab.
+- **Mail:** a new issue doesn't just appear in its tray: the mail carrier hands it out. When the
+  scan turns up letters the page hasn't seen in a cubicle's tray before (not one coming back from
+  the desk, and not any the page found when it opened), the carrier walks a round from the Queue
+  room with a bundle, stopping at each of those cubicles in turn to drop its letters in the tray,
+  and back. Runs and rounds queue for the carrier in the order they came in: a run that comes in
+  mid-round waits until they're back.
 
 Pauses clear on the page as soon as they run out, without waiting for the next snapshot.
 
@@ -407,7 +414,7 @@ A live run plays out on the floor:
 
 - **Delivery:** the mail carrier takes the run from the Queue room to its room: an interoffice envelope
   for a cron run, or the Queue room's phone rings first for a manual (WhatsApp) one. They walk out
-  of the Queue room's doorway and along the corridors (or the lane) and aisles to the desk (into a
+  of the Queue room's doorway and along the corridor (or the lane) and aisles to the desk (into a
   cubicle by its open front, into the Freeform or Joplin room by its doorway), and back, at a steady
   pace, so a far desk takes longer. Every walk is timed on the wide office at its narrowest, so
   resizing the page mid-walk (wide ↔ narrow too) puts the walker the same fraction along the new
@@ -427,6 +434,13 @@ A live run plays out on the floor:
   masked output, and the Office tab lists each job's next due time.
 - **Agent phase:** the worker types, the paper pile on the desk grows with turns and elapsed time
   (to a cap), and a speech bubble shows the last activity, shortened (hover the worker for all of it).
+- **Subagents:** each subagent the agent spawns is played by a colleague: the resident of the
+  nearest workspace cubicle (left first, skipping Do Not Disturb) gets up and walks over to the
+  run's desk, or, when no resident can come (at night, say), a temp in a visitor's lanyard comes in
+  from the Queue room. They stand in front of the desk facing the worker, with a tag saying which
+  tool their subagent is using (`BASH`, `READ`, `WRITE` while it writes), and walk back once it's
+  done (or the run moves on to post-run). Up to 4 stand at a desk. Hover one for what it was asked
+  and is doing. `claude:status` lists the subagents too.
 - **Post-run** (issue runs): the boss walks over (out of the Review room's doorway, along the
   corridor and aisle, and round the nearer end of the desk) and, once there, reads over the worker's
   shoulder during the review (from the start of post-run: the snapshot can't tell the review from
@@ -435,6 +449,30 @@ A live run plays out on the floor:
 - **Doors:** each side room's doorway has a door that swings open as someone walking comes near
   and shuts behind them once they've gone by: seen from above in the wide layout, its leaf swinging
   into the room, and face-on in the back wall in the narrow one. The front door never opens.
+
+Between runs the office has a life of its own (`ambient.js`), on the viewer's clock and the same on
+every page:
+
+- **Residents:** each workspace cubicle has its own resident at the desk through the morning, day and
+  evening. They idle (sitting still, sipping coffee, leaning back, looking round, stretching, dozing
+  off, far more in a cubicle with no run for 3 days), flick through their in-tray while it has
+  letters, peer at the cubicle next door while a run is worked there, and cheer a merge in their
+  cubicle (or clap one next door) for a few seconds. When a run's worker arrives at the desk, they
+  take the resident's seat. A resident never types, grows a pile or speaks in a bubble, so a real run
+  still stands out.
+- **Looks:** every worker has their own look (`looks.js`): skin, hair colour and style, shirt,
+  tie or open collar, glasses or a beard, worked out from who they are (a workspace's resident, a
+  job's worker, the Freeform or Joplin room's), so it's the same on every page and across reloads,
+  and no two in the office share both shirt and hair colour. A workspace's resident and the worker
+  on its runs are the same person.
+- **Breaks:** now and then a resident walks to the Freeform room's water cooler (and back with a
+  mug), the Joplin room's bookshelf, or a neighbour's cubicle for a chat, along the corridor and
+  aisles, opening the doors on the way. At most a couple at once, never someone on Do Not Disturb.
+- **The boss** paces behind their desk now and then while PRs are parked.
+- **Day and night:** the windows show the sky for the time of day (morning, day, evening, stars at
+  night). From 22:00 to 07:00 the residents are home, a night janitor mops up and down the aisles,
+  and the lights are down everywhere but the Queue and Review rooms, the active run's room, and rooms
+  with a scheduled job's worker (or a run's resting worker) at their desk.
 
 When a run ends, its room shows how it went, and keeps showing it until the next run there starts.
 It comes from the room's latest history row in the feed, so it survives a page reload and a runner
@@ -481,7 +519,9 @@ The code is split so the rules are testable and the art is replaceable: `scene.j
 scene reducer (snapshot + previous scene → scene, tested: room placement, phases, pile growth,
 when each animation starts, and each room's last outcome), `layout.js` places the rooms, corridors, aisles, cubicles
 and desks, builds the walk graph and hit-tests clicks (tested), `walkers.js` works out who walks the floor
-and where at a given time, routing over the walk graph (tested), `sprites.js` draws every sprite procedurally (swap it for
+and where at a given time, routing over the walk graph (tested), `ambient.js` decides the office's
+ambient life (who's in, their poses, the breaks, the time of day; tested), `looks.js` gives everyone their
+own look (tested), `sprites.js` draws every sprite procedurally (swap it for
 sprite sheets later), and `officeView.js` draws a scene on a layout with the sprites, tweening the animations from the
 times the scene gives.
 

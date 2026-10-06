@@ -6,7 +6,7 @@ import { cartSlots, clickFilter, deskAt, fitScene, folderSlots, inTraySlots, ins
 import { applyLogEvent } from './logPane.js';
 import { drawOffice } from './officeView.js';
 import { lastLine, reduceScene, samePlace } from './scene.js';
-import { walkers } from './walkers.js';
+import { trayNow, walkers } from './walkers.js';
 
 const FEED_URL = 'feed';
 const RECONNECT_MS = 3000;
@@ -79,6 +79,8 @@ function nextDue(j, t) {
 
 /** The snapshot's clock, advanced by the time since it arrived. */
 const now = () => Date.parse(snap.at) + (Date.now() - receivedAt);
+/** The office's ambient life, on this viewer's clock (its time of day). */
+const ambient = () => ({ tzOffsetMin: new Date().getTimezoneOffset() });
 
 // --- tabs ---
 
@@ -316,7 +318,7 @@ function drawScene() {
     buffer.width = layout.width;
     buffer.height = layout.height;
   }
-  drawOffice(buffer.getContext('2d'), layout, scene, { t, filter });
+  drawOffice(buffer.getContext('2d'), layout, scene, { t, filter, ambient: ambient() });
   if (canvas.width !== layout.width * fit.scale || canvas.height !== layout.height * fit.scale) {
     canvas.width = layout.width * fit.scale;
     canvas.height = layout.height * fit.scale;
@@ -370,10 +372,12 @@ const issueTip = (i) => `#${i.number} ${i.title}${i.blocked ? ' (blocked)' : ''}
  * @param {number} x @param {number} y
  */
 function pendingAt(x, y) {
+  // the letters on show: not those still in the mail carrier's bag
+  const { undelivered } = walkers(layout, scene.cubicles, scene, now());
   for (const [i, c] of scene.cubicles.entries()) {
     const r = layout.cubicles[i];
     if (!r) continue;
-    const slot = inTraySlots(r, c.inTray).find((sl) => inside(sl.rect, x, y));
+    const slot = inTraySlots(r, trayNow(c, undelivered)).find((sl) => inside(sl.rect, x, y));
     if (slot) return slot.letters.length > 1 ? `${slot.letters.length} more:\n${slot.letters.map(issueTip).join('\n')}` : `Ready for agent: ${issueTip(slot.letters[0])}`;
     if (c.sticky.length && inside(stickyNote(r), x, y)) return `Ready for human:\n${c.sticky.map(issueTip).join('\n')}`;
   }
@@ -391,13 +395,16 @@ function jobWorkerAt(x, y) {
   return null;
 }
 
-/** What's under the pointer: a letter's label, a pending issue, the cron countdown, or a room (a cubicle's workspace) and its last run. */
+/** What's under the pointer: a subagent's colleague, a letter's label, a pending issue, the cron countdown, or a room (a cubicle's workspace) and its last run. */
 function hovered() {
   if (!pointer || !scene || !layout || scene.dark) return null;
   const { x, y } = scenePoint(pointer);
   const run = scene.run;
   const desk = run && deskAt(layout, scene.cubicles, run.place);
   if (run && desk && inside(workerRect(desk), x, y)) return `${run.label ?? run.runId}${run.activity ? `: ${run.activity}` : ''}`;
+  // a colleague helping with a subagent, standing or on their way
+  const helper = walkers(layout, scene.cubicles, scene, now(), { ambient: ambient() }).helpers.find((hp) => inside({ x: hp.x - 1, y: hp.y - 1, w: 12, h: 23 }, x, y));
+  if (helper) return `Subagent: ${helper.description}${helper.done ? '\n(done, heading back)' : helper.activity ? `\n${helper.activity}` : ''}${helper.recruit ? `\nHelping out from ${helper.recruit}` : '\nA temp from the Queue room'}`;
   const job = jobWorkerAt(x, y);
   if (job) return `Scheduled job ${job.name} (${job.worker}), daily at ${job.at} UTC\nNext due ${nextDue(job, now())}`;
   const slot = cartSlots(layout, scene.queueRoom.letters).find((sl) => inside(sl.rect, x, y));
@@ -508,6 +515,6 @@ fetch('office.json', { cache: 'no-cache' })
 // keeps elapsed times and countdowns moving between snapshots
 setInterval(() => snap && render(), 1000);
 // and the floor's animations in between
-setInterval(() => scene && snap && layout && walkers(layout, scene.cubicles, scene, now()).animating && drawScene(), REDRAW_MS);
+setInterval(() => scene && snap && layout && walkers(layout, scene.cubicles, scene, now(), { ambient: ambient() }).animating && drawScene(), REDRAW_MS);
 render();
 connect();

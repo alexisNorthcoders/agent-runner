@@ -2,7 +2,10 @@
 // resolution. Everything the view draws comes from here, so hand-made sprite sheets can replace
 // these functions later without touching the scene or the view's placement.
 
+import { PLAIN } from './looks.js';
+
 /** @typedef {CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D} Ctx */
+/** @typedef {import('./looks.js').Look} Look */
 /** @typedef {import('./layout.js').Rect} Rect */
 
 export const PALETTE = {
@@ -54,6 +57,12 @@ export const PALETTE = {
   mopHead: '#b9b4a6',
   visor: '#3fae5a',
   night: 'rgba(6, 8, 22, 0.84)',
+  lightsDown: 'rgba(10, 14, 40, 0.5)',
+  mug: '#f4f1e8',
+  coffee: '#5a3a22',
+  /** The sky in the windows, by the time of day. */
+  sky: { morning: '#f3d9a4', day: '#9fd0f0', evening: '#e8955a', night: '#1c2547' },
+  star: '#f4f1e8',
 };
 
 // --- pixel font (3×5, uppercase) ---
@@ -225,14 +234,22 @@ export function backDoor(ctx, r, floorY, open) {
   }
 }
 
-/** A window on a back wall. @param {Ctx} ctx @param {number} x @param {number} y @param {number} w */
-export function wallWindow(ctx, x, y, w) {
+/**
+ * A window on a back wall, with the sky outside at `part` of the day (stars at night).
+ * @param {Ctx} ctx @param {number} x @param {number} y @param {number} w
+ * @param {import('./ambient.js').DayPart} [part]
+ */
+export function wallWindow(ctx, x, y, w, part = 'day') {
   ctx.fillStyle = PALETTE.wallTrim;
   ctx.fillRect(x - 1, y - 1, w + 2, 14);
-  ctx.fillStyle = PALETTE.window;
+  ctx.fillStyle = PALETTE.sky[part];
   ctx.fillRect(x, y, w, 12);
-  ctx.fillStyle = PALETTE.white;
-  ctx.fillRect(x + 2, y + 2, 3, 1);
+  ctx.fillStyle = part === 'night' ? PALETTE.star : PALETTE.white;
+  if (part === 'night') {
+    ctx.fillRect(x + 3, y + 3, 1, 1);
+    ctx.fillRect(x + w - 6, y + 7, 1, 1);
+    ctx.fillRect(x + Math.floor(w / 2) - 4, y + 8, 1, 1);
+  } else ctx.fillRect(x + 2, y + 2, 3, 1);
   ctx.fillStyle = PALETTE.wallTrim;
   ctx.fillRect(x + Math.floor(w / 2), y, 1, 12);
 }
@@ -521,6 +538,20 @@ export function stickyNote(ctx, r, n) {
   text(ctx, n > 9 ? '+' : String(n), r.x + 2, r.y + 1, PALETTE.ink);
 }
 
+/**
+ * The lights down for the night over the whole office but the `lit` areas (where someone's at work).
+ * @param {Ctx} ctx @param {number} w @param {number} h @param {Rect[]} lit
+ */
+export function lightsDown(ctx, w, h, lit) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, w, h);
+  for (const r of lit) ctx.rect(r.x, r.y, r.w, r.h);
+  ctx.fillStyle = PALETTE.lightsDown;
+  ctx.fill('evenodd');
+  ctx.restore();
+}
+
 /** The lights off: a night tint over the whole office. @param {Ctx} ctx @param {number} w @param {number} h */
 export function darkness(ctx, w, h) {
   ctx.fillStyle = PALETTE.night;
@@ -530,29 +561,289 @@ export function darkness(ctx, w, h) {
 // --- people at work ---
 
 /**
+ * A head, facing right, its top at (x, y) in a figure 10 wide: skin, the look's hair style and
+ * colour, an eye, and glasses or a beard. `eyes`: 1 open, 2 wide (peering), 0 shut.
+ * @param {Ctx} ctx @param {number} x @param {number} y @param {Look} look @param {0 | 1 | 2} [eyes]
+ */
+export function head(ctx, x, y, look, eyes = 1) {
+  ctx.fillStyle = look.skin;
+  ctx.fillRect(x + 2, y + 2, 6, 5);
+  ctx.fillStyle = look.hair;
+  switch (look.style) {
+    case 'short':
+      ctx.fillRect(x + 2, y, 6, 2);
+      ctx.fillRect(x + 2, y + 2, 1, 2);
+      break;
+    case 'long':
+      // over the top and down the back of the head to the shoulders
+      ctx.fillRect(x + 2, y, 6, 2);
+      ctx.fillRect(x + 1, y + 1, 2, 7);
+      break;
+    case 'buzz':
+      ctx.fillRect(x + 2, y + 1, 6, 1);
+      ctx.fillStyle = look.skin;
+      ctx.fillRect(x + 2, y + 2, 6, 1);
+      break;
+    case 'bun':
+      ctx.fillRect(x + 2, y, 6, 2);
+      ctx.fillRect(x + 1, y - 2, 3, 3);
+      break;
+    case 'curly':
+      ctx.fillRect(x + 1, y, 8, 2);
+      ctx.fillRect(x + 1, y - 1, 2, 1);
+      ctx.fillRect(x + 4, y - 1, 2, 1);
+      ctx.fillRect(x + 7, y - 1, 2, 1);
+      ctx.fillRect(x + 1, y + 2, 1, 3);
+      break;
+    case 'bald':
+      // the top of the head bare, a fringe round the back
+      ctx.fillStyle = look.skin;
+      ctx.fillRect(x + 2, y + 1, 6, 1);
+      ctx.fillStyle = look.hair;
+      ctx.fillRect(x + 1, y + 2, 1, 3);
+      ctx.fillRect(x + 2, y + 3, 1, 2);
+      break;
+  }
+  if (look.beard) {
+    ctx.fillStyle = look.hair;
+    ctx.fillRect(x + 3, y + 5, 5, 2);
+    ctx.fillStyle = look.skin;
+    ctx.fillRect(x + 5, y + 5, 2, 1);
+  }
+  ctx.fillStyle = PALETTE.ink;
+  if (eyes === 0) ctx.fillRect(x + 5, y + 4, 2, 1);
+  else {
+    ctx.fillRect(x + 6, y + 4, 1, 1);
+    if (eyes === 2) ctx.fillRect(x + 7, y + 4, 1, 1);
+  }
+  if (look.glasses) {
+    ctx.fillStyle = PALETTE.ink;
+    ctx.fillRect(x + 5, y + 3, 3, 1);
+    ctx.fillRect(x + 5, y + 4, 1, 1);
+    ctx.fillRect(x + 7, y + 4, 1, 1);
+  }
+}
+
+/**
  * A worker seated at a desk, in `r` (workerRect): head, shirt and tie, and hands on the desktop.
  * `hands`: 0 for still, else which hand is up (1 or 2), for typing and scribbling.
- * @param {Ctx} ctx @param {Rect} r @param {0 | 1 | 2} hands
+ * @param {Ctx} ctx @param {Rect} r @param {0 | 1 | 2} hands @param {Look} [look]
  */
-export function worker(ctx, r, hands) {
+export function worker(ctx, r, hands, look = PLAIN) {
   const { x, y } = r;
-  ctx.fillStyle = PALETTE.hair;
-  ctx.fillRect(x + 2, y, 6, 2);
-  ctx.fillStyle = PALETTE.skin;
-  ctx.fillRect(x + 2, y + 2, 6, 5);
-  ctx.fillStyle = PALETTE.ink;
-  ctx.fillRect(x + 6, y + 4, 1, 1);
-  ctx.fillStyle = PALETTE.shirt;
-  ctx.fillRect(x + 1, y + 7, 8, 10);
-  ctx.fillStyle = PALETTE.tie;
-  ctx.fillRect(x + 5, y + 8, 1, 5);
+  head(ctx, x, y, look);
+  torso(ctx, x, y, look, false);
   // arms down to the desktop, a hand lifted while working
-  ctx.fillStyle = PALETTE.shirt;
+  ctx.fillStyle = look.shirt;
   ctx.fillRect(x, y + 9, 1, 7);
   ctx.fillRect(x + 9, y + 9, 1, 7);
-  ctx.fillStyle = PALETTE.skin;
+  ctx.fillStyle = look.skin;
   ctx.fillRect(x + 1, y + (hands === 1 ? 15 : 17), 2, 2);
   ctx.fillRect(x + 7, y + (hands === 2 ? 15 : 17), 2, 2);
+}
+
+/**
+ * A resident at their desk, in `r` (workerRect), idling in `pose` and facing `facing`. `frame` beats
+ * the claps, the cheer and the chat. Nothing here types: that's the active run's.
+ * @param {Ctx} ctx @param {Rect} r @param {import('./ambient.js').Pose} pose @param {'left' | 'right'} facing @param {number} frame
+ * @param {Look} [look]
+ */
+export function resident(ctx, r, pose, facing, frame, look = PLAIN) {
+  const { x, y } = r;
+  const beat = frame % 2;
+  if (pose === 'doze') {
+    // head nodding forward, eyes shut
+    head(ctx, x, y + 2 + beat, look, 0);
+    torso(ctx, x, y, look, true);
+    // beside the head, clear of the cubicle's sign above
+    if (frame % 6 < 3) text(ctx, 'z', x + 10, y + 1 - (frame % 2), PALETTE.white);
+    return;
+  }
+  // peering over: up off the chair a little
+  const up = pose === 'peek' ? -1 : 0;
+  facingWay(ctx, x, 10, facing);
+  head(ctx, x, y + up, look, pose === 'peek' ? 2 : 1);
+  torso(ctx, x, y + up, look, pose === 'still' || pose === 'look' || pose === 'peek' || pose === 'chat');
+  ctx.fillStyle = look.skin;
+  if (pose === 'sip') {
+    // the mug up at the mouth, the other hand on the desk
+    ctx.fillStyle = look.shirt;
+    ctx.fillRect(x + 9, y + 7, 1, 3);
+    ctx.fillRect(x, y + 9, 1, 7);
+    ctx.fillStyle = look.skin;
+    ctx.fillRect(x + 8, y + 9, 2, 2);
+    ctx.fillRect(x + 1, y + 17, 2, 2);
+    ctx.fillStyle = PALETTE.mug;
+    ctx.fillRect(x + 7, y + 5, 3, 4);
+    ctx.fillStyle = PALETTE.coffee;
+    ctx.fillRect(x + 7, y + 5, 3, 1);
+  } else if (pose === 'stretch' || pose === 'cheer') {
+    // arms up by the head (clear of the cubicle's sign above), waving on the beat for a cheer
+    const high = pose === 'cheer' && beat ? -1 : 0;
+    ctx.fillStyle = look.shirt;
+    ctx.fillRect(x, y + 2 + high, 1, 6);
+    ctx.fillRect(x + 9, y + 2 + high, 1, 6);
+    ctx.fillStyle = look.skin;
+    ctx.fillRect(x - 1, y + high, 2, 2);
+    ctx.fillRect(x + 9, y + high, 2, 2);
+  } else if (pose === 'lean') {
+    // hands behind the head
+    ctx.fillStyle = look.shirt;
+    ctx.fillRect(x, y + 3, 1, 5);
+    ctx.fillRect(x + 9, y + 3, 1, 5);
+    ctx.fillStyle = look.skin;
+    ctx.fillRect(x + 1, y + 1, 1, 2);
+    ctx.fillRect(x + 8, y + 1, 1, 2);
+  } else if (pose === 'sort') {
+    // a letter held up, the other hand on the desk
+    ctx.fillStyle = look.shirt;
+    ctx.fillRect(x + 9, y + 9, 1, 3);
+    ctx.fillRect(x, y + 9, 1, 7);
+    ctx.fillStyle = PALETTE.envelope;
+    ctx.fillRect(x + 7 + beat, y + 8, 5, 4);
+    ctx.fillStyle = PALETTE.envelopeEdge;
+    ctx.fillRect(x + 7 + beat, y + 8, 5, 1);
+    ctx.fillStyle = look.skin;
+    ctx.fillRect(x + 8 + beat, y + 11, 2, 2);
+    ctx.fillRect(x + 1, y + 17, 2, 2);
+  } else if (pose === 'clap') {
+    // hands meeting in front of the chest on the beat
+    ctx.fillStyle = look.shirt;
+    ctx.fillRect(x, y + 9, 1, 3);
+    ctx.fillRect(x + 9, y + 9, 1, 3);
+    ctx.fillStyle = look.skin;
+    ctx.fillRect(x + (beat ? 3 : 1), y + 11, 2, 2);
+    ctx.fillRect(x + (beat ? 5 : 7), y + 11, 2, 2);
+  }
+  ctx.restore();
+  if (pose === 'chat') chatDots(ctx, x + 11, y + 2, frame);
+  if (pose === 'cheer' || pose === 'clap') {
+    if (beat) {
+      ctx.fillStyle = PALETTE.selected;
+      ctx.fillRect(x - 3, y - 6, 1, 1);
+      ctx.fillRect(x + 12, y - 5, 1, 1);
+    }
+  }
+}
+
+/**
+ * A worker's shirt and tie (or open collar), and arms with hands down on the desktop when `restingHands`.
+ * @param {Ctx} ctx @param {number} x @param {number} y top of the head @param {Look} look @param {boolean} restingHands
+ */
+function torso(ctx, x, y, look, restingHands) {
+  ctx.fillStyle = look.shirt;
+  ctx.fillRect(x + 1, y + 7, 8, 10);
+  if (look.tie) {
+    ctx.fillStyle = look.tie;
+    ctx.fillRect(x + 5, y + 8, 1, 5);
+  } else {
+    // an open collar
+    ctx.fillStyle = look.skin;
+    ctx.fillRect(x + 4, y + 7, 3, 1);
+    ctx.fillRect(x + 5, y + 8, 1, 1);
+  }
+  if (!restingHands) return;
+  ctx.fillStyle = look.shirt;
+  ctx.fillRect(x, y + 9, 1, 7);
+  ctx.fillRect(x + 9, y + 9, 1, 7);
+  ctx.fillStyle = look.skin;
+  ctx.fillRect(x + 1, y + 17, 2, 2);
+  ctx.fillRect(x + 7, y + 17, 2, 2);
+}
+
+/**
+ * A small tag over a subagent's colleague with the tool their subagent is using (`BASH`), centred
+ * on `x`, its bottom at `y`, kept inside `bounds` left to right.
+ * @param {Ctx} ctx @param {number} x @param {number} y @param {string} label @param {Rect} bounds
+ */
+export function toolTag(ctx, x, y, label, bounds) {
+  const str = fitText(label, 28);
+  const w = textWidth(str) + 4;
+  const bx = Math.round(Math.max(bounds.x + 1, Math.min(x - w / 2, bounds.x + bounds.w - w - 1)));
+  ctx.fillStyle = PALETTE.signText;
+  ctx.fillRect(bx, y - 7, w, 7);
+  text(ctx, str, bx + 2, y - 6, PALETTE.signBg);
+}
+
+/** Dots of chatter over someone's head at (x, y), taking turns on the beat. @param {Ctx} ctx @param {number} x @param {number} y @param {number} frame */
+export function chatDots(ctx, x, y, frame) {
+  const n = (Math.floor(frame / 3) % 3) + 1;
+  ctx.fillStyle = PALETTE.white;
+  for (let i = 0; i < n; i++) ctx.fillRect(x + i * 2, y, 1, 1);
+}
+
+/**
+ * A resident on their feet, on a break: walking (`step` moves the legs) or standing, with a mug
+ * on the way back from the water cooler, mirrored when `facing` left. (x, y) is the top of the head.
+ * @param {Ctx} ctx @param {number} x @param {number} y @param {number | null} step null standing
+ * @param {'left' | 'right'} facing @param {{ mug?: boolean, lanyard?: boolean }} [o] `lanyard`: a temp's visitor badge
+ * @param {Look} [look]
+ */
+export function strollingWorker(ctx, x, y, step, facing, o = {}, look = PLAIN) {
+  facingWay(ctx, x, 10, facing);
+  head(ctx, x, y, look);
+  torso(ctx, x, y, look, false);
+  // arms at the sides, swinging as they walk
+  const swing = step == null ? 0 : step % 2;
+  ctx.fillStyle = look.shirt;
+  ctx.fillRect(x, y + 8 + swing, 1, 6);
+  ctx.fillRect(x + 9, y + 9 - swing, 1, 6);
+  ctx.fillStyle = look.skin;
+  ctx.fillRect(x, y + 14 + swing, 1, 2);
+  ctx.fillRect(x + 9, y + 15 - swing, 1, 2);
+  if (o.lanyard) {
+    ctx.fillStyle = PALETTE.red;
+    ctx.fillRect(x + 3, y + 7, 1, 3);
+    ctx.fillRect(x + 6, y + 7, 1, 3);
+    ctx.fillStyle = PALETTE.white;
+    ctx.fillRect(x + 3, y + 10, 4, 3);
+  }
+  if (o.mug) {
+    ctx.fillStyle = PALETTE.mug;
+    ctx.fillRect(x + 9, y + 12 - swing, 3, 3);
+    ctx.fillStyle = PALETTE.coffee;
+    ctx.fillRect(x + 9, y + 12 - swing, 3, 1);
+  }
+  ctx.fillStyle = PALETTE.ink;
+  ctx.fillRect(x + 2, y + 17, 2, step != null && step % 2 ? 3 : 4);
+  ctx.fillRect(x + 6, y + 17, 2, step != null && !(step % 2) ? 3 : 4);
+  ctx.restore();
+}
+
+/**
+ * The night janitor, mopping their way along (`step` moves the legs and the mop), in overalls and
+ * cap, mirrored when `facing` left. (x, y) is the top of the head.
+ * @param {Ctx} ctx @param {number} x @param {number} y @param {number} step @param {'left' | 'right'} facing
+ */
+export function nightJanitor(ctx, x, y, step, facing) {
+  facingWay(ctx, x, 10, facing);
+  ctx.fillStyle = PALETTE.overalls;
+  ctx.fillRect(x + 1, y - 1, 8, 2);
+  ctx.fillRect(x + 7, y + 1, 3, 1);
+  ctx.fillStyle = PALETTE.skin;
+  ctx.fillRect(x + 2, y + 1, 6, 6);
+  ctx.fillStyle = PALETTE.ink;
+  ctx.fillRect(x + 6, y + 3, 1, 1);
+  ctx.fillStyle = PALETTE.shirt;
+  ctx.fillRect(x + 1, y + 7, 8, 4);
+  ctx.fillStyle = PALETTE.overalls;
+  ctx.fillRect(x + 1, y + 11, 8, 6);
+  ctx.fillRect(x + 3, y + 7, 1, 4);
+  ctx.fillRect(x + 6, y + 7, 1, 4);
+  // the mop out in front, its head swishing on the floor
+  const s = step % 2;
+  ctx.fillStyle = PALETTE.wood;
+  ctx.fillRect(x + 10, y + 9, 1, 1);
+  ctx.fillRect(x + 11, y + 10, 1, 4);
+  ctx.fillRect(x + 12, y + 14, 1, 5);
+  ctx.fillStyle = PALETTE.skin;
+  ctx.fillRect(x + 9, y + 10, 2, 2);
+  ctx.fillStyle = PALETTE.mopHead;
+  ctx.fillRect(x + 10 + s, y + 19, 6, 2);
+  ctx.fillStyle = PALETTE.ink;
+  ctx.fillRect(x + 2, y + 17, 2, s ? 3 : 4);
+  ctx.fillRect(x + 6, y + 17, 2, s ? 4 : 3);
+  ctx.restore();
 }
 
 /**
@@ -573,23 +864,15 @@ function facingWay(ctx, x, w, facing) {
  * run moving from the Freeform room to its cubicle. (x, y) is the top of the head, as in `worker`, and
  * `step` moves the legs. Mirrored when `facing` left.
  * @param {Ctx} ctx @param {number} x @param {number} y @param {number} step @param {number} pile
- * @param {'left' | 'right'} [facing]
+ * @param {'left' | 'right'} [facing] @param {Look} [look]
  */
-export function walkingWorker(ctx, x, y, step, pile, facing = 'right') {
+export function walkingWorker(ctx, x, y, step, pile, facing = 'right', look = PLAIN) {
   facingWay(ctx, x, 10, facing);
-  ctx.fillStyle = PALETTE.hair;
-  ctx.fillRect(x + 2, y, 6, 2);
-  ctx.fillStyle = PALETTE.skin;
-  ctx.fillRect(x + 2, y + 2, 6, 5);
-  ctx.fillStyle = PALETTE.ink;
-  ctx.fillRect(x + 6, y + 4, 1, 1);
-  ctx.fillStyle = PALETTE.shirt;
-  ctx.fillRect(x + 1, y + 7, 8, 10);
-  ctx.fillStyle = PALETTE.tie;
-  ctx.fillRect(x + 5, y + 8, 1, 5);
+  head(ctx, x, y, look);
+  torso(ctx, x, y, look, false);
   // the papers held against the chest, hands at the bottom
   paperPile(ctx, x + 2, y + 13, Math.max(2, Math.min(5, pile)));
-  ctx.fillStyle = PALETTE.skin;
+  ctx.fillStyle = look.skin;
   ctx.fillRect(x + 1, y + 12, 2, 2);
   ctx.fillRect(x + 7, y + 12, 2, 2);
   const s = step % 2;
@@ -689,8 +972,9 @@ export function phoneRinging(ctx, r, frame) {
 
 /**
  * The mail carrier on foot (feet at `y`), carrying a run: an interoffice envelope (the cron), a
- * letter (a phone call), or nothing on the way back. Mirrored when `facing` left.
- * @param {Ctx} ctx @param {number} x @param {number} y @param {number} step @param {'envelope' | 'phone' | null} carrying
+ * letter (a phone call), a bundle of in-tray letters on a round of mail, or nothing on the way
+ * back. Mirrored when `facing` left.
+ * @param {Ctx} ctx @param {number} x @param {number} y @param {number} step @param {'envelope' | 'phone' | 'mail' | null} carrying
  * @param {'left' | 'right'} [facing]
  */
 export function walkingCarrier(ctx, x, y, step, carrying, facing = 'right') {
@@ -710,6 +994,15 @@ export function walkingCarrier(ctx, x, y, step, carrying, facing = 'right') {
     ctx.fillRect(x + 7, y - 9, 7, 5);
     ctx.fillStyle = PALETTE.envelopeEdge;
     ctx.fillRect(x + 8, y - 8, 5, 1);
+  } else if (carrying === 'mail') {
+    // a bundle of the in-trays' letters, held with a rubber band
+    ctx.fillStyle = PALETTE.paper;
+    ctx.fillRect(x + 7, y - 11, 6, 3);
+    ctx.fillRect(x + 8, y - 8, 6, 3);
+    ctx.fillStyle = PALETTE.envelopeEdge;
+    ctx.fillRect(x + 7, y - 8, 6, 1);
+    ctx.fillStyle = PALETTE.red;
+    ctx.fillRect(x + 10, y - 11, 1, 6);
   }
   ctx.restore();
 }
@@ -832,16 +1125,16 @@ export function bandage(ctx, r) {
 
 /**
  * A worker asleep, slumped over the desk: head down on their arms at the desktop (the desk's top at `deskY`).
- * @param {Ctx} ctx @param {Rect} r workerRect @param {number} deskY
+ * @param {Ctx} ctx @param {Rect} r workerRect @param {number} deskY @param {Look} [look]
  */
-export function sleepingWorker(ctx, r, deskY) {
+export function sleepingWorker(ctx, r, deskY, look = PLAIN) {
   const { x } = r;
-  ctx.fillStyle = PALETTE.shirt;
+  ctx.fillStyle = look.shirt;
   ctx.fillRect(x + 1, deskY - 8, 8, 8);
   ctx.fillRect(x - 1, deskY - 2, 12, 2);
-  ctx.fillStyle = PALETTE.hair;
+  ctx.fillStyle = look.hair;
   ctx.fillRect(x + 2, deskY - 6, 6, 4);
-  ctx.fillStyle = PALETTE.skin;
+  ctx.fillStyle = look.skin;
   ctx.fillRect(x + 3, deskY - 2, 4, 1);
 }
 
@@ -874,15 +1167,15 @@ export function flushed(ctx, r) {
   ctx.fillRect(r.x + 7, r.y + 5, 1, 1);
 }
 
-/** A worker shrugging: hands up by the shoulders. @param {Ctx} ctx @param {Rect} r workerRect */
-export function shruggingWorker(ctx, r) {
-  worker(ctx, r, 0);
+/** A worker shrugging: hands up by the shoulders. @param {Ctx} ctx @param {Rect} r workerRect @param {Look} [look] */
+export function shruggingWorker(ctx, r, look = PLAIN) {
+  worker(ctx, r, 0, look);
   const { x, y } = r;
   // wipe the resting hands, raise the arms
-  ctx.fillStyle = PALETTE.shirt;
+  ctx.fillStyle = look.shirt;
   ctx.fillRect(x - 2, y + 7, 2, 3);
   ctx.fillRect(x + 10, y + 7, 2, 3);
-  ctx.fillStyle = PALETTE.skin;
+  ctx.fillStyle = look.skin;
   ctx.fillRect(x - 3, y + 5, 2, 2);
   ctx.fillRect(x + 11, y + 5, 2, 2);
 }

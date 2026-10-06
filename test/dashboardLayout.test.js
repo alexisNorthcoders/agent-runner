@@ -202,15 +202,38 @@ describe('fitting the scene to the screen', () => {
 
 describe('corridors, aisles and doorways (wide)', () => {
   const widths = [560, 640, 720];
+  /** Cubicles in the front row. @param {ReturnType<typeof layoutOffice>} l */
+  const cols = (l) => l.cubicles.filter((c) => c.y === l.cubicles[0]?.y).length;
 
-  it('has two corridors, an aisle per cubicle row and a doorway per side room, clear of the cubicles and furniture', () => {
+  it('stacks the side rooms down the left, the Queue room first, with the bullpen filling the rest', () => {
+    for (const width of widths) {
+      const l = layoutOffice(4, 'wide', width);
+      let y = 0;
+      for (const id of /** @type {const} */ (['queueRoom', 'review', 'freeform', 'joplin'])) {
+        const r = l.rooms[id].rect;
+        assert.deepEqual([r.x, r.y], [0, y], id);
+        y += r.h;
+      }
+      assert.equal(y, l.height);
+      const b = l.rooms.bullpen.rect;
+      assert.equal(b.x + b.w, l.width);
+      assert.ok(b.w > l.width / 2, `${width}: the bullpen gets most of the floor`);
+    }
+  });
+
+  it('fits more cubicles across a wider bullpen, never fewer than 4', () => {
+    assert.equal(cols(layoutOffice(12, 'wide', 560)), 4);
+    assert.equal(cols(layoutOffice(12, 'wide', 720)), 5);
+  });
+
+  it('has a corridor, an aisle per cubicle row and a doorway per side room, clear of the cubicles and furniture', () => {
     for (const width of widths) {
       for (const count of [0, 1, 4, 9, 12, 13]) {
         const l = layoutOffice(count, 'wide', width);
         const all = { x: 0, y: 0, w: l.width, h: l.height };
         const rooms = Object.values(l.rooms).map((r) => r.rect);
-        assert.equal(l.corridors.length, 2);
-        assert.equal(l.aisles.length, Math.max(1, Math.ceil(count / 4)));
+        assert.equal(l.corridors.length, 1);
+        assert.equal(l.aisles.length, Math.max(1, Math.ceil(count / Math.max(1, cols(l)))));
         for (const c of l.corridors) {
           assert.ok(within(c, all), `corridor ${JSON.stringify(c)}`);
           for (const r of rooms) assert.ok(!overlap(c, r), `corridor ${JSON.stringify(c)} over room ${JSON.stringify(r)}`);
@@ -218,17 +241,16 @@ describe('corridors, aisles and doorways (wide)', () => {
         for (const a of l.aisles) {
           assert.ok(within(a, l.rooms.bullpen.rect), `aisle ${JSON.stringify(a)}`);
           for (const c of l.cubicles) assert.ok(!overlap(a, c), `aisle ${JSON.stringify(a)} over cubicle ${JSON.stringify(c)}`);
-          // it joins the two corridors
+          // it runs from the corridor across the bullpen
           assert.equal(a.x, l.corridors[0].x + l.corridors[0].w);
-          assert.equal(a.x + a.w, l.corridors[1].x);
+          assert.equal(a.x + a.w, l.width);
         }
         for (const id of /** @type {const} */ (['review', 'joplin', 'queueRoom', 'freeform'])) {
           const d = l.doorways[id];
           const r = l.rooms[id].rect;
           assert.ok(d && within(d, r), `${id} doorway ${JSON.stringify(d)}`);
           // in the wall facing the bullpen, in the room's front half
-          assert.ok(d.x === r.x + r.w - 1 || d.x === r.x, `${id} doorway in a side wall`);
-          assert.ok(Math.abs(d.x - l.rooms.bullpen.rect.x) < 20 || Math.abs(d.x - (l.rooms.bullpen.rect.x + l.rooms.bullpen.rect.w)) < 20, `${id} faces the bullpen`);
+          assert.equal(d.x, r.x + r.w - 1, `${id} doorway in the wall facing the bullpen`);
           assert.ok(d.y > r.y + r.h / 2, `${id} doorway near the front`);
           const furniture = [...Object.values(l.desks), l.desk, l.cart, l.door, l.clock, ...Object.values(l.desks).map(workerRect)];
           for (const f of furniture) assert.ok(!overlap({ ...d, x: d.x - 12, w: d.w + 24 }, f), `${id} doorway clear of ${JSON.stringify(f)}`);
@@ -251,7 +273,8 @@ describe('corridors, aisles and doorways (wide)', () => {
         const b = l.rooms.bullpen.rect;
         for (const r of [...l.cubicles, ...l.aisles]) assert.ok(within(r, b), `${width} ${count}: ${JSON.stringify(r)}`);
         l.aisles.forEach((a, i) => {
-          assert.equal(l.cubicles.filter((c) => c.y + c.h === a.y).length, Math.min(4, count - i * 4), `${width} ${count}: row ${i} has its aisle`);
+          const n = cols(l);
+          assert.equal(l.cubicles.filter((c) => c.y + c.h === a.y).length, Math.min(n, count - i * n), `${width} ${count}: row ${i} has its aisle`);
         });
       }
     }
@@ -316,7 +339,7 @@ describe('the corridor lane, aisles and doorways (narrow)', () => {
 
   it('draws each back-wall doorway, with its Door, clear of the name plate and of everything drawn after it', () => {
     for (const width of widths) {
-      const cubicles = ['a', 'b', 'c', 'd'].map((alias) => ({ alias, name: alias, workspace: true, doNotDisturb: false, inTray: [], sticky: [], jobs: [] }));
+      const cubicles = ['a', 'b', 'c', 'd'].map((alias) => ({ alias, name: alias, workspace: true, doNotDisturb: false, inTray: [], sticky: [], jobs: [], quiet: false }));
       const l = layoutOffice(cubicles.length, 'narrow', width);
       /** @type {Array<{ x: number, y: number, w: number, h: number, style: string }>} */
       const painted = [];
@@ -333,7 +356,7 @@ describe('the corridor lane, aisles and doorways (narrow)', () => {
         translate() {},
       };
       /** @type {import('../dashboard/scene.js').Scene} */
-      const scene = { dark: false, backInFive: false, cubicles, queueRoom: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [], parked: [] };
+      const scene = { dark: false, backInFive: false, cubicles, queueRoom: { countdownMs: null, letters: [] }, run: null, boss: { at: null, from: null, since: 0 }, outcomes: [], parked: [], mail: [], trayKnown: null, helpers: [] };
       drawOffice(/** @type {any} */ (ctx), l, scene, { t: 0 });
       for (const id of /** @type {const} */ (['review', 'joplin', 'queueRoom', 'freeform'])) {
         const d = /** @type {import('../dashboard/layout.js').Rect} */ (l.doorways[id]);

@@ -1,7 +1,6 @@
-// Where everything on the office floor sits, in the scene's internal pixels. Wide: the bullpen in
-// the middle, the Review room and the Joplin room on the left, the Queue room and the Freeform room
-// on the right, a corridor between each side and the bullpen, and an aisle in front of each row of
-// cubicles. Narrow: the rooms stacked, the Queue room first, with a corridor lane down their right
+// Where everything on the office floor sits, in the scene's internal pixels. Wide: the side rooms
+// stacked down the left (the Queue room, then the Review, Freeform and Joplin rooms), a corridor
+// between them and the bullpen, and an aisle in front of each row of cubicles. Narrow: the rooms stacked, the Queue room first, with a corridor lane down their right
 // edge and an aisle in front of each row of cubicles. Also the walk graph the walkers route over.
 // No DOM here, so it can be tested in Node.
 
@@ -26,9 +25,9 @@
  *   desks: { review: Rect, freeform: Rect, joplin: Rect },
  * }} Layout
  *   `desk`: the front desk. `desks`: the other rooms' desks (the Joplin room's reading table).
- *   `corridors`: wide, the Corridors either side of the bullpen, left then right; narrow, the lane
+ *   `corridors`: wide, the Corridor between the side rooms and the bullpen; narrow, the lane
  *   down the right edge (their back wall included). `aisles`: one in front of each row of cubicles,
- *   joining the corridors. `doorways`: each side room's way onto its corridor: wide, the gap in its
+ *   joining the corridor. `doorways`: each side room's way onto the corridor: wide, the gap in its
  *   wall facing the bullpen; narrow, the opening in its back wall at the lane's end, down to the
  *   floor, and its threshold just past the wall.
  */
@@ -57,6 +56,10 @@ const DOORWAY = 16;
 export const DOORWAY_TOP = 4;
 export const THRESHOLD = 4;
 const CUBE_H = 100;
+/** Wide: the side rooms' heights, top to bottom (the Queue room's holds its cart under the front desk). */
+const WIDE_ROOMS = /** @type {const} */ ([['queueRoom', 108], ['review', 84], ['freeform', 84], ['joplin', 84]]);
+/** Wide: a cubicle's least width, which sets how many fit across the bullpen (at least 4). */
+const CUBE_MIN_W = 108;
 const NAMES = { queueRoom: 'QUEUE', bullpen: 'HEADLESS INC.', review: 'REVIEW', freeform: 'FREEFORM', joplin: 'JOPLIN' };
 
 /** @param {RoomId} id @param {number} x @param {number} y @param {number} w @param {number} h @returns {Room} */
@@ -77,25 +80,49 @@ function grid(count, area, cols, maxH, gap = 0) {
   return Array.from({ length: count }, (_, i) => ({ x: area.x + (i % c) * w, y: area.y + Math.floor(i / c) * (h + gap), w, h }));
 }
 
-/** @param {Rect} r the Queue room */
-function queueRoomParts(r) {
+/**
+ * @param {Rect} r the Queue room
+ * @param {number} deskY the front desk's top, below the room's top
+ * @param {number} cartY the mail cart's top, below the room's top
+ */
+function queueRoomParts(r, deskY, cartY) {
   return {
     door: { x: r.x + 10, y: r.y + 2, w: 20, h: WALL - 2 },
     clock: { x: r.x + 38, y: r.y + 6, w: 44, h: 13 },
-    desk: { x: r.x + 44, y: r.y + 64, w: 72, h: 16 },
-    cart: { x: r.x + 12, y: r.y + 108, w: CART_COLS * 9 + 4, h: 26 },
+    desk: { x: r.x + 44, y: r.y + deskY, w: 72, h: 16 },
+    cart: { x: r.x + 12, y: r.y + cartY, w: CART_COLS * 9 + 4, h: 26 },
   };
 }
 
-/** @param {Record<RoomId, Room>} rooms */
-function roomDesks(rooms) {
+/**
+ * @param {Record<RoomId, Room>} rooms
+ * @param {number} drop how far below the back wall the Review and Freeform desks stand (the Joplin
+ *   room's table a little further)
+ */
+function roomDesks(rooms, drop) {
   const b = rooms.review.rect;
   const a = rooms.freeform.rect;
   const l = rooms.joplin.rect;
   return {
-    review: { x: b.x + Math.floor(b.w / 2) - 28, y: b.y + WALL + 30, w: 56, h: 16 },
-    freeform: { x: a.x + 20, y: a.y + WALL + 30, w: 40, h: 13 },
-    joplin: { x: l.x + Math.floor(l.w / 2) - 10, y: l.y + WALL + 34, w: 40, h: 12 },
+    review: { x: b.x + Math.floor(b.w / 2) - 28, y: b.y + WALL + drop, w: 56, h: 16 },
+    freeform: { x: a.x + 20, y: a.y + WALL + drop, w: 40, h: 13 },
+    joplin: { x: l.x + Math.floor(l.w / 2) - 10, y: l.y + WALL + drop + 4, w: 40, h: 12 },
+  };
+}
+
+/**
+ * Where the break spots are: the Freeform room's water cooler, in its front left corner, with
+ * `cooler` where someone stands at it (feet, just right of it), and `books` where someone stands
+ * browsing the Joplin room's bookshelf (feet, just in front of it).
+ * @param {Layout} layout
+ */
+export function breakSpots(layout) {
+  const f = layout.rooms.freeform.rect;
+  const j = layout.rooms.joplin.rect;
+  return {
+    waterCooler: { x: f.x + 6, y: f.y + f.h - 22, w: 8, h: 16 },
+    cooler: { x: f.x + 16, y: f.y + f.h - 5 },
+    books: { x: j.x + 22, y: j.y + WALL + 30 },
   };
 }
 
@@ -322,35 +349,35 @@ export function layoutOffice(count, mode, width) {
   if (mode === 'wide') {
     const W = Math.max(WIDE_WIDTH.min, Math.min(WIDE_WIDTH.max, Math.floor(width)));
     const H = WIDE_HEIGHT;
-    const rooms = {
-      review: room('review', 0, 0, SIDE, 160),
-      joplin: room('joplin', 0, 160, SIDE, H - 160),
-      bullpen: room('bullpen', SIDE + CORRIDOR, 0, W - 2 * (SIDE + CORRIDOR), H),
-      queueRoom: room('queueRoom', W - SIDE, 0, SIDE, 190),
-      freeform: room('freeform', W - SIDE, 190, SIDE, H - 190),
-    };
+    let y = 0;
+    const side = Object.fromEntries(
+      WIDE_ROOMS.map(([id, h]) => {
+        const r = room(id, 0, y, SIDE, h);
+        y += h;
+        return [id, r];
+      })
+    );
+    const rooms = { .../** @type {Record<SideRoomId, Room>} */ (side), bullpen: room('bullpen', SIDE + CORRIDOR, 0, W - SIDE - CORRIDOR, H) };
     const b = rooms.bullpen.rect;
-    const corridors = [
-      { x: SIDE, y: 0, w: CORRIDOR, h: H },
-      { x: W - SIDE - CORRIDOR, y: 0, w: CORRIDOR, h: H },
-    ];
+    const corridors = [{ x: SIDE, y: 0, w: CORRIDOR, h: H }];
     // rows of cubicles, each with its aisle in front, from just under the back wall: full height
     // while they fit (up to 3 rows), else shared out so the last aisle still ends at the front
     const top = b.y + WALL + 2;
-    const cols = 4;
+    const cols = Math.max(4, Math.floor((b.w - 12) / CUBE_MIN_W));
     const rows = Math.max(1, Math.ceil(count / cols));
     const cubeH = Math.max(0, Math.min(CUBE_H, Math.floor((b.y + b.h - top) / rows) - AISLE));
     const cubicles = grid(count, { x: b.x + 6, y: top, w: b.w - 12, h: 0 }, cols, cubeH, AISLE);
     const aisles = Array.from({ length: rows }, (_, i) => ({ x: b.x, y: top + i * (cubeH + AISLE) + cubeH, w: b.w, h: AISLE }));
-    /** @param {Rect} r @param {'left' | 'right'} side the wall facing the bullpen */
-    const doorway = (r, side) => ({ x: side === 'left' ? r.x : r.x + r.w - 1, y: r.y + r.h - DOORWAY - 6, w: 1, h: DOORWAY });
+    // in each side room's wall facing the bullpen, near its front
+    /** @param {Rect} r */
+    const doorway = (r) => ({ x: r.x + r.w - 1, y: r.y + r.h - DOORWAY - 6, w: 1, h: DOORWAY });
     const doorways = {
-      review: doorway(rooms.review.rect, 'right'),
-      joplin: doorway(rooms.joplin.rect, 'right'),
-      queueRoom: doorway(rooms.queueRoom.rect, 'left'),
-      freeform: doorway(rooms.freeform.rect, 'left'),
+      queueRoom: doorway(rooms.queueRoom.rect),
+      review: doorway(rooms.review.rect),
+      freeform: doorway(rooms.freeform.rect),
+      joplin: doorway(rooms.joplin.rect),
     };
-    return { width: W, height: H, rooms, cubicles, corridors, aisles, doorways, ...queueRoomParts(rooms.queueRoom.rect), desks: roomDesks(rooms) };
+    return { width: W, height: H, rooms, cubicles, corridors, aisles, doorways, ...queueRoomParts(rooms.queueRoom.rect, WALL + 18, 80), desks: roomDesks(rooms, 22) };
   }
   const W = Math.max(NARROW_WIDTH.min, Math.min(NARROW_WIDTH.max, Math.floor(width)));
   const cols = W >= 300 ? 3 : 2;
@@ -391,8 +418,8 @@ export function layoutOffice(count, mode, width) {
     corridors: [{ x: roomW, y: 0, w: CORRIDOR, h: y }],
     aisles,
     doorways,
-    ...queueRoomParts(rooms.queueRoom.rect),
-    desks: roomDesks(rooms),
+    ...queueRoomParts(rooms.queueRoom.rect, 64, 108),
+    desks: roomDesks(rooms, 30),
   };
 }
 
