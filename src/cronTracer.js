@@ -124,6 +124,28 @@ export function partitionIssuesWithOpenPr(rows, repo, openPrs, baseShaByBranch, 
   return { rows: kept, parked };
 }
 
+/**
+ * A repo's `ready-for-agent` issues as the cron sees them: **parked** (open agent PR whose state
+ * was already attempted), **blocked** (open native dependency, or a failed lookup), else
+ * **runnable**. Each list is in ascending issue number.
+ * @param {Pick<ReturnType<typeof import('./issuePipeline/githubIssue.js').createGithubIssues>, 'listOpenAgentPrsByIssue' | 'branchHeadSha' | 'blockedByCount'>} github
+ * @param {string} repo
+ * @param {OpenIssue[]} rows the repo's open issues
+ * @param {Map<string, string>} attempted `repo#n` → last attempted state (`cronState.prAttempts`)
+ */
+export async function classifyReadyIssues(github, repo, rows, attempted) {
+  const { openPrs, baseShaByBranch } = await loadOpenAgentPrs(github, repo);
+  const { rows: kept, parked } = partitionIssuesWithOpenPr(rows, repo, openPrs, baseShaByBranch, attempted);
+  /** @type {OpenIssue[]} */
+  const runnable = [];
+  /** @type {OpenIssue[]} */
+  const blocked = [];
+  for (const r of readyForAgent(kept).sort((a, b) => a.number - b.number)) {
+    ((await isBlocked(github.blockedByCount, repo, r.number)) ? blocked : runnable).push(r);
+  }
+  return { runnable, blocked, parked: parked.sort((a, b) => a.number - b.number) };
+}
+
 /** @param {string} s @param {number} [max] */
 function truncate(s, max = 1500) {
   const t = String(s || '').replace(/\s+/g, ' ').trim();

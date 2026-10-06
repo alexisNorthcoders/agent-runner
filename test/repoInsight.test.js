@@ -72,3 +72,56 @@ describe('repo insight cursor', () => {
     await assert.rejects(createRepoInsightCursor({ store: createMemoryStore() }).write(''), TypeError);
   });
 });
+
+describe('repo insight lookups', () => {
+  const issue = (number, ...labels) => ({ number, title: `T${number}`, labels });
+  const suggested = /** @type {import('../src/issuePipeline/githubIssue.js').SuggestedIssue[]} */ ([{ number: 9, title: 'S', url: 'u', state: 'closed', labels: ['agent-suggested', 'wontfix'] }]);
+  const setup = async ({ issues = [], blockers = {}, prs = new Map(), attempts = new Map() } = {}) => {
+    const { createRepoInsightLookups } = await import('../src/repoInsight.js');
+    return createRepoInsightLookups({
+      workspaces: { resolveIssueWorkspace: async (alias) => ({ alias, root: `/ws/${alias}` }) },
+      github: {
+        resolveIssueRepo: async (_root, alias) => `o/${alias}`,
+        listOpenIssues: async () => issues,
+        listOpenAgentPrsByIssue: async () => prs,
+        branchHeadSha: async () => 'm',
+        blockedByCount: async (_r, n) => {
+          const b = blockers[n] ?? 0;
+          if (b instanceof Error) throw b;
+          return b;
+        },
+        listAgentSuggestedIssues: async (repo) => (repo === 'o/bot' ? suggested : []),
+      },
+      prAttempts: async () => attempts,
+    });
+  };
+
+  it('is idle with no ready-for-agent issues', async () => {
+    assert.equal(await (await setup({ issues: [issue(1, 'ready-for-human'), issue(2)] })).isIdle('bot'), true);
+  });
+
+  it('is busy with a runnable issue', async () => {
+    assert.equal(await (await setup({ issues: [issue(1, 'ready-for-agent')] })).isIdle('bot'), false);
+  });
+
+  it('stays idle when every ready issue is blocked, or its blocker lookup fails', async () => {
+    const l = await setup({ issues: [issue(1, 'ready-for-agent'), issue(2, 'ready-for-agent')], blockers: { 1: 1, 2: new Error('gh') } });
+    assert.equal(await l.isIdle('bot'), true);
+  });
+
+  it('stays idle when the only ready issue is parked behind an attempted open PR', async () => {
+    const pr = { url: 'p', headSha: 'h', baseRefName: 'main', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' };
+    const { prAttemptStateKey } = await import('../src/cronState.js');
+    const attempts = new Map([['o/bot#1', prAttemptStateKey(pr, 'm')]]);
+    const l = await setup({ issues: [issue(1, 'ready-for-agent')], prs: new Map([[1, pr]]), attempts });
+    assert.equal(await l.isIdle('bot'), true);
+    // an unattempted PR state keeps it runnable
+    assert.equal(await (await setup({ issues: [issue(1, 'ready-for-agent')], prs: new Map([[1, pr]]) })).isIdle('bot'), false);
+  });
+
+  it('returns the past agent-suggested issues of the alias repo', async () => {
+    const l = await setup();
+    assert.deepEqual(await l.pastSuggestions('bot'), suggested);
+    assert.deepEqual(await l.pastSuggestions('dots'), []);
+  });
+});

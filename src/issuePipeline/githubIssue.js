@@ -6,12 +6,14 @@ import { parseCompactMap } from '../workspaces.js';
  * the cron's repo-wide lookups: open issues, their `blocked_by` count, and open agent PRs.
  *
  * @typedef {{ number: number, title: string, labels: string[] }} OpenIssue
+ * @typedef {{ number: number, title: string, url: string, state: 'open' | 'closed', labels: string[] }} SuggestedIssue
  * @typedef {{ url: string, headSha: string, baseRefName: string, mergeable: string, mergeStateStatus: string }} OpenAgentPr
  */
 
 const REPO_SLUG_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const RETRY_BACKOFF_MS = [0, 2500, 8000];
 const ISSUE_LIST_LIMIT = 500;
+export const AGENT_SUGGESTED_LABEL = 'agent-suggested';
 
 /** @param {string} repo @returns {string} */
 function assertRepoSlug(repo) {
@@ -158,6 +160,26 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
       if (!Array.isArray(data)) return [];
       return data
         .map((row) => ({ number: Number(row?.number), title: String(row?.title ?? ''), labels: labelNames(row?.labels) }))
+        .filter((row) => Number.isInteger(row.number) && row.number > 0);
+    },
+
+    /**
+     * Issues labelled `agent-suggested`, open and closed (whatever their outcome).
+     * @param {string} repo
+     * @returns {Promise<SuggestedIssue[]>}
+     */
+    async listAgentSuggestedIssues(repo) {
+      const out = await gh(['issue', 'list', '--repo', assertRepoSlug(repo), '--label', AGENT_SUGGESTED_LABEL, '--state', 'all', '--json', 'number,title,url,state,labels', '--limit', String(ISSUE_LIST_LIMIT)]);
+      const data = JSON.parse(out || '[]');
+      if (!Array.isArray(data)) return [];
+      return data
+        .map((row) => ({
+          number: Number(row?.number),
+          title: String(row?.title ?? ''),
+          url: String(row?.url ?? ''),
+          state: /** @type {'open' | 'closed'} */ (String(row?.state ?? '').toLowerCase() === 'open' ? 'open' : 'closed'),
+          labels: labelNames(row?.labels),
+        }))
         .filter((row) => Number.isInteger(row.number) && row.number > 0);
     },
 
