@@ -15,6 +15,12 @@ describe('preamble', () => {
     assert.match(p, /more than about 2 minutes/);
   });
 
+  it('forbids stashing or resetting files the agent did not create', () => {
+    const p = buildPreamble({ repoRoot: '/r/agent-runner' });
+    assert.match(p, /Never `git stash`/);
+    assert.match(p, /files you didn't create/);
+  });
+
   it('adds the commit → PR → review → merge → default-branch rules for freeform runs', () => {
     const p = buildFreeformPreamble({ repoRoot: '/r/agent-runner' });
     assert.ok(p.startsWith(buildPreamble({ repoRoot: '/r/agent-runner' })));
