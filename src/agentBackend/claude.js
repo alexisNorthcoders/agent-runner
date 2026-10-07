@@ -1,13 +1,13 @@
 import { execFile, spawn } from 'child_process';
 import { createWriteStream, existsSync } from 'fs';
-import { readFile } from 'fs/promises';
-import { mkdir } from 'fs/promises';
+import { appendFile, mkdir, readFile } from 'fs/promises';
 import { finished } from 'stream/promises';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
-import { createStreamAccumulator } from './claudeStreamParser.js';
+import { createStreamAccumulator, resultUsage } from './claudeStreamParser.js';
 import { usageLimitFrom } from './claudeUsageLimit.js';
 import { augmentedPathEnv } from '../processPath.js';
+import { USAGE_FILE_ENV } from '../jobUsage.js';
 
 /**
  * The Claude Code CLI implementation of `AgentBackend` (see ./index.js). Everything Claude-specific
@@ -324,16 +324,41 @@ export function readOnlySessionArgs({ prompt, model = process.env.REPO_INSIGHT_M
 }
 
 /**
+ * Append a session's usage to the scheduled job's usage file (./jobUsage.js), when the runner set
+ * one. A failed write is logged, not thrown: it must not fail the session.
+ * @param {any} out the CLI's JSON result
+ * @param {{ usageFile?: string, appendFileFn?: typeof appendFile }} deps
+ */
+async function reportJobUsage(out, { usageFile, appendFileFn = appendFile }) {
+  if (!usageFile) return;
+  try {
+    await appendFileFn(usageFile, `${JSON.stringify(resultUsage(out))}\n`);
+  } catch (err) {
+    console.warn(`cannot write usage file ${usageFile}:`, /** @type {any} */ (err)?.message || err);
+  }
+}
+
+/**
  * Launch a read-only exploration session in `cwd` and return its final text. The same seam shape
- * as `repoInsight`'s `launchSession`; tests inject a fake instead of spawning the CLI.
+ * as `repoInsight`'s `launchSession`; tests inject a fake instead of spawning the CLI. Its model,
+ * cost and tokens go to `AGENT_RUNNER_USAGE_FILE` (even for a session that reports an error), so
+ * the scheduled job's history row shows them.
  * @param {{
  *   bin?: string,
  *   timeoutMs?: number,
  *   execFileFn?: typeof import('child_process').execFile,
+ *   usageFile?: string,
+ *   appendFileFn?: typeof appendFile,
  * }} [deps]
  * @returns {(p: { cwd: string, prompt: string }) => Promise<{ text: string }>}
  */
-export function createReadOnlySessionLauncher({ bin = resolveClaudeBin(), timeoutMs = 15 * 60_000, execFileFn = execFile } = {}) {
+export function createReadOnlySessionLauncher({
+  bin = resolveClaudeBin(),
+  timeoutMs = 15 * 60_000,
+  execFileFn = execFile,
+  usageFile = process.env[USAGE_FILE_ENV]?.trim(),
+  appendFileFn,
+} = {}) {
   return ({ cwd, prompt }) =>
     new Promise((resolve, reject) => {
       const child = execFileFn(
@@ -342,13 +367,16 @@ export function createReadOnlySessionLauncher({ bin = resolveClaudeBin(), timeou
         { cwd, env: { ...process.env, PATH: augmentedPathEnv() }, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' },
         (err, stdout, stderr) => {
           if (err) return reject(new Error(`exploration session failed: ${String(stderr || '').trim().slice(0, 300) || err.message}`));
+          let out;
           try {
-            const out = JSON.parse(stdout);
+            out = JSON.parse(stdout);
+          } catch {
+            return reject(new Error('exploration session printed no JSON result'));
+          }
+          reportJobUsage(out, { usageFile, appendFileFn }).then(() => {
             if (out?.is_error) return reject(new Error(`exploration session reported an error: ${String(out.result ?? '').slice(0, 300)}`));
             resolve({ text: String(out?.result ?? '') });
-          } catch {
-            reject(new Error('exploration session printed no JSON result'));
-          }
+          });
         }
       );
       // The prompt is an argument; an open stdin pipe makes the CLI wait 3s for input first.

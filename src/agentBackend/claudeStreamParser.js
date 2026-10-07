@@ -42,6 +42,29 @@ function primaryModel(modelUsage) {
 }
 
 /**
+ * The model, cost, turns and tokens of a CLI `result` (the last stream-json event, or the whole
+ * `--output-format json` output).
+ * @param {any} ev
+ * @returns {{ model: string | null, costUsd: number | null, turns: number | null, tokens: { input: number, output: number, cacheRead: number, cacheCreate: number } }}
+ */
+export function resultUsage(ev) {
+  const tokens = ev?.modelUsage
+    ? sumModelUsage(ev.modelUsage)
+    : {
+        input: ev?.usage?.input_tokens || 0,
+        output: ev?.usage?.output_tokens || 0,
+        cacheRead: ev?.usage?.cache_read_input_tokens || 0,
+        cacheCreate: ev?.usage?.cache_creation_input_tokens || 0,
+      };
+  return {
+    model: primaryModel(ev?.modelUsage),
+    costUsd: typeof ev?.total_cost_usd === 'number' ? ev.total_cost_usd : null,
+    turns: typeof ev?.num_turns === 'number' ? ev.num_turns : null,
+    tokens,
+  };
+}
+
+/**
  * @typedef {{
  *   model: string | null,
  *   sessionId: string | null,
@@ -241,19 +264,12 @@ export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
     }
 
     if (ev.type === 'result') {
-      const tokens = ev.modelUsage
-        ? sumModelUsage(ev.modelUsage)
-        : {
-            input: ev.usage?.input_tokens || 0,
-            output: ev.usage?.output_tokens || 0,
-            cacheRead: ev.usage?.cache_read_input_tokens || 0,
-            cacheCreate: ev.usage?.cache_creation_input_tokens || 0,
-          };
-      state.model = primaryModel(ev.modelUsage) ?? state.model;
+      const { model, costUsd, tokens } = resultUsage(ev);
+      state.model = model ?? state.model;
       state.result = {
         text: typeof ev.result === 'string' ? ev.result : '',
         isError: Boolean(ev.is_error),
-        costUsd: typeof ev.total_cost_usd === 'number' ? ev.total_cost_usd : null,
+        costUsd,
         // a run with background tasks ends a result per segment (the CLI resumes it when a task
         // ends), each counting only its own turns: the run's are their sum
         turns: typeof ev.num_turns === 'number' ? (state.result?.turns ?? 0) + ev.num_turns : (state.result?.turns ?? null),

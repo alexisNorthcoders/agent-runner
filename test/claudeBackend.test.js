@@ -391,6 +391,51 @@ describe('read-only exploration session', () => {
     }
   });
 
+  it("appends the session's model, cost and tokens to the job's usage file, even when it reports an error", async () => {
+    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.js');
+    const { sumJobUsage } = await import('../src/jobUsage.js');
+    /** @type {string[]} */
+    const written = [];
+    const result = {
+      result: 'idea',
+      num_turns: 12,
+      total_cost_usd: 1.25,
+      modelUsage: {
+        'claude-haiku-4-5': { inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0.05 },
+        'claude-opus-5-5': { inputTokens: 100, outputTokens: 50, cacheReadInputTokens: 1000, cacheCreationInputTokens: 200, costUSD: 1.2 },
+      },
+    };
+    const launcher = (/** @type {object} */ out) =>
+      createReadOnlySessionLauncher({
+        bin: 'claude',
+        usageFile: '/logs/run.usage.jsonl',
+        appendFileFn: /** @type {any} */ (async (file, text) => void written.push(`${file}|${text}`)),
+        execFileFn: /** @type {any} */ ((_bin, _args, _opts, cb) => cb(null, JSON.stringify(out), '')),
+      });
+    assert.deepEqual(await launcher(result)({ cwd: '/ws/x', prompt: 'explore' }), { text: 'idea' });
+    await assert.rejects(launcher({ ...result, is_error: true })({ cwd: '/ws/x', prompt: 'explore' }), /reported an error/);
+    assert.equal(written.length, 2);
+    assert.ok(written.every((w) => w.startsWith('/logs/run.usage.jsonl|')));
+    const usage = sumJobUsage(written.map((w) => w.split('|')[1]).join(''));
+    assert.deepEqual(usage, { model: 'claude-opus-5-5', turns: 24, costUsd: 2.5, tokens: { input: 220, output: 110, cacheRead: 2000, cacheCreate: 400 } });
+  });
+
+  it('still returns the text when the usage file cannot be written, and writes none without one', async () => {
+    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.js');
+    const execFileFn = /** @type {any} */ ((_bin, _args, _opts, cb) => cb(null, JSON.stringify({ result: 'idea', total_cost_usd: 1 }), ''));
+    const failing = createReadOnlySessionLauncher({
+      bin: 'claude',
+      usageFile: '/nope/usage.jsonl',
+      appendFileFn: /** @type {any} */ (async () => { throw new Error('EACCES'); }),
+      execFileFn,
+    });
+    assert.deepEqual(await failing({ cwd: '/ws/x', prompt: 'explore' }), { text: 'idea' });
+    let called = false;
+    const none = createReadOnlySessionLauncher({ bin: 'claude', usageFile: '', appendFileFn: /** @type {any} */ (async () => void (called = true)), execFileFn });
+    assert.deepEqual(await none({ cwd: '/ws/x', prompt: 'explore' }), { text: 'idea' });
+    assert.equal(called, false);
+  });
+
   it('closes stdin so the CLI does not wait for piped input', async () => {
     const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.js');
     let ended = false;
