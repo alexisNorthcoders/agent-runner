@@ -1658,3 +1658,76 @@ describe('runner: claude:more', () => {
     assert.equal(starts.length, 0);
   });
 });
+
+describe('runner: claude:more <run-id prefix>', () => {
+  const row = (extra = {}) => ({
+    runId: '2026-09-24T11-00-00-000Z',
+    kind: 'freeform',
+    label: 'fix the bot',
+    workspaceRoot: '/repos/a',
+    startedAt: '2026-09-24T11:00:00.000Z',
+    endedAt: '2026-09-24T11:50:00.000Z',
+    outcome: 'success',
+    sessionId: 'sess-a',
+    ...extra,
+  });
+  const more = (runner, text) => runner.handleCommand({ text, replyTo: 'jid-1' });
+
+  it('continues the matching run, not the newest, with its kind, cwd, workspace and parentRunId', async () => {
+    const { runner, starts, history } = setup();
+    history.push(
+      row({ kind: 'joplin', inferredWorkspace: 'a' }),
+      row({ runId: '2026-09-25T09-00-00-000Z', workspaceRoot: '/repos/b', sessionId: 'sess-b' })
+    );
+    await more(runner, 'claude:more 2026-09-24 add tests');
+    assert.deepEqual(starts[0].opts.resume, { sessionId: 'sess-a' });
+    assert.equal(starts[0].opts.cwd, '/repos/a');
+    assert.equal(starts[0].opts.prompt, 'add tests');
+    starts[0].finish();
+    await runner.idle();
+    const h = history.at(-1);
+    assert.deepEqual([h.kind, h.parentRunId, h.inferredWorkspace], ['joplin', '2026-09-24T11-00-00-000Z', 'a']);
+  });
+
+  it('continues a continuation, whose parentRunId is the immediate parent', async () => {
+    const { runner, starts, history } = setup();
+    history.push(row());
+    await more(runner, 'claude:more 2026-09-24 first');
+    starts[0].finish();
+    await runner.idle();
+    const childId = history.at(-1).runId;
+    history.at(-1).sessionId = 'sess-child';
+    await more(runner, `claude:more ${childId} second`);
+    assert.deepEqual(starts[1].opts.resume, { sessionId: 'sess-child' });
+    starts[1].finish();
+    await runner.idle();
+    assert.equal(history.at(-1).parentRunId, childId);
+  });
+
+  it('takes instructions that only start with a non-prefix word in full, continuing the newest', async () => {
+    const { runner, starts, history } = setup();
+    history.push(row());
+    await more(runner, 'claude:more 2026 was a year');
+    assert.equal(starts[0].opts.prompt, '2026 was a year');
+  });
+
+  it('refuses in one line, starting nothing: unknown, ambiguous, issue, job, no session', async () => {
+    const { runner, starts, history } = setup();
+    history.push(
+      row({ runId: '2026-09-01T10-00-00-000Z' }),
+      row({ runId: '2026-09-01T11-00-00-000Z' }),
+      row({ runId: '2026-09-02T10-00-00-000Z', kind: 'issue', workspaceAlias: 'bot', issueNumber: 7 }),
+      row({ runId: '2026-09-03T10-00-00-000Z', kind: 'job' }),
+      row({ runId: '2026-09-04T10-00-00-000Z', sessionId: null })
+    );
+    const replies = [];
+    for (const ref of ['2027-01', '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04']) replies.push((await more(runner, `claude:more ${ref} go`)).reply);
+    assert.match(replies[0], /^No run in history matches "2027-01"\.$/);
+    assert.match(replies[1], /^Run prefix "2026-09-01" is ambiguous: it matches 2 runs\.$/);
+    assert.match(replies[2], /claude issue:bot:7 <extra instructions>/);
+    assert.match(replies[3], /scheduled job/);
+    assert.match(replies[4], /no recorded session/);
+    for (const r of replies) assert.ok(!r.includes('\n'));
+    assert.equal(starts.length, 0);
+  });
+});

@@ -166,8 +166,24 @@ describe('parseCommand: claude:more', () => {
     for (const t of ['claude:more', 'claude:more   ']) {
       const c = parseCommand(t);
       assert.equal(c.kind, 'error');
-      assert.match(/** @type {any} */ (c).message, /^Usage: claude:more <instructions>/);
+      assert.match(/** @type {any} */ (c).message, /^Usage: claude:more \[run-id prefix\] <instructions>/);
     }
-    assert.match(USAGE, /^claude:more <instructions>/m);
+    assert.match(USAGE, /^claude:more \[run-id prefix\] <instructions>/m);
+  });
+});
+
+describe('parseCommand: claude:more with a run reference', () => {
+  it('takes a first word shaped like a run id as the run reference', () => {
+    assert.deepEqual(parseCommand('claude:more 2026-09-24T11-00 add tests'), { kind: 'more', runRef: '2026-09-24T11-00', instructions: 'add tests' });
+  });
+
+  it('takes instructions in full when the first word is not a run prefix', () => {
+    assert.deepEqual(parseCommand('claude:more fix the bug'), { kind: 'more', instructions: 'fix the bug' });
+    assert.deepEqual(parseCommand('claude:more 2026 was a year'), { kind: 'more', instructions: '2026 was a year' });
+    assert.deepEqual(parseCommand('claude:more 10 more tests'), { kind: 'more', instructions: '10 more tests' });
+  });
+
+  it('gives the usage for a run reference with no instructions', () => {
+    assert.equal(parseCommand('claude:more 2026-09-24T11-00').kind, 'error');
   });
 });
