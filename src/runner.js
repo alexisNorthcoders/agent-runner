@@ -952,6 +952,24 @@ export function createRunner({
     };
   }
 
+  /**
+   * Add a `claude:more` message to a Continuation of the same Parent already waiting in the queue,
+   * so one agent gets both texts in order. Null when none is waiting.
+   * @param {string} parentRunId
+   * @param {string} instructions
+   * @param {string} replyTo only the same sender's waiting request is added to: its report goes to them
+   * @returns {Promise<string | null>} the reply
+   */
+  async function addToQueuedContinuation(parentRunId, instructions, replyTo) {
+    const waiting = (await queue.list()).find((it) => it.cmd.kind === 'more' && it.cmd.parent.runId === parentRunId && it.replyTo === replyTo);
+    if (!waiting) return null;
+    const updated = await queue.update(waiting.id, (it) =>
+      it.cmd.kind === 'more' ? { ...it, cmd: { ...it.cmd, instructions: `${it.cmd.instructions}\n\n---\n\n${instructions}` } } : it
+    );
+    if (!updated) return null;
+    return `Added to the queued Continuation of run ${parentRunId} (position ${updated.position}): ${waiting.label}. It will start when the runs ahead of it finish.`;
+  }
+
   /** @param {boolean} clear */
   async function queueCommand(clear) {
     const items = await queue.list();
@@ -1013,6 +1031,8 @@ export function createRunner({
           const running = await runningParent(cmd.runRef);
           const parent = running ?? (await pickParent(cmd.runRef));
           if (typeof parent === 'string') return { reply: parent };
+          const merged = await addToQueuedContinuation(parent.runId, cmd.instructions, replyTo);
+          if (merged) return { reply: merged };
           const { reply } = await submit({ kind: 'more', instructions: cmd.instructions, parent }, replyTo);
           return { reply: running ? `Continuing run ${running.runId} ("${running.label}"), which is still running. ${reply}` : reply };
         }

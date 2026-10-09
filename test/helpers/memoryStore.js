@@ -128,6 +128,13 @@ export function createMemoryStore() {
       check();
       return [...(lists.get(key) ?? [])];
     },
+    async listReplaceAt(key, index, expected, value) {
+      check();
+      const l = lists.get(key);
+      if (!l || l[index] !== expected) return false;
+      l[index] = value;
+      return true;
+    },
     async listLength(key) {
       check();
       return lists.get(key)?.length ?? 0;
