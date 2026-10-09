@@ -87,6 +87,23 @@ export function createRunQueue({ store, key = QUEUE_KEY, maxLength = MAX_QUEUE_L
     async unshift(item) {
       await store.listPushFront(key, JSON.stringify(item));
     },
+    /**
+     * Rewrite a waiting item in place, keeping its position. The change is dropped (null) when the
+     * item is no longer waiting, e.g. it was just taken to start.
+     * @param {string} id
+     * @param {(item: QueuedRun) => QueuedRun} change
+     * @returns {Promise<{ item: QueuedRun, position: number } | null>}
+     */
+    async update(id, change) {
+      const raws = await store.listAll(key);
+      for (let i = 0; i < raws.length; i++) {
+        const old = parse(raws[i]);
+        if (old?.id !== id) continue;
+        const item = change(old);
+        return (await store.listReplaceAt(key, i, raws[i], JSON.stringify(item))) ? { item, position: i + 1 } : null;
+      }
+      return null;
+    },
     /** @returns {Promise<QueuedRun[]>} front first */
     async list() {
       return (await store.listAll(key)).map(parse).filter((x) => x !== null);

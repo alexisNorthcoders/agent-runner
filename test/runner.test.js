@@ -1817,3 +1817,48 @@ describe('runner: claude:more continues the active run', () => {
     void history;
   });
 });
+
+describe('runner: claude:more adds to a queued Continuation of the same parent', () => {
+  const row = (runId, extra = {}) => ({
+    runId,
+    kind: 'freeform',
+    label: `run ${runId}`,
+    workspaceRoot: '/repos/a',
+    endedAt: '2026-09-24T11:50:00.000Z',
+    outcome: 'success',
+    sessionId: `sess-${runId}`,
+    ...extra,
+  });
+  const say = (runner, text) => runner.handleCommand({ text, replyTo: 'jid-1' });
+
+  it('merges a second message into the one queued request, in order, keeping its place', async () => {
+    const { runner, starts, history, queue, lock } = setup();
+    history.push(row('2026-09-02'), row('2026-09-01'));
+    await lock.tryAcquire({ runId: 'busy-1', kind: 'issue', label: 'issue a#7', workspaceRoot: '/repos/a' });
+    await say(runner, 'claude fix the other thing');
+    await say(runner, 'claude:more 2026-09-01 first');
+    await say(runner, 'claude fix a third thing');
+    const { reply } = await say(runner, 'claude:more 2026-09-01 second');
+    assert.match(reply, /^Added to the queued Continuation of run 2026-09-01 \(position 2\)/);
+    const items = await queue.list();
+    assert.equal(items.length, 3);
+    assert.equal(items[1].cmd.kind, 'more');
+    assert.equal(items[1].cmd.instructions, 'first\n\n---\n\nsecond');
+    assert.match((await say(runner, 'claude:queue')).reply, /^Queued \(3\):/);
+    await lock.release('busy-1');
+    await say(runner, 'claude:resume');
+    await runner.idle();
+    starts[0].finish();
+    await runner.idle();
+    assert.equal(starts[1].opts.prompt, 'first\n\n---\n\nsecond');
+  });
+
+  it('queues messages for different parents separately', async () => {
+    const { runner, history, queue, lock } = setup();
+    history.push(row('2026-09-02'), row('2026-09-01'));
+    await lock.tryAcquire({ runId: 'busy-1', kind: 'issue', label: 'issue a#7', workspaceRoot: '/repos/a' });
+    await say(runner, 'claude:more 2026-09-01 one');
+    assert.match((await say(runner, 'claude:more 2026-09-02 two')).reply, /^Queued \(position 2\)/);
+    assert.equal((await queue.list()).length, 2);
+  });
+});

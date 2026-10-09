@@ -20,6 +20,7 @@ import { createClient } from 'redis';
  *   listPushFront: (key: string, value: string) => Promise<number>,
  *   listPopFront: (key: string) => Promise<string | null>,
  *   listAll: (key: string) => Promise<string[]>,
+ *   listReplaceAt: (key: string, index: number, expected: string, value: string) => Promise<boolean>,
  *   listLength: (key: string) => Promise<number>,
  * }} Store
  */
@@ -33,6 +34,12 @@ if ok and type(obj) == 'table' and obj[ARGV[1]] == ARGV[2] then
   return redis.call('DEL', KEYS[1])
 end
 return 0`;
+
+/** Replace the list element at index only if it still equals the expected value, atomically. */
+const REPLACE_AT_IF_EQUAL = `
+if redis.call('LINDEX', KEYS[1], ARGV[1]) ~= ARGV[2] then return 0 end
+redis.call('LSET', KEYS[1], ARGV[1], ARGV[3])
+return 1`;
 
 /**
  * @param {import('redis').RedisClientType<any, any, any>} client
@@ -79,6 +86,10 @@ export function createRedisStore(client) {
     listPopFront: (key) => client.lPop(key),
     listAll: (key) => client.lRange(key, 0, -1),
     listLength: (key) => client.lLen(key),
+    async listReplaceAt(key, index, expected, value) {
+      const n = await client.eval(REPLACE_AT_IF_EQUAL, { keys: [key], arguments: [String(index), expected, value] });
+      return n === 1;
+    },
   };
 }
 

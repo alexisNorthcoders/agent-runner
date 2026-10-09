@@ -89,6 +89,20 @@ function contract(setup) {
     assert.deepEqual(await store.listAll(key), []);
   });
 
+  it('listReplaceAt swaps an element in place only while it still equals the expected value', async () => {
+    const { store } = setup();
+    const key = k('replace');
+    await store.listPushBack(key, 'a');
+    await store.listPushBack(key, 'b');
+    await store.listPushBack(key, 'c');
+    assert.equal(await store.listReplaceAt(key, 1, 'b', 'b2'), true);
+    assert.deepEqual(await store.listAll(key), ['a', 'b2', 'c']);
+    assert.equal(await store.listReplaceAt(key, 1, 'b', 'x'), false);
+    assert.equal(await store.listReplaceAt(key, 9, 'b', 'x'), false);
+    assert.deepEqual(await store.listAll(key), ['a', 'b2', 'c']);
+    await store.del(key);
+  });
+
   it('appendToStream adds entries with a MINID trim', async () => {
     const { store, readStream } = setup();
     const key = k('stream');

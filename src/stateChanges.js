@@ -74,5 +74,6 @@ export function notifyingStore(store, notify) {
     listPushBack: wrap(store.listPushBack),
     listPushFront: wrap(store.listPushFront),
     listPopFront: wrap(store.listPopFront, (v) => v != null),
+    listReplaceAt: wrap(store.listReplaceAt, applied),
   };
 }
