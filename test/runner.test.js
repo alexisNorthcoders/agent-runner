@@ -1854,6 +1854,20 @@ describe('runner: claude:more adds to a queued Continuation of the same parent',
     assert.equal(starts[1].opts.prompt, 'first\n\n---\n\nsecond');
   });
 
+  it('a model prefix on the merged message sets the queued request model', async () => {
+    const { runner, starts, history, queue, lock } = setup();
+    history.push(row('2026-09-01'));
+    await lock.tryAcquire({ runId: 'busy-1', kind: 'issue', label: 'issue a#7', workspaceRoot: '/repos/a' });
+    await say(runner, 'claude:more 2026-09-01 first');
+    await say(runner, 'claude:more sonnet: 2026-09-01 second');
+    const [q] = await queue.list();
+    assert.ok(q.cmd.kind === 'more' && q.cmd.model === 'sonnet');
+    await lock.release('busy-1');
+    await say(runner, 'claude:resume');
+    await runner.idle();
+    assert.equal(starts[0].opts.model, 'sonnet');
+  });
+
   it('queues messages for different parents separately', async () => {
     const { runner, history, queue, lock } = setup();
     history.push(row('2026-09-02'), row('2026-09-01'));

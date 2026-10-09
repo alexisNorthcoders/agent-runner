@@ -969,13 +969,14 @@ export function createRunner({
    * @param {string} parentRunId
    * @param {string} instructions
    * @param {string} replyTo only the same sender's waiting request is added to: its report goes to them
+   * @param {string} [model] a model prefix on this message replaces the queued request's model
    * @returns {Promise<string | null>} the reply
    */
-  async function addToQueuedContinuation(parentRunId, instructions, replyTo) {
+  async function addToQueuedContinuation(parentRunId, instructions, replyTo, model) {
     const waiting = (await queue.list()).find((it) => it.cmd.kind === 'more' && it.cmd.parent.runId === parentRunId && it.replyTo === replyTo);
     if (!waiting) return null;
     const updated = await queue.update(waiting.id, (it) =>
-      it.cmd.kind === 'more' ? { ...it, cmd: { ...it.cmd, instructions: `${it.cmd.instructions}\n\n---\n\n${instructions}` } } : it
+      it.cmd.kind === 'more' ? { ...it, cmd: { ...it.cmd, instructions: `${it.cmd.instructions}\n\n---\n\n${instructions}`, ...(model ? { model } : {}) } } : it
     );
     if (!updated) return null;
     return `Added to the queued Continuation of run ${parentRunId} (position ${updated.position}): ${waiting.label}. It will start when the runs ahead of it finish.`;
@@ -1042,7 +1043,7 @@ export function createRunner({
           const running = await runningParent(cmd.runRef);
           const parent = running ?? (await pickParent(cmd.runRef));
           if (typeof parent === 'string') return { reply: parent };
-          const merged = await addToQueuedContinuation(parent.runId, cmd.instructions, replyTo);
+          const merged = await addToQueuedContinuation(parent.runId, cmd.instructions, replyTo, cmd.model);
           if (merged) return { reply: merged };
           const { reply } = await submit({ kind: 'more', instructions: cmd.instructions, parent, ...(cmd.model ? { model: cmd.model } : {}) }, replyTo);
           return { reply: running ? `Continuing run ${running.runId} ("${running.label}"), which is still running. ${reply}` : reply };
