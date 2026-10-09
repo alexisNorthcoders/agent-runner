@@ -33,6 +33,7 @@ import { createClaudeBackend } from './claude.js';
  *   stderr: string,
  *   logPath: string,
  *   limit?: AgentUsageLimit,
+ *   sessionMissing?: boolean,
  *   usage: {
  *     model: string | null,
  *     sessionId: string | null,
@@ -47,7 +48,7 @@ import { createClaudeBackend } from './claude.js';
  *   realpath'd): the file an edit writes, or the directory a command runs in and the paths it
  *   targets. Reads and searches aren't touches.
  *
- * @typedef {{ name: string, source: 'prefix' | 'label' | 'workspace' | 'default' }} AgentModelChoice
+ * @typedef {{ name: string, source: 'prefix' | 'label' | 'parent' | 'workspace' | 'default' }} AgentModelChoice
  *   The model a run resolved and where it came from: asked for, the workspace's own agent
  *   settings, or the runner default.
  *
@@ -56,7 +57,7 @@ import { createClaudeBackend } from './claude.js';
  *   preamble?: string,
  *   implement?: boolean,
  *   model?: string,
- *   modelSource?: 'prefix' | 'label',
+ *   modelSource?: 'prefix' | 'label' | 'parent',
  *   cwd: string,
  *   logPath: string,
  *   onProgress?: (p: AgentProgress) => void,

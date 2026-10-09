@@ -6,7 +6,7 @@ import { ALL, DEFAULT_MANUAL_PAUSE_SECONDS, MAX_MANUAL_PAUSE_SECONDS, parseDurat
  *
  * @typedef {{ kind: 'freeform', prompt: string, model?: string }
  *   | { kind: 'joplin', noteQuery: string, model?: string }
- *   | { kind: 'more', instructions: string, runRef?: string }
+ *   | { kind: 'more', instructions: string, runRef?: string, model?: string }
  *   | { kind: 'issue', issueNumber: number, alias: string | null, extraInstructions: string }
  *   | { kind: 'stop' }
  *   | { kind: 'restart' }
@@ -27,7 +27,7 @@ claude joplin:<note title or id>  use a Joplin note as the instructions
 claude haiku|sonnet|opus: <instructions or joplin:<note>>  the same, on that model (not for issue runs: they use the issue's label)
 claude issue:<alias>:<n> [extra instructions]  implement GitHub issue <n> in the <alias> workspace, then PR, review and merge
 claude issue:<n> [extra instructions]  the same, in the default issue workspace
-claude:more [run-id prefix] <instructions>  continue the newest freeform or Joplin run (or the run with that id prefix): it resumes that run's conversation
+claude:more [haiku|sonnet|opus:] [run-id prefix] <instructions>  continue the newest freeform or Joplin run (or the run with that id prefix): it resumes that run's conversation, on its model unless you name one
 claude:stop  kill the active run (queued requests still run)
 claude:queue  list the requests waiting for the agent
 claude:queue clear  drop every waiting request
@@ -39,7 +39,7 @@ claude:history [n]  the last n finished runs with cost and tokens`;
 
 const MODEL_PREFIX_USAGE = 'Usage: claude haiku|sonnet|opus: <instructions or joplin:<note>>';
 
-const MORE_USAGE = 'Usage: claude:more [run-id prefix] <instructions>  (continues the newest freeform or Joplin run, or the run with that id prefix)';
+const MORE_USAGE = 'Usage: claude:more [haiku|sonnet|opus:] [run-id prefix] <instructions>  (continues the newest freeform or Joplin run, or the run with that id prefix)';
 
 /** Run ids are timestamps like 2026-09-24T11-00-00-000Z: only a first word shaped like one is a run reference. */
 const RUN_PREFIX = /^\d{4}-[\dTZ-]*$/;
@@ -91,10 +91,12 @@ export function parseCommand(text) {
       return { kind: /** @type {'stop' | 'restart' | 'status'} */ (name) };
     }
     if (name === 'more') {
-      const text = (sub[2] ?? '').trim();
+      const prefix = (sub[2] ?? '').trim().match(/^(haiku|sonnet|opus)\s*:\s*([\s\S]*)$/i);
+      const withModel = prefix ? { model: prefix[1].toLowerCase() } : {};
+      const text = (prefix ? prefix[2] : (sub[2] ?? '')).trim();
       const [, first = '', rest = ''] = text.match(/^(\S+)\s+([\s\S]*)$/) ?? [];
-      if (RUN_PREFIX.test(first) && rest.trim()) return { kind: 'more', runRef: first, instructions: rest.trim() };
-      return text && !RUN_PREFIX.test(text) ? { kind: 'more', instructions: text } : { kind: 'error', message: MORE_USAGE };
+      if (RUN_PREFIX.test(first) && rest.trim()) return { kind: 'more', runRef: first, instructions: rest.trim(), ...withModel };
+      return text && !RUN_PREFIX.test(text) ? { kind: 'more', instructions: text, ...withModel } : { kind: 'error', message: MORE_USAGE };
     }
     if (name === 'history') {
       const arg = (sub[2] ?? '').trim().split(/\s+/)[0];

@@ -126,6 +126,22 @@ describe('claude AgentBackend', () => {
     await run.done;
   });
 
+  it('flags a failed resume whose session no longer exists', async () => {
+    const run = await backend().start({ prompt: 'P', cwd: '/w', logPath: join(dir, 'm.log'), resume: { sessionId: 'gone' } });
+    child.stderr.write('No conversation found with session ID: gone\n');
+    child.emit('close', 1, null);
+    const r = await run.done;
+    assert.equal(r.outcome, 'failed');
+    assert.equal(r.sessionMissing, true);
+  });
+
+  it('does not flag a missing session for a run that is not a resume', async () => {
+    const run = await backend().start({ prompt: 'P', cwd: '/w', logPath: join(dir, 'n.log') });
+    child.stderr.write('No conversation found with session ID: x\n');
+    child.emit('close', 1, null);
+    assert.equal('sessionMissing' in (await run.done), false);
+  });
+
   it('resumes and forks the earlier session only when asked to', async () => {
     let run = await backend().start({ prompt: 'P', cwd: '/w', logPath: join(dir, 'a.log') });
     assert.ok(!spawned[0].args.includes('--resume'));
