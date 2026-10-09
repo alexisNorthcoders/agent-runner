@@ -126,6 +126,22 @@ describe('claude AgentBackend', () => {
     await run.done;
   });
 
+  it('resumes and forks the earlier session only when asked to', async () => {
+    let run = await backend().start({ prompt: 'P', cwd: '/w', logPath: join(dir, 'a.log') });
+    assert.ok(!spawned[0].args.includes('--resume'));
+    assert.ok(!spawned[0].args.includes('--fork-session'));
+    child.emit('close', 0, null);
+    await run.done;
+
+    child = fakeChild();
+    run = await backend().start({ prompt: 'P', cwd: '/w', logPath: join(dir, 'b.log'), resume: { sessionId: 'sess-1' } });
+    const { args } = spawned[1];
+    assert.deepEqual(args.slice(args.indexOf('--resume'), args.indexOf('--resume') + 3), ['--resume', 'sess-1', '--fork-session']);
+    assert.equal(args.at(-1), 'P');
+    child.emit('close', 0, null);
+    await run.done;
+  });
+
   it('reports the final result text, usage and live progress', async () => {
     /** @type {any[]} */
     const progress = [];

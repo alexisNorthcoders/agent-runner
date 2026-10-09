@@ -192,7 +192,7 @@ describe('buildOfficeSnapshot', () => {
         ...st,
         active: [run],
         lock: { ...run, inferredWorkspace: 'bot' },
-        history: [{ ...st.history[0], inferredWorkspace: 'chess' }],
+        history: [{ ...st.history[0], inferredWorkspace: 'chess', parentRunId: 'p1' }],
       },
       // the active-run file may lag; this process's own record is fresher
       live: { runId: 'r1', phase: 'agent', inferredWorkspace: 'bot' },
@@ -202,6 +202,7 @@ describe('buildOfficeSnapshot', () => {
     assert.equal(s.activeRun?.workspaceAlias, null);
     assert.equal(s.lock?.inferredWorkspace, 'bot');
     assert.equal(s.history[0].inferredWorkspace, 'chess');
+    assert.equal(s.history[0].parentRunId, 'p1');
   });
 
   it('carries 7 days of history and the same spend totals as agent:status', () => {
@@ -215,6 +216,7 @@ describe('buildOfficeSnapshot', () => {
       label: 'say hi',
       workspaceAlias: null,
       inferredWorkspace: null,
+      parentRunId: null,
       issueNumber: null,
       room: null,
       jobName: null,

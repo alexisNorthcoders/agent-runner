@@ -35,6 +35,7 @@ WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-resta
 | `claude:resume [<alias>]` | End that pause early, or with no alias every pause, the [usage-limit pause](#usage-limit) included (e.g. after a plan upgrade). |
 | `claude:restart` | Run safe-restart in the background, then report to the outbox. |
 | `claude:status` | Active run (with orphaned/stale warnings), pause, last cron tick, today's spend, last 3 runs. |
+| `claude:more <instructions>` | Continue the newest freeform or Joplin run: resumes its agent conversation (forked, so the parent's stays as it ended) in the parent's cwd. Queues and pauses like any freeform run; its history row has `parentRunId` and a `↪` label. |
 | `claude:history [n]` | The last `n` finished runs (default 10, max 30) with outcome, duration, cost and tokens. |
 
 There is one run at a time. A run request (`claude …`, `joplin:`, `issue:`) that arrives while a
@@ -337,7 +338,7 @@ interactive session's `cwd`.
             "room": null, "jobName": null, "startedAt": "…" },  // or null
   "history": [                         // the last 7 days, newest first
     { "runId": "…", "kind": "issue", "trigger": "cron", "label": "…", "workspaceAlias": "bot",
-      "inferredWorkspace": null, "issueNumber": 7, "room": null, "jobName": null, "startedAt": "…", "endedAt": "…", "durationMs": 60000,
+      "inferredWorkspace": null, "parentRunId": null, "issueNumber": 7, "room": null, "jobName": null, "startedAt": "…", "endedAt": "…", "durationMs": 60000,
       "outcome": "success", "result": "merged", "prUrl": "https://github.com/…/pull/9",
       "model": "…", "turns": 3, "costUsd": 1.2, "tokens": 1700000 }
       // outcome: success | failed | timeout | stopped | spawn_error | limited (usage limit) | interrupted (by a restart)

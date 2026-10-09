@@ -18,6 +18,7 @@
  *   agentPid?: number | null,
  *   workspaceAlias?: string,
  *   inferredWorkspace?: string,
+ *   parentRunId?: string,
  *   issueNumber?: number,
  *   trigger?: RunTrigger,
  *   jobName?: string,

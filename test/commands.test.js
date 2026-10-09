@@ -155,3 +155,19 @@ describe('parseCommand: pause / resume', () => {
     assert.equal(parseCommand('claude:resume bot now').kind, 'error');
   });
 });
+
+describe('parseCommand: claude:more', () => {
+  it('keeps all the text after claude:more as the instructions', () => {
+    assert.deepEqual(parseCommand('claude:more now add tests\nand docs'), { kind: 'more', instructions: 'now add tests\nand docs' });
+    assert.deepEqual(parseCommand('Claude:MORE   fix it  '), { kind: 'more', instructions: 'fix it' });
+  });
+
+  it('gives the usage for empty instructions, and lists the command in USAGE', () => {
+    for (const t of ['claude:more', 'claude:more   ']) {
+      const c = parseCommand(t);
+      assert.equal(c.kind, 'error');
+      assert.match(/** @type {any} */ (c).message, /^Usage: claude:more <instructions>/);
+    }
+    assert.match(USAGE, /^claude:more <instructions>/m);
+  });
+});

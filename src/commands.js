@@ -6,6 +6,7 @@ import { ALL, DEFAULT_MANUAL_PAUSE_SECONDS, MAX_MANUAL_PAUSE_SECONDS, parseDurat
  *
  * @typedef {{ kind: 'freeform', prompt: string, model?: string }
  *   | { kind: 'joplin', noteQuery: string, model?: string }
+ *   | { kind: 'more', instructions: string }
  *   | { kind: 'issue', issueNumber: number, alias: string | null, extraInstructions: string }
  *   | { kind: 'stop' }
  *   | { kind: 'restart' }
@@ -26,6 +27,7 @@ claude joplin:<note title or id>  use a Joplin note as the instructions
 claude haiku|sonnet|opus: <instructions or joplin:<note>>  the same, on that model (not for issue runs: they use the issue's label)
 claude issue:<alias>:<n> [extra instructions]  implement GitHub issue <n> in the <alias> workspace, then PR, review and merge
 claude issue:<n> [extra instructions]  the same, in the default issue workspace
+claude:more <instructions>  continue the newest freeform or Joplin run: it resumes that run's conversation
 claude:stop  kill the active run (queued requests still run)
 claude:queue  list the requests waiting for the agent
 claude:queue clear  drop every waiting request
@@ -36,6 +38,8 @@ claude:status  active run, pause, last cron tick and recent runs
 claude:history [n]  the last n finished runs with cost and tokens`;
 
 const MODEL_PREFIX_USAGE = 'Usage: claude haiku|sonnet|opus: <instructions or joplin:<note>>';
+
+const MORE_USAGE = 'Usage: claude:more <instructions>  (continues the newest freeform or Joplin run)';
 
 const SUBCOMMANDS = /** @type {const} */ (['stop', 'restart', 'status']);
 
@@ -82,6 +86,10 @@ export function parseCommand(text) {
     const name = sub[1].toLowerCase();
     if (/** @type {readonly string[]} */ (SUBCOMMANDS).includes(name)) {
       return { kind: /** @type {'stop' | 'restart' | 'status'} */ (name) };
+    }
+    if (name === 'more') {
+      const instructions = (sub[2] ?? '').trim();
+      return instructions ? { kind: 'more', instructions } : { kind: 'error', message: MORE_USAGE };
     }
     if (name === 'history') {
       const arg = (sub[2] ?? '').trim().split(/\s+/)[0];

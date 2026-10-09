@@ -143,7 +143,7 @@ export function createClaudeBackend({
   return {
     name: 'claude',
     stopOrphan: (pid) => stopOrphanClaude(pid),
-    async start({ prompt, preamble, implement, model: requested, modelSource = 'prefix', cwd, logPath, onProgress, onTouch }) {
+    async start({ prompt, preamble, implement, model: requested, modelSource = 'prefix', cwd, logPath, onProgress, onTouch, resume }) {
       await mkdir(dirname(logPath), { recursive: true });
       const workspaceModel = requested ? null : await repoSettingsModel(cwd);
       /** @type {import('./index.js').AgentModelChoice} */
@@ -161,7 +161,7 @@ export function createClaudeBackend({
       const stream = createStreamAccumulator({ cwd, onTouch });
       const child = spawnFn(
         bin,
-        ['-p', '--model', model, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions', buildClaudePrompt({ prompt, preamble, implement })],
+        ['-p', '--model', model, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions', ...(resume ? ['--resume', resume.sessionId, '--fork-session'] : []), buildClaudePrompt({ prompt, preamble, implement })],
         {
           cwd,
           env: { ...process.env, PATH: augmentedPathEnv() },
