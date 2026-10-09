@@ -9,6 +9,8 @@
  *   sessionId: string,
  *   cwd: string,
  *   endedAt: string,
+ *   outcome?: string,
+ *   model?: string,
  *   inferredWorkspace?: string,
  * } | {
  *   runId: string,
@@ -28,7 +30,7 @@
  *   id: string,
  *   cmd: { kind: 'freeform', prompt: string, model?: string }
  *     | { kind: 'joplin', noteQuery: string, model?: string }
- *     | { kind: 'more', instructions: string, parent: ContinuationParent }
+ *     | { kind: 'more', instructions: string, parent: ContinuationParent, model?: string }
  *     | { kind: 'issue', issueNumber: number, alias: string | null, extraInstructions: string }
  *     | { kind: 'job', job: import('./scheduledJobs.js').ScheduledJob },
  *   replyTo: string,

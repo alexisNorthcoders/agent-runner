@@ -46,6 +46,9 @@ const cap = (s, n) => (s.length <= n ? s : `${s.slice(0, n)}\n…(truncated, see
 export const modelNote = (m) => (m && m.source !== 'default' ? `${m.name} (${m.source})` : '');
 
 /** @param {import('./agentBackend/index.js').AgentModelChoice | undefined} m */
+/** A Parent run that ended one of these ways gets the lead line in its Continuation's instructions. */
+const EARLY_END_OUTCOMES = new Set(['stopped', 'limited', 'timeout', 'failed']);
+
 const modelSuffix = (m) => (modelNote(m) ? `, model ${modelNote(m)}` : '');
 
 /**
@@ -57,6 +60,7 @@ export function formatRunResult(rec, r) {
   const cost = r.usage.costUsd != null ? `, $${r.usage.costUsd.toFixed(2)}` : '';
   const logLine = `Log: ${r.logPath}`;
   const tail = r.stderr.trim() ? `\n${r.stderr.trim().slice(-STDERR_TAIL)}` : '';
+  if (r.sessionMissing) return `${name} failed: the session of run ${rec.parentRunId ?? 'its parent'} no longer exists (Claude may have deleted its transcript), so it can't be continued. Start a fresh run with claude <instructions>.\n${logLine}`;
   switch (r.outcome) {
     case 'success':
       return cap(`${name} finished (${r.usage.turns} turns${cost}).\n\n${r.text.trim() || '(no final message)'}`, MAX_OUTBOX_TEXT);
@@ -520,7 +524,7 @@ export function createRunner({
   }
 
   /**
-   * @param {{ kind: 'freeform', prompt: string, model?: string } | { kind: 'joplin', noteQuery: string, model?: string } | { kind: 'more', instructions: string, parent: import('./runQueue.js').ContinuationParent }} cmd
+   * @param {{ kind: 'freeform', prompt: string, model?: string } | { kind: 'joplin', noteQuery: string, model?: string } | { kind: 'more', instructions: string, parent: import('./runQueue.js').ContinuationParent, model?: string }} cmd
    * @param {string} replyTo
    * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
    */
@@ -552,7 +556,8 @@ export function createRunner({
       let prompt;
       let source = '';
       if (cmd.kind === 'more') {
-        prompt = cmd.instructions;
+        const early = EARLY_END_OUTCOMES.has(parent.outcome ?? '') ? `Your previous run ended early (${parent.outcome}).\n\n` : '';
+        prompt = `${early}${cmd.instructions}`;
         source = `, continuing "${parent.label}" (${formatDuration(now() - Date.parse(parent.endedAt))} ago)`;
       } else if (cmd.kind === 'joplin') {
         let note;
@@ -581,7 +586,11 @@ export function createRunner({
           prompt,
           preamble: preambleNow,
           cwd: record.workspaceRoot,
-          ...('model' in cmd && cmd.model ? { model: cmd.model } : {}),
+          ...('model' in cmd && cmd.model
+            ? { model: cmd.model }
+            : parent?.model
+              ? { model: parent.model, modelSource: /** @type {const} */ ('parent') }
+              : {}),
           ...(parent ? { resume: { sessionId: parent.sessionId } } : {}),
           ...(onTouch ? { onTouch } : {}),
         },
@@ -948,6 +957,8 @@ export function createRunner({
       sessionId: row.sessionId,
       cwd: typeof row.workspaceRoot === 'string' ? row.workspaceRoot : workspaceRoot,
       endedAt: row.endedAt,
+      outcome: row.outcome,
+      ...(typeof row.model === 'string' && row.model ? { model: row.model } : {}),
       ...(typeof row.inferredWorkspace === 'string' ? { inferredWorkspace: row.inferredWorkspace } : {}),
     };
   }
@@ -958,13 +969,14 @@ export function createRunner({
    * @param {string} parentRunId
    * @param {string} instructions
    * @param {string} replyTo only the same sender's waiting request is added to: its report goes to them
+   * @param {string} [model] a model prefix on this message replaces the queued request's model
    * @returns {Promise<string | null>} the reply
    */
-  async function addToQueuedContinuation(parentRunId, instructions, replyTo) {
+  async function addToQueuedContinuation(parentRunId, instructions, replyTo, model) {
     const waiting = (await queue.list()).find((it) => it.cmd.kind === 'more' && it.cmd.parent.runId === parentRunId && it.replyTo === replyTo);
     if (!waiting) return null;
     const updated = await queue.update(waiting.id, (it) =>
-      it.cmd.kind === 'more' ? { ...it, cmd: { ...it.cmd, instructions: `${it.cmd.instructions}\n\n---\n\n${instructions}` } } : it
+      it.cmd.kind === 'more' ? { ...it, cmd: { ...it.cmd, instructions: `${it.cmd.instructions}\n\n---\n\n${instructions}`, ...(model ? { model } : {}) } } : it
     );
     if (!updated) return null;
     return `Added to the queued Continuation of run ${parentRunId} (position ${updated.position}): ${waiting.label}. It will start when the runs ahead of it finish.`;
@@ -1031,9 +1043,9 @@ export function createRunner({
           const running = await runningParent(cmd.runRef);
           const parent = running ?? (await pickParent(cmd.runRef));
           if (typeof parent === 'string') return { reply: parent };
-          const merged = await addToQueuedContinuation(parent.runId, cmd.instructions, replyTo);
+          const merged = await addToQueuedContinuation(parent.runId, cmd.instructions, replyTo, cmd.model);
           if (merged) return { reply: merged };
-          const { reply } = await submit({ kind: 'more', instructions: cmd.instructions, parent }, replyTo);
+          const { reply } = await submit({ kind: 'more', instructions: cmd.instructions, parent, ...(cmd.model ? { model: cmd.model } : {}) }, replyTo);
           return { reply: running ? `Continuing run ${running.runId} ("${running.label}"), which is still running. ${reply}` : reply };
         }
         case 'status':

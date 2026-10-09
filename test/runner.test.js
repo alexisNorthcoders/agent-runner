@@ -24,6 +24,7 @@ function fakeBackend(modelChoice = { name: 'sonnet', source: 'default' }) {
         const done = new Promise((r) => (settle = r));
         const run = {
           opts,
+          settle: (r) => settle(r),
           model: opts.model ? { name: opts.model, source: opts.modelSource ?? /** @type {const} */ ('prefix') } : modelChoice,
           stopped: false,
           pid: 900 + starts.length,
@@ -1853,6 +1854,20 @@ describe('runner: claude:more adds to a queued Continuation of the same parent',
     assert.equal(starts[1].opts.prompt, 'first\n\n---\n\nsecond');
   });
 
+  it('a model prefix on the merged message sets the queued request model', async () => {
+    const { runner, starts, history, queue, lock } = setup();
+    history.push(row('2026-09-01'));
+    await lock.tryAcquire({ runId: 'busy-1', kind: 'issue', label: 'issue a#7', workspaceRoot: '/repos/a' });
+    await say(runner, 'claude:more 2026-09-01 first');
+    await say(runner, 'claude:more sonnet: 2026-09-01 second');
+    const [q] = await queue.list();
+    assert.ok(q.cmd.kind === 'more' && q.cmd.model === 'sonnet');
+    await lock.release('busy-1');
+    await say(runner, 'claude:resume');
+    await runner.idle();
+    assert.equal(starts[0].opts.model, 'sonnet');
+  });
+
   it('queues messages for different parents separately', async () => {
     const { runner, history, queue, lock } = setup();
     history.push(row('2026-09-02'), row('2026-09-01'));
@@ -1860,5 +1875,91 @@ describe('runner: claude:more adds to a queued Continuation of the same parent',
     await say(runner, 'claude:more 2026-09-01 one');
     assert.match((await say(runner, 'claude:more 2026-09-02 two')).reply, /^Queued \(position 2\)/);
     assert.equal((await queue.list()).length, 2);
+  });
+});
+
+describe('runner: claude:more model and early end', () => {
+  const row = (extra = {}) => ({
+    runId: 'old-1',
+    kind: 'freeform',
+    label: 'fix the bot',
+    workspaceRoot: '/repos/a',
+    startedAt: '2026-09-24T11:00:00.000Z',
+    endedAt: '2026-09-24T11:50:00.000Z',
+    outcome: 'success',
+    sessionId: 'sess-old',
+    model: 'claude-opus-5-5',
+    ...extra,
+  });
+  const more = (runner, text = 'claude:more add tests') => runner.handleCommand({ text, replyTo: 'jid-1' });
+
+  it('a model prefix wins over the parent model (source: prefix)', async () => {
+    const { runner, starts, history } = setup();
+    history.push(row());
+    const { reply } = await more(runner, 'claude:more haiku: add tests');
+    assert.equal(starts[0].opts.model, 'haiku');
+    assert.equal(starts[0].opts.modelSource, undefined);
+    assert.match(reply, /, model haiku \(prefix\)\./);
+  });
+
+  it('a prefix also works after a run prefix, and is kept when queued', async () => {
+    const { runner, starts, history, lock } = setup();
+    history.push(row({ runId: '2026-09-24T11-00-00-000Z' }));
+    await lock.tryAcquire({ runId: 'busy-1', kind: 'issue', label: 'issue a#7', workspaceRoot: '/repos/a' });
+    await more(runner, 'claude:more sonnet: 2026-09-24 add tests');
+    await lock.release('busy-1');
+    await runner.handleCommand({ text: 'claude:resume', replyTo: 'jid-1' });
+    await runner.idle();
+    assert.equal(starts[0].opts.model, 'sonnet');
+  });
+
+  it('without a prefix, uses the parent model and names it', async () => {
+    const { runner, starts, history } = setup();
+    history.push(row());
+    const { reply } = await more(runner);
+    assert.equal(starts[0].opts.model, 'claude-opus-5-5');
+    assert.equal(starts[0].opts.modelSource, 'parent');
+    assert.match(reply, /, model claude-opus-5-5 \(parent\)\./);
+  });
+
+  it('without a parent model, leaves the choice to the workspace and default', async () => {
+    const { runner, starts, history } = setup();
+    history.push(row({ model: null }));
+    await more(runner);
+    assert.equal('model' in starts[0].opts, false);
+  });
+
+  it('leads with the early end for each non-success parent outcome, and not for a success', async () => {
+    for (const outcome of ['stopped', 'limited', 'timeout', 'failed']) {
+      const { runner, starts, history } = setup();
+      history.push(row({ outcome }));
+      await more(runner);
+      assert.equal(starts[0].opts.prompt, `Your previous run ended early (${outcome}).\n\nadd tests`);
+    }
+    const { runner, starts, history } = setup();
+    history.push(row());
+    await more(runner);
+    assert.equal(starts[0].opts.prompt, 'add tests');
+  });
+
+  it('keeps the paused-workspaces note in the preamble, ahead of the lead line', async () => {
+    const { runner, starts, history, manualPause } = setup();
+    history.push(row({ outcome: 'failed' }));
+    await manualPause.set({ scope: 'a', seconds: 3600, reason: 'by hand' });
+    await more(runner);
+    assert.match(starts[0].opts.preamble, /^The owner is working by hand/);
+    assert.match(starts[0].opts.prompt, /^Your previous run ended early \(failed\)/);
+  });
+
+  it('reports a missing session clearly and suggests a fresh run', async () => {
+    const { runner, starts, history, outboxEntries } = setup();
+    history.push(row());
+    await more(runner);
+    const r = result('failed', '');
+    starts[0].settle?.({ ...r, sessionMissing: true });
+    await runner.idle();
+    const text = outboxEntries().at(-1).text;
+    assert.match(text, /session of run old-1 no longer exists/);
+    assert.match(text, /Start a fresh run with claude <instructions>/);
   });
 });

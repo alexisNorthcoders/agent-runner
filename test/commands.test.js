@@ -166,9 +166,9 @@ describe('parseCommand: claude:more', () => {
     for (const t of ['claude:more', 'claude:more   ']) {
       const c = parseCommand(t);
       assert.equal(c.kind, 'error');
-      assert.match(/** @type {any} */ (c).message, /^Usage: claude:more \[run-id prefix\] <instructions>/);
+      assert.match(/** @type {any} */ (c).message, /^Usage: claude:more \[haiku\|sonnet\|opus:\] \[run-id prefix\] <instructions>/);
     }
-    assert.match(USAGE, /^claude:more \[run-id prefix\] <instructions>/m);
+    assert.match(USAGE, /^claude:more \[haiku\|sonnet\|opus:\] \[run-id prefix\] <instructions>/m);
   });
 });
 
@@ -185,5 +185,13 @@ describe('parseCommand: claude:more with a run reference', () => {
 
   it('gives the usage for a run reference with no instructions', () => {
     assert.equal(parseCommand('claude:more 2026-09-24T11-00').kind, 'error');
+  });
+});
+
+describe('parseCommand: claude:more with a model prefix', () => {
+  it('takes the model before the instructions or the run reference', () => {
+    assert.deepEqual(parseCommand('claude:more opus: add tests'), { kind: 'more', instructions: 'add tests', model: 'opus' });
+    assert.deepEqual(parseCommand('claude:more Haiku : 2026-09-24T11 add tests'), { kind: 'more', runRef: '2026-09-24T11', instructions: 'add tests', model: 'haiku' });
+    assert.equal(parseCommand('claude:more opus:').kind, 'error');
   });
 });

@@ -229,6 +229,7 @@ export function createClaudeBackend({
                   : !failed
                     ? 'success'
                     : 'failed';
+          const sessionMissing = Boolean(resume) && failed && /no conversation found/i.test(`${stderr}\n${text}`);
           log.end(`\n--- process end outcome=${outcome} exit=${exitCode ?? 'n/a'} ---\n`);
           const result = {
             outcome,
@@ -236,6 +237,7 @@ export function createClaudeBackend({
             text,
             stderr: spawnError ?? stderr,
             logPath,
+            ...(sessionMissing ? { sessionMissing } : {}),
             ...(outcome === 'limited' ? { limit: usageLimitFrom({ text, resetsAtEpoch: snap.rejectedResetsAt, now: now() }) } : {}),
             usage: {
               model: snap.model,
