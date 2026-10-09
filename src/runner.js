@@ -525,7 +525,19 @@ export function createRunner({
    * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
    */
   async function startRun(cmd, replyTo) {
-    const parent = cmd.kind === 'more' ? cmd.parent : null;
+    let parent = null;
+    if (cmd.kind === 'more') {
+      parent = cmd.parent;
+      if ('pending' in parent) {
+        // the Parent was running when this was queued: wait for it to end (it writes its history
+        // row before releasing the lock), then read its session from that row
+        const cur = await lock.current();
+        if (cur) return { reply: `Agent is busy. ${capitalize(describeRun(cur))} is in progress. Try again later.`, started: false, refused: 'busy' };
+        const resolved = await parentFromRow((await history.read()).find((r) => r.runId === cmd.parent.runId), cmd.parent.runId);
+        if (typeof resolved === 'string') return { reply: resolved, started: false };
+        parent = resolved;
+      }
+    }
     const record = newRecord({
       kind: parent ? parent.kind : cmd.kind,
       label: labelFor(cmd),
@@ -541,7 +553,7 @@ export function createRunner({
       let source = '';
       if (cmd.kind === 'more') {
         prompt = cmd.instructions;
-        source = `, continuing "${cmd.parent.label}" (${formatDuration(now() - Date.parse(cmd.parent.endedAt))} ago)`;
+        source = `, continuing "${parent.label}" (${formatDuration(now() - Date.parse(parent.endedAt))} ago)`;
       } else if (cmd.kind === 'joplin') {
         let note;
         try {
@@ -880,6 +892,20 @@ export function createRunner({
   }
 
   /**
+   * The active freeform or Joplin run as a pending Parent, when `claude:more` (with no run prefix,
+   * or one that matches it) should continue it rather than a row from history. Null for an issue
+   * run or job, or when nothing is active: the history picks apply then.
+   * @param {string} [runRef]
+   * @returns {Promise<import('./runQueue.js').ContinuationParent | null>}
+   */
+  async function runningParent(runRef) {
+    const cur = await lock.current();
+    if (!cur || (cur.kind !== 'freeform' && cur.kind !== 'joplin')) return null;
+    if (runRef && !cur.runId.startsWith(runRef)) return null;
+    return { runId: cur.runId, kind: cur.kind, label: cur.label ?? cur.runId, cwd: cur.workspaceRoot ?? workspaceRoot, pending: true };
+  }
+
+  /**
    * The Parent run for a `claude:more`: the newest freeform or Joplin run in history, whatever its
    * outcome. A refusal's one line when there is none or it can't be resumed.
    * @param {string} [runRef] a run-id prefix: continue that run instead
@@ -904,7 +930,16 @@ export function createRunner({
     } else {
       row = rows.find((r) => r.kind === 'freeform' || r.kind === 'joplin');
     }
-    if (!row) return 'Nothing to continue: no freeform or Joplin run in history.';
+    return parentFromRow(row);
+  }
+
+  /**
+   * @param {import('./runHistory.js').HistoryEntry | undefined} row
+   * @param {string} [pendingRunId] set when the row is a still-running Parent's: it may be missing
+   * @returns {import('./runQueue.js').ContinuationParent | string}
+   */
+  function parentFromRow(row, pendingRunId) {
+    if (!row) return pendingRunId ? `Cannot continue run ${pendingRunId}: it left no history row, so there is no session to resume.` : 'Nothing to continue: no freeform or Joplin run in history.';
     if (typeof row.sessionId !== 'string' || !row.sessionId) return `Cannot continue "${row.label ?? row.runId}": that run has no recorded session.`;
     return {
       runId: row.runId,
@@ -975,9 +1010,11 @@ export function createRunner({
           return { reply };
         }
         case 'more': {
-          const parent = await pickParent(cmd.runRef);
+          const running = await runningParent(cmd.runRef);
+          const parent = running ?? (await pickParent(cmd.runRef));
           if (typeof parent === 'string') return { reply: parent };
-          return { reply: (await submit({ kind: 'more', instructions: cmd.instructions, parent }, replyTo)).reply };
+          const { reply } = await submit({ kind: 'more', instructions: cmd.instructions, parent }, replyTo);
+          return { reply: running ? `Continuing run ${running.runId} ("${running.label}"), which is still running. ${reply}` : reply };
         }
         case 'status':
           return { reply: renderStatusText(await statusSnapshot()) };

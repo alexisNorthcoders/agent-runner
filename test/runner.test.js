@@ -32,7 +32,10 @@ function fakeBackend(modelChoice = { name: 'sonnet', source: 'default' }) {
             run.stopped = true;
             settle(result('stopped', 'partial'));
           },
-          finish: (outcome = 'success', text = 'All done') => settle(result(outcome, text)),
+          finish: (outcome = 'success', text = 'All done', sessionId = null) => {
+            const r = result(outcome, text);
+            settle({ ...r, usage: { ...r.usage, sessionId } });
+          },
           /** @param {import('../src/agentBackend/index.js').AgentUsageLimit} limit @param {number} [turns] */
           hitLimit: (limit, turns = 3) => {
             const r = result('limited', "You've hit your session limit");
@@ -1610,17 +1613,17 @@ describe('runner: claude:more', () => {
   });
 
   it('queues behind an active run and keeps the parent picked on submit', async () => {
-    const { runner, starts, history, queue, outboxEntries } = setup();
+    const { runner, starts, history, queue, outboxEntries, lock } = setup();
     history.push(row());
-    await runner.handleCommand({ text: 'claude something else', replyTo: 'jid-0' });
+    await lock.tryAcquire({ runId: 'busy-1', kind: 'issue', label: 'issue a#7', workspaceRoot: '/repos/a' });
     const { reply } = await more(runner);
     assert.match(reply, /^Queued \(position 1\): ↪ add tests\./);
     assert.equal(/** @type {any} */ ((await queue.list())[0].cmd).parent.runId, 'old-1');
-    starts[0].finish();
+    await lock.release('busy-1');
+    await runner.handleCommand({ text: 'claude:resume', replyTo: 'jid-1' });
     await runner.idle();
-    // the run that just finished is newer, but the request keeps its parent
-    assert.equal(starts.length, 2);
-    assert.deepEqual(starts[1].opts.resume, { sessionId: 'sess-old' });
+    assert.equal(starts.length, 1);
+    assert.deepEqual(starts[0].opts.resume, { sessionId: 'sess-old' });
     assert.match(outboxEntries().at(-1).text, /Queued request "↪ add tests": Started run/);
   });
 
@@ -1729,5 +1732,88 @@ describe('runner: claude:more <run-id prefix>', () => {
     assert.match(replies[4], /no recorded session/);
     for (const r of replies) assert.ok(!r.includes('\n'));
     assert.equal(starts.length, 0);
+  });
+});
+
+describe('runner: claude:more continues the active run', () => {
+  const more = (runner, text = 'claude:more add tests') => runner.handleCommand({ text, replyTo: 'jid-1' });
+  const oldRow = (extra = {}) => ({
+    runId: '2026-09-20T11-00-00-000Z',
+    kind: 'freeform',
+    label: 'old run',
+    workspaceRoot: '/repos/old',
+    endedAt: '2026-09-20T11:50:00.000Z',
+    outcome: 'success',
+    sessionId: 'sess-old',
+    ...extra,
+  });
+
+  it('queues behind the active freeform run, names it as the parent, and resumes its session when it ends', async () => {
+    const { runner, starts, history, queue } = setup();
+    history.push(oldRow());
+    await runner.handleCommand({ text: 'claude fix the bot', replyTo: 'jid-0' });
+    const { reply } = await more(runner);
+    assert.match(reply, /^Continuing run run-1 \("fix the bot"\), which is still running\. Queued \(position 1\)/);
+    assert.equal(/** @type {any} */ ((await queue.list())[0].cmd).parent.runId, 'run-1');
+    starts[0].finish('success', 'done', 'sess-new');
+    await runner.idle();
+    assert.equal(starts.length, 2);
+    assert.deepEqual(starts[1].opts.resume, { sessionId: 'sess-new' });
+    assert.equal(starts[1].opts.prompt, 'add tests');
+    starts[1].finish();
+    await runner.idle();
+    assert.equal(history.at(-1).parentRunId, 'run-1');
+    assert.equal(history.at(-1).kind, 'freeform');
+  });
+
+  it('continues an active Joplin run with its kind and cwd, also when a run prefix matches it', async () => {
+    const { runner, starts, history, lock } = setup({ newRunId: () => '2026-09-25T10-00-00-000Z' });
+    history.push(oldRow());
+    await runner.handleCommand({ text: 'claude joplin:Plan', replyTo: 'jid-0' });
+    assert.match((await more(runner, 'claude:more 2026-09-25 carry on')).reply, /^Continuing run 2026-09-25T10-00-00-000Z/);
+    starts[0].finish('success', 'done', 'sess-j');
+    await runner.idle();
+    assert.deepEqual(starts[1].opts.resume, { sessionId: 'sess-j' });
+    assert.equal(starts[1].opts.cwd, '/home/u/Projects');
+    assert.equal((await lock.current()).kind, 'joplin');
+  });
+
+  it('a run prefix that does not match the active run still picks from history', async () => {
+    const { runner, starts, history } = setup();
+    history.push(oldRow());
+    await runner.handleCommand({ text: 'claude fix the bot', replyTo: 'jid-0' });
+    const { reply } = await more(runner, 'claude:more 2026-09-20 go');
+    assert.match(reply, /^Queued \(position 1\)/);
+    starts[0].finish();
+    await runner.idle();
+    assert.deepEqual(starts[1].opts.resume, { sessionId: 'sess-old' });
+    assert.equal(starts[1].opts.cwd, '/repos/old');
+  });
+
+  for (const [kind, extra] of /** @type {[string, object][]} */ ([['issue', { workspaceAlias: 'a', issueNumber: 7 }], ['job', { trigger: 'schedule' }]])) {
+    it(`falls back to the newest freeform/Joplin history row while a ${kind} run is active`, async () => {
+      const { runner, starts, history, lock } = setup();
+      history.push(oldRow());
+      await lock.tryAcquire({ runId: 'busy-1', kind, label: `a ${kind}`, workspaceRoot: '/repos/a', ...extra });
+      const { reply } = await more(runner);
+      assert.match(reply, /^Queued \(position 1\)/);
+      assert.doesNotMatch(reply, /still running/);
+      await lock.release('busy-1');
+      await runner.handleCommand({ text: 'claude:resume', replyTo: 'jid-1' });
+      await new Promise((r) => setTimeout(r, 20));
+      assert.deepEqual(starts.at(-1).opts.resume, { sessionId: 'sess-old' });
+      assert.equal(starts.at(-1).opts.cwd, '/repos/old');
+    });
+  }
+
+  it('reports a clear failure and starts nothing when the parent ends without a session', async () => {
+    const { runner, starts, history, outboxEntries } = setup();
+    await runner.handleCommand({ text: 'claude fix the bot', replyTo: 'jid-0' });
+    await more(runner);
+    starts[0].finish('failed', '');
+    await runner.idle();
+    assert.equal(starts.length, 1);
+    assert.match(outboxEntries().at(-1).text, /did not start: Cannot continue "fix the bot": that run has no recorded session\./);
+    void history;
   });
 });
