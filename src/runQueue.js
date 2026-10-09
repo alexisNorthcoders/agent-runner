@@ -1,6 +1,7 @@
 /**
  * The Parent run a `claude:more` request continues, as picked when it was submitted (so a run that
- * finishes while it waits doesn't change it).
+ * finishes while it waits doesn't change it). `pending`: the Parent was still running when the
+ * request arrived, so `sessionId` and `endedAt` are read from its history row when this starts.
  * @typedef {{
  *   runId: string,
  *   kind: 'freeform' | 'joplin',
@@ -9,6 +10,12 @@
  *   cwd: string,
  *   endedAt: string,
  *   inferredWorkspace?: string,
+ * } | {
+ *   runId: string,
+ *   kind: 'freeform' | 'joplin',
+ *   label: string,
+ *   cwd: string,
+ *   pending: true,
  * }} ContinuationParent
  */
 

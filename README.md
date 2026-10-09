@@ -35,7 +35,7 @@ WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-resta
 | `claude:resume [<alias>]` | End that pause early, or with no alias every pause, the [usage-limit pause](#usage-limit) included (e.g. after a plan upgrade). |
 | `claude:restart` | Run safe-restart in the background, then report to the outbox. |
 | `claude:status` | Active run (with orphaned/stale warnings), pause, last cron tick, today's spend, last 3 runs. |
-| `claude:more [run-id prefix] <instructions>` | Continue the newest freeform or Joplin run (or the one matching the run-id prefix, like `agent:logs`; issue runs, jobs and sessionless runs get a one-line refusal): resumes its agent conversation (forked, so the parent's stays as it ended) in the parent's cwd. Queues and pauses like any freeform run; its history row has `parentRunId` and a `↪` label. |
+| `claude:more [run-id prefix] <instructions>` | Continue the active freeform or Joplin run (queues behind it, then resumes its session; if it ends without one, the queued request reports that and starts nothing), else the newest in history (or the one matching the run-id prefix, like `agent:logs`; issue runs, jobs and sessionless runs get a one-line refusal): resumes its agent conversation (forked, so the parent's stays as it ended) in the parent's cwd. Queues and pauses like any freeform run; its history row has `parentRunId` and a `↪` label. |
 | `claude:history [n]` | The last `n` finished runs (default 10, max 30) with outcome, duration, cost and tokens. |
 
 There is one run at a time. A run request (`claude …`, `joplin:`, `issue:`) that arrives while a
