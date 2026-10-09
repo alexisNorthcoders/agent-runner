@@ -61,10 +61,13 @@ import { createClaudeBackend } from './claude.js';
  *   logPath: string,
  *   onProgress?: (p: AgentProgress) => void,
  *   onTouch?: (t: AgentTouch) => void,
+ *   resume?: { sessionId: string },
  * }} AgentStartOptions
  *   `model` is the requested model; it beats the workspace's own agent settings. `modelSource`
  *   says where the request came from (default `prefix`).
  *   `implement` runs the agent's issue-implementation workflow (Claude: the `/implement` skill).
+ *   `resume` continues an earlier session's conversation in a session of its own: the earlier one
+ *   is left as it ended.
  *   `onTouch` hears each edit or command, in order.
  *
  * @typedef {{ pid: number | null, model: AgentModelChoice, done: Promise<AgentResult>, stop: () => void }} AgentRun

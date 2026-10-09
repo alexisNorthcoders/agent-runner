@@ -9,6 +9,7 @@ import { join } from 'path';
  *   runId: string,
  *   kind?: string,
  *   label?: string,
+ *   parentRunId?: string,
  *   startedAt?: string,
  *   endedAt: string,
  *   durationMs?: number,

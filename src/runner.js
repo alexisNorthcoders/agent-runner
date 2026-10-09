@@ -375,6 +375,7 @@ export function createRunner({
           logPath: record.logPath,
           startedAt: record.startedAt,
           endedAt: new Date(endedAt).toISOString(),
+          ...(record.parentRunId ? { parentRunId: record.parentRunId } : {}),
           durationMs: endedAt - Date.parse(/** @type {string} */ (record.startedAt)),
           outcome: result.outcome,
           exitCode: result.exitCode,
@@ -494,32 +495,43 @@ export function createRunner({
    * A failed lookup just leaves the note out.
    */
   async function freeformPreambleNow() {
+    const note = await pausedWorkspacesNote();
+    return note ? `${freeformPreamble}\n- ${note}` : freeformPreamble;
+  }
+
+  /**
+   * The note telling a freeform run which workspaces are paused by hand and must not be changed, or
+   * '' when none is.
+   */
+  async function pausedWorkspacesNote() {
     try {
       const paused = (await manualPause.list()).filter((p) => p.scope !== ALL);
-      if (!paused.length) return freeformPreamble;
+      if (!paused.length) return '';
       const lines = [];
       for (const p of paused) {
         const root = workspaces ? await workspaces.resolveIssueWorkspace(p.scope).then((w) => w.root, () => null) : null;
         lines.push(`  - ${p.scope}${root ? ` (${root})` : ''}${p.reason ? `: ${p.reason}` : ''}`);
       }
-      return `${freeformPreamble}\n- The owner is working by hand in these workspaces, which are paused. Don't change files, branches or commits in them, even if asked; say so in your summary instead:\n${lines.join('\n')}`;
+      return `The owner is working by hand in these workspaces, which are paused. Don't change files, branches or commits in them, even if asked; say so in your summary instead:\n${lines.join('\n')}`;
     } catch (err) {
       logger.warn(`could not read workspace pauses: ${err?.message || err}`);
-      return freeformPreamble;
+      return '';
     }
   }
 
   /**
-   * @param {{ kind: 'freeform', prompt: string, model?: string } | { kind: 'joplin', noteQuery: string, model?: string }} cmd
+   * @param {{ kind: 'freeform', prompt: string, model?: string } | { kind: 'joplin', noteQuery: string, model?: string } | { kind: 'more', instructions: string, parent: import('./runQueue.js').ContinuationParent }} cmd
    * @param {string} replyTo
    * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
    */
   async function startRun(cmd, replyTo) {
+    const parent = cmd.kind === 'more' ? cmd.parent : null;
     const record = newRecord({
-      kind: cmd.kind,
-      label: cmd.kind === 'freeform' ? oneLine(cmd.prompt, 60) : `joplin:${cmd.noteQuery}`,
+      kind: parent ? parent.kind : cmd.kind,
+      label: labelFor(cmd),
       replyTo,
-      workspaceRoot,
+      workspaceRoot: parent ? parent.cwd : workspaceRoot,
+      ...(parent ? { parentRunId: parent.runId, ...(parent.inferredWorkspace ? { inferredWorkspace: parent.inferredWorkspace } : {}) } : {}),
     });
     const refused = await acquire(record);
     if (refused) return { reply: refused.reply, started: false, refused: refused.why };
@@ -527,7 +539,10 @@ export function createRunner({
     try {
       let prompt;
       let source = '';
-      if (cmd.kind === 'joplin') {
+      if (cmd.kind === 'more') {
+        prompt = cmd.instructions;
+        source = `, continuing "${cmd.parent.label}" (${formatDuration(now() - Date.parse(cmd.parent.endedAt))} ago)`;
+      } else if (cmd.kind === 'joplin') {
         let note;
         try {
           note = await joplin.getNote(cmd.noteQuery);
@@ -545,14 +560,23 @@ export function createRunner({
       } else {
         prompt = cmd.prompt;
       }
-      const onTouch = cmd.kind === 'freeform' ? inferWorkspace(record.runId) : undefined;
+      const onTouch = record.kind === 'freeform' ? inferWorkspace(record.runId) : undefined;
+      // a Continuation's conversation already holds the static preamble: only the pause note is new
+      const preambleNow = parent ? ((await pausedWorkspacesNote()) || undefined) : await freeformPreambleNow();
       const started = await launch(
         record,
-        { prompt, preamble: await freeformPreambleNow(), cwd: workspaceRoot, ...(cmd.model ? { model: cmd.model } : {}), ...(onTouch ? { onTouch } : {}) },
+        {
+          prompt,
+          preamble: preambleNow,
+          cwd: record.workspaceRoot,
+          ...('model' in cmd && cmd.model ? { model: cmd.model } : {}),
+          ...(parent ? { resume: { sessionId: parent.sessionId } } : {}),
+          ...(onTouch ? { onTouch } : {}),
+        },
         async (result, a) => ({ text: `${formatRunResult(record, result)}${a.requeued ? `\n${REQUEUED_NOTE}` : ''}` }),
         queuedRun(cmd, replyTo)
       );
-      return { reply: `Started run ${record.runId}${source} in ${workspaceRoot}${modelSuffix(started.model)}.\nLog: ${record.logPath}`, started: true };
+      return { reply: `Started run ${record.runId}${source} in ${record.workspaceRoot}${modelSuffix(started.model)}.\nLog: ${record.logPath}`, started: true };
     } catch (err) {
       await lock.release(record.runId).catch(() => {});
       return { reply: `Could not start the agent: ${err?.message || err}`, started: false };
@@ -774,7 +798,9 @@ export function createRunner({
   const labelFor = (cmd) =>
     cmd.kind === 'freeform'
       ? oneLine(cmd.prompt, 60)
-      : cmd.kind === 'joplin'
+      : cmd.kind === 'more'
+        ? `↪ ${oneLine(cmd.instructions, 58)}`
+        : cmd.kind === 'joplin'
         ? `joplin:${cmd.noteQuery}`
         : cmd.kind === 'job'
           ? `scheduled job ${cmd.job.name}`
@@ -853,6 +879,27 @@ export function createRunner({
     return draining;
   }
 
+  /**
+   * The Parent run for a `claude:more`: the newest freeform or Joplin run in history, whatever its
+   * outcome. A refusal's one line when there is none or it can't be resumed.
+   * @returns {Promise<import('./runQueue.js').ContinuationParent | string>}
+   */
+  async function pickParent() {
+    const rows = await history.read();
+    const row = rows.find((r) => r.kind === 'freeform' || r.kind === 'joplin');
+    if (!row) return 'Nothing to continue: no freeform or Joplin run in history.';
+    if (typeof row.sessionId !== 'string' || !row.sessionId) return `Cannot continue "${row.label ?? row.runId}": that run has no recorded session.`;
+    return {
+      runId: row.runId,
+      kind: /** @type {'freeform' | 'joplin'} */ (row.kind),
+      label: row.label ?? row.runId,
+      sessionId: row.sessionId,
+      cwd: typeof row.workspaceRoot === 'string' ? row.workspaceRoot : workspaceRoot,
+      endedAt: row.endedAt,
+      ...(typeof row.inferredWorkspace === 'string' ? { inferredWorkspace: row.inferredWorkspace } : {}),
+    };
+  }
+
   /** @param {boolean} clear */
   async function queueCommand(clear) {
     const items = await queue.list();
@@ -909,6 +956,11 @@ export function createRunner({
           const { reply } = await applyPauseCommand({ manualPause, usageLimit, workspaces, cmd, now });
           drainQueue();
           return { reply };
+        }
+        case 'more': {
+          const parent = await pickParent();
+          if (typeof parent === 'string') return { reply: parent };
+          return { reply: (await submit({ kind: 'more', instructions: cmd.instructions, parent }, replyTo)).reply };
         }
         case 'status':
           return { reply: renderStatusText(await statusSnapshot()) };
@@ -984,6 +1036,7 @@ export function createRunner({
             trigger: rec.trigger,
             workspaceAlias: rec.workspaceAlias,
             inferredWorkspace: rec.inferredWorkspace,
+            parentRunId: rec.parentRunId,
             issueNumber: rec.issueNumber,
             room: rec.room,
             jobName: rec.jobName,

@@ -49,6 +49,7 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  *   label: string | null,
  *   workspaceAlias: string | null,
  *   inferredWorkspace: string | null,
+ *   parentRunId: string | null,
  *   issueNumber: number | null,
  *   room: string | null,
  *   jobName: string | null,
@@ -67,6 +68,7 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  *   `spawn_error`), or `interrupted` for a run a restart cut off; `result` is an issue run's
  *   pipeline result (`merged`, `pr_open`, `pushed`, `no_changes`, …), and `prUrl` its PR's.
  *   `tokens` is the total over input, output and cache. `inferredWorkspace`: as on `OfficeRun`.
+ *   `parentRunId`: the run a `claude:more` continued (additive, no version bump).
  *
  * @typedef {{ runs: number, costUsd: number, tokens: number }} SpendTotals
  *
@@ -206,6 +208,7 @@ function historyEntry(h) {
     label: h.label ?? null,
     workspaceAlias: typeof h.workspaceAlias === 'string' ? h.workspaceAlias : null,
     inferredWorkspace: aliasOf(h.inferredWorkspace),
+    parentRunId: typeof h.parentRunId === 'string' ? h.parentRunId : null,
     issueNumber: typeof h.issueNumber === 'number' ? h.issueNumber : null,
     room: roomOf(h.room),
     jobName: jobNameOf(h.jobName),

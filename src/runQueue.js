@@ -1,4 +1,18 @@
 /**
+ * The Parent run a `claude:more` request continues, as picked when it was submitted (so a run that
+ * finishes while it waits doesn't change it).
+ * @typedef {{
+ *   runId: string,
+ *   kind: 'freeform' | 'joplin',
+ *   label: string,
+ *   sessionId: string,
+ *   cwd: string,
+ *   endedAt: string,
+ *   inferredWorkspace?: string,
+ * }} ContinuationParent
+ */
+
+/**
  * FIFO of run requests that arrived while the agent was busy (or the runner paused), in Redis so it
  * survives a restart. The runner starts them one at a time, oldest first, as each run finishes. A
  * manual request the usage limit stopped before it started goes back to the front.
@@ -7,6 +21,7 @@
  *   id: string,
  *   cmd: { kind: 'freeform', prompt: string, model?: string }
  *     | { kind: 'joplin', noteQuery: string, model?: string }
+ *     | { kind: 'more', instructions: string, parent: ContinuationParent }
  *     | { kind: 'issue', issueNumber: number, alias: string | null, extraInstructions: string }
  *     | { kind: 'job', job: import('./scheduledJobs.js').ScheduledJob },
  *   replyTo: string,

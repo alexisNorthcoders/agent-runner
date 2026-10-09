@@ -1556,3 +1556,105 @@ describe('runner: the usage limit', () => {
     assert.equal(outboxEntries().find((e) => e.replyTo === 'owner')?.text, '⏸ Usage limit hit: pausing agent runs until 17:00. 0 requests queued.');
   });
 });
+
+describe('runner: claude:more', () => {
+  const row = (extra = {}) => ({
+    runId: 'old-1',
+    kind: 'freeform',
+    label: 'fix the bot',
+    workspaceRoot: '/home/u/Projects',
+    startedAt: '2026-09-24T11:00:00.000Z',
+    endedAt: '2026-09-24T11:50:00.000Z',
+    outcome: 'success',
+    sessionId: 'sess-old',
+    ...extra,
+  });
+  const more = (runner, text = 'claude:more add tests') => runner.handleCommand({ text, replyTo: 'jid-1' });
+
+  it('resumes the newest freeform run in its cwd, with no static preamble, and names the parent', async () => {
+    const { runner, starts, history } = setup();
+    history.push(row({ runId: 'old-0', sessionId: 'sess-0' }), row({ workspaceRoot: '/repos/a', inferredWorkspace: 'a' }));
+    const { reply } = await more(runner);
+    assert.equal(starts.length, 1);
+    assert.deepEqual(starts[0].opts.resume, { sessionId: 'sess-old' });
+    assert.equal(starts[0].opts.cwd, '/repos/a');
+    assert.equal(starts[0].opts.prompt, 'add tests');
+    assert.equal(starts[0].opts.preamble, undefined);
+    assert.match(reply, /^Started run run-1, continuing "fix the bot" \(10m00s ago\) in \/repos\/a/);
+  });
+
+  it('records the continuation: parent kind, label, parentRunId, inferred workspace', async () => {
+    const { runner, starts, history, lock } = setup();
+    history.push(row({ kind: 'joplin', label: 'Joplin note "Plan"', inferredWorkspace: 'a' }));
+    await more(runner, 'claude:more   carry on\nplease');
+    assert.deepEqual(
+      { kind: (await lock.current()).kind, ws: (await lock.current()).inferredWorkspace },
+      { kind: 'joplin', ws: 'a' }
+    );
+    starts[0].finish();
+    await runner.idle();
+    const h = history.at(-1);
+    assert.equal(h.kind, 'joplin');
+    assert.equal(h.label, '↪ carry on please');
+    assert.equal(h.parentRunId, 'old-1');
+    assert.equal(h.inferredWorkspace, 'a');
+  });
+
+  it('sends only the paused-workspaces note when a workspace is paused', async () => {
+    const { runner, starts, history, manualPause } = setup();
+    history.push(row());
+    await manualPause.set({ scope: 'a', seconds: 3600, reason: 'by hand' });
+    await more(runner);
+    assert.match(starts[0].opts.preamble, /^The owner is working by hand in these workspaces[\s\S]*  - a: by hand$/);
+    assert.ok(!starts[0].opts.preamble.includes('FREEFORM PREAMBLE'));
+  });
+
+  it('queues behind an active run and keeps the parent picked on submit', async () => {
+    const { runner, starts, history, queue, outboxEntries } = setup();
+    history.push(row());
+    await runner.handleCommand({ text: 'claude something else', replyTo: 'jid-0' });
+    const { reply } = await more(runner);
+    assert.match(reply, /^Queued \(position 1\): ↪ add tests\./);
+    assert.equal(/** @type {any} */ ((await queue.list())[0].cmd).parent.runId, 'old-1');
+    starts[0].finish();
+    await runner.idle();
+    // the run that just finished is newer, but the request keeps its parent
+    assert.equal(starts.length, 2);
+    assert.deepEqual(starts[1].opts.resume, { sessionId: 'sess-old' });
+    assert.match(outboxEntries().at(-1).text, /Queued request "↪ add tests": Started run/);
+  });
+
+  it('queues under the general pause and starts after the resume', async () => {
+    const { runner, starts, history } = setup();
+    history.push(row());
+    await runner.handleCommand({ text: 'claude:pause 1h', replyTo: 'jid-1' });
+    assert.match((await more(runner)).reply, /^Queued \(position 1\).*paused by hand/);
+    assert.equal(starts.length, 0);
+    await runner.handleCommand({ text: 'claude:resume', replyTo: 'jid-1' });
+    await runner.idle();
+    assert.equal(starts.length, 1);
+    assert.equal(starts[0].opts.resume.sessionId, 'sess-old');
+  });
+
+  it('goes back to the head of the queue when the usage limit stops it before it starts', async () => {
+    const { runner, starts, history, queue } = setup();
+    history.push(row());
+    await more(runner);
+    starts[0].hitLimit({ resetsAt: '2026-09-24T15:02:00Z', note: null, timeZone: null }, 1);
+    await runner.idle();
+    const [item] = await queue.list();
+    assert.equal(item.label, '↪ add tests');
+    assert.equal(/** @type {any} */ (item.cmd).parent.sessionId, 'sess-old');
+  });
+
+  it('refuses in one line, starting nothing, with no parent, no session or no instructions', async () => {
+    const { runner, starts, history } = setup();
+    assert.equal((await more(runner)).reply, 'Nothing to continue: no freeform or Joplin run in history.');
+    history.push(row({ kind: 'issue', label: 'issue a#1' }));
+    assert.match((await more(runner)).reply, /^Nothing to continue/);
+    history.push(row({ runId: 'old-2', sessionId: null }));
+    assert.equal((await more(runner)).reply, 'Cannot continue "fix the bot": that run has no recorded session.');
+    assert.match((await more(runner, 'claude:more')).reply, /^Usage: claude:more/);
+    assert.equal(starts.length, 0);
+  });
+});
