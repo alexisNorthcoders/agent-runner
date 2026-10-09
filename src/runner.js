@@ -882,11 +882,28 @@ export function createRunner({
   /**
    * The Parent run for a `claude:more`: the newest freeform or Joplin run in history, whatever its
    * outcome. A refusal's one line when there is none or it can't be resumed.
+   * @param {string} [runRef] a run-id prefix: continue that run instead
    * @returns {Promise<import('./runQueue.js').ContinuationParent | string>}
    */
-  async function pickParent() {
+  async function pickParent(runRef) {
     const rows = await history.read();
-    const row = rows.find((r) => r.kind === 'freeform' || r.kind === 'joplin');
+    let row;
+    if (runRef) {
+      const hits = rows.filter((r) => r.runId.startsWith(runRef));
+      const matches = hits.filter((r) => r.runId === runRef);
+      if (matches.length !== 1 && hits.length !== 1) {
+        return hits.length ? `Run prefix "${runRef}" is ambiguous: it matches ${hits.length} runs.` : `No run in history matches "${runRef}".`;
+      }
+      row = matches[0] ?? hits[0];
+      if (row.kind === 'issue') {
+        const target = row.workspaceAlias && row.issueNumber ? `issue:${row.workspaceAlias}:${row.issueNumber}` : 'issue:<alias>:<n>';
+        return `Run ${row.runId} is an issue run: use claude ${target} <extra instructions> to continue it.`;
+      }
+      if (row.kind === 'job') return `Cannot continue run ${row.runId}: it is a scheduled job.`;
+      if (row.kind !== 'freeform' && row.kind !== 'joplin') return `Cannot continue run ${row.runId}: only freeform and Joplin runs can be continued.`;
+    } else {
+      row = rows.find((r) => r.kind === 'freeform' || r.kind === 'joplin');
+    }
     if (!row) return 'Nothing to continue: no freeform or Joplin run in history.';
     if (typeof row.sessionId !== 'string' || !row.sessionId) return `Cannot continue "${row.label ?? row.runId}": that run has no recorded session.`;
     return {
@@ -958,7 +975,7 @@ export function createRunner({
           return { reply };
         }
         case 'more': {
-          const parent = await pickParent();
+          const parent = await pickParent(cmd.runRef);
           if (typeof parent === 'string') return { reply: parent };
           return { reply: (await submit({ kind: 'more', instructions: cmd.instructions, parent }, replyTo)).reply };
         }
