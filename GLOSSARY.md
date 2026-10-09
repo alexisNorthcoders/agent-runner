@@ -26,11 +26,18 @@ _Avoid_: project, repo (when you mean the alias)
 The **Workspace** a freeform **Run** turned out to work in: the first one its agent edits a file in or runs a command in (reads don't count). Set once, it never changes for the run.
 _Avoid_: target repo, detected workspace
 
+**Continuation**:
+A freeform or Joplin **Run** that resumes an earlier run's agent conversation (`claude:more`), so the agent picks up with everything it already read and did. It keeps its **Parent run**'s kind, room and **Inferred workspace**. Its parent is picked when it's requested, not when it starts: the active run if that's freeform or Joplin, else the newest finished freeform or Joplin run, whatever its outcome. It works on its own copy of the parent's conversation, so continuing one run twice gives two branches that don't see each other, and the parent's own conversation stays as it ended. A second `claude:more` for a parent whose continuation is still queued is added to that continuation instead of becoming another.
+_Avoid_: follow-up (that's an issue run's later agent pass, like the autofix), reply run
+
+**Parent run**:
+The **Run** a **Continuation** resumes.
+
 **Phase**:
 Where the executing run is: `agent` (an agent pass, the first one or the autofix), `post-run` (commit, PR, review, merge), or `job` (a **Scheduled job**'s command).
 
 **Model choice**:
-The model a **Run**'s agent passes use, and where it came from: the run's model prefix (`claude opus: …`, freeform and Joplin runs), its issue's `model:` label, the **Workspace**'s own agent settings, or the runner default (Sonnet), in that order. An issue run's autofix pass keeps it.
+The model a **Run**'s agent passes use, and where it came from: the run's model prefix (`claude opus: …`, freeform, Joplin and **Continuation** runs), its issue's `model:` label, a **Continuation**'s **Parent run**'s model, the **Workspace**'s own agent settings, or the runner default (Sonnet), in that order. An issue run's autofix pass keeps it.
 _Avoid_: classifier, orchestrator (nothing decides automatically), model override
 
 **Queue**:
