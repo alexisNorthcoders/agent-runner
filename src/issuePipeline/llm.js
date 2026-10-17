@@ -37,6 +37,26 @@ async function chatCompletion(fetchFn, { baseUrl, apiKey, body }, usage) {
   return { text: String(j.choices?.[0]?.message?.content ?? '').trim(), finishReason: j.choices?.[0]?.finish_reason || '' };
 }
 
+/**
+ * Run `fn`, retrying after each delay while it fails with a transient provider error
+ * (HTTP 429 / 5xx, e.g. DeepInfra "engine_overloaded").
+ * @template T
+ * @param {() => Promise<T>} fn
+ * @param {number[]} delaysMs
+ * @returns {Promise<T>}
+ */
+async function retryTransient(fn, delaysMs) {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const transient = /^HTTP (429|5\d\d)\b/.test(String(e?.message));
+      if (!transient || i >= delaysMs.length) throw e;
+      await new Promise((r) => setTimeout(r, delaysMs[i]));
+    }
+  }
+}
+
 const REVIEW_SYSTEM_PROMPT = [
   'You are a senior software engineer doing a one-shot merge gate on a pull-request diff produced by an automated coding-agent run requested over WhatsApp.',
   'This is not a human PR conversation: there is no back-and-forth, and at most one automated follow-up pass will ever read your bullets and try to apply them blind. Judge real mergeability, not how thorough you can make the review look — do not invent or pad out concerns to fill a quota.',
@@ -64,9 +84,9 @@ export function standardsBlock(standards) {
 }
 
 /**
- * @param {{ settings: import('./settings.js').PipelineSettings, fetchFn?: FetchLike, log?: (message: string, detail?: unknown) => void }} deps
+ * @param {{ settings: import('./settings.js').PipelineSettings, fetchFn?: FetchLike, log?: (message: string, detail?: unknown) => void, retryDelaysMs?: number[] }} deps
  */
-export function createLlm({ settings, fetchFn = /** @type {FetchLike} */ (globalThis.fetch), log = () => {} }) {
+export function createLlm({ settings, fetchFn = /** @type {FetchLike} */ (globalThis.fetch), log = () => {}, retryDelaysMs = [3000, 10000, 30000] }) {
   const { review, summary } = settings;
   /** Newer OpenAI models reject `max_tokens` and require `max_completion_tokens`. @param {string} model */
   const usesMaxCompletionTokens = (model) => review.useMaxCompletionTokens ?? /^(gpt-5|o\d)/i.test(model);
@@ -142,7 +162,8 @@ export function createLlm({ settings, fetchFn = /** @type {FetchLike} */ (global
       const usage = { prompt: 0, completion: 0, total: 0 };
       if (!summary.apiKey) return { ok: false, error: 'DEEPINFRA_API_KEY is not set.', usage };
       try {
-        const { text } = await chatCompletion(
+        const { text } = await retryTransient(
+          () => chatCompletion(
           fetchFn,
           {
             baseUrl: summary.baseUrl,
@@ -168,7 +189,7 @@ export function createLlm({ settings, fetchFn = /** @type {FetchLike} */ (global
             },
           },
           usage
-        );
+        ), retryDelaysMs);
         return text ? { ok: true, text, usage } : { ok: false, error: 'DeepInfra returned an empty email body.', usage };
       } catch (e) {
         return { ok: false, error: e?.message || String(e), usage };
