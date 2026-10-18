@@ -15,10 +15,10 @@ const allIdle = Object.fromEntries(ORDER.map((a) => [a, true]));
 const only = (...aliases) => Object.fromEntries(ORDER.map((a) => [a, aliases.includes(a)]));
 
 describe('pickNextIdleWorkspace', () => {
-  it('has the fixed 12-workspace order', () => {
-    assert.equal(ORDER.length, 12);
+  it('has the fixed 13-workspace order', () => {
+    assert.equal(ORDER.length, 13);
     assert.equal(ORDER[0], 'bot');
-    assert.equal(ORDER[11], 'dots');
+    assert.equal(ORDER[12], 'monitor-canvas');
   });
 
   it('starts at the top without a cursor', () => {
@@ -30,7 +30,7 @@ describe('pickNextIdleWorkspace', () => {
   });
 
   it('wraps from the last entry to the first', () => {
-    assert.equal(pick(ORDER, allIdle, 'dots'), 'bot');
+    assert.equal(pick(ORDER, allIdle, 'monitor-canvas'), 'bot');
   });
 
   it('skips non-idle workspaces', () => {
@@ -268,7 +268,7 @@ describe('sweepRepoInsight', () => {
   it('leaves the cursor on the last workspace even when it is not idle', async () => {
     const { deps, cursor } = setup(['bot']);
     await sweepRepoInsight(deps);
-    assert.equal(await cursor.read(), 'dots');
+    assert.equal(await cursor.read(), 'monitor-canvas');
   });
 
   it('starts no session when nothing is idle', async () => {
@@ -276,7 +276,7 @@ describe('sweepRepoInsight', () => {
     const { failed } = await sweepRepoInsight(deps);
     assert.deepEqual(explored, []);
     assert.equal(failed, 0);
-    assert.equal(await cursor.read(), 'dots');
+    assert.equal(await cursor.read(), 'monitor-canvas');
   });
 
   it('reports a failing workspace and carries on', async () => {
@@ -285,7 +285,7 @@ describe('sweepRepoInsight', () => {
     assert.equal(failed, 1);
     assert.deepEqual(explored, ['dots']);
     assert.ok(lines.some((l) => l.includes('bot → failed (boom)')));
-    assert.equal(await cursor.read(), 'dots');
+    assert.equal(await cursor.read(), 'monitor-canvas');
   });
 
   it('a second sweep re-checks everything; de-duplication is the explore step\'s job', async () => {

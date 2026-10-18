@@ -6,6 +6,7 @@
     { "alias": "dots" },
     { "alias": "go-server" },
     { "alias": "home-manuals" },
+    { "alias": "monitor-canvas" },
     { "alias": "platformer" },
     { "alias": "reddit-bot" },
     { "alias": "reply-buddy" },

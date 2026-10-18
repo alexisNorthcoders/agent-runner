@@ -24,6 +24,7 @@ export const REPO_INSIGHT_PRIORITY = [
   'reply-buddy',
   'home-manuals',
   'dots',
+  'monitor-canvas',
 ];
 
 /**
