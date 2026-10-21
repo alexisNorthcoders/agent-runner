@@ -1,4 +1,4 @@
-import { pidAlive } from './pidAlive.js';
+import { pidAlive } from './pidAlive.ts';
 
 /**
  * One snapshot of the runner's state, shared by `claude:status` (inside the service) and the
@@ -10,7 +10,7 @@ import { pidAlive } from './pidAlive.js';
  * @typedef {{
  *   now: number,
  *   active: import('./activeRuns.js').ActiveRun[],
- *   paused: import('./pauseFlag.js').PauseRecord | null | 'unknown',
+ *   paused: import('./pauseFlag.ts').PauseRecord | null | 'unknown',
  *   cron: import('./cronState.js').CronState | null,
  *   cronAlive: boolean,
  *   history: import('./runHistory.js').HistoryEntry[],
@@ -48,7 +48,7 @@ function timeBoxed(read, fallback, ms) {
  *   activeRuns: Pick<ReturnType<typeof import('./activeRuns.js').createActiveRuns>, 'list'>,
  *   history: Pick<ReturnType<typeof import('./runHistory.js').createRunHistory>, 'read'>,
  *   readCron: () => Promise<import('./cronState.js').CronState | null>,
- *   readPause: () => Promise<import('./pauseFlag.js').PauseRecord | null>,
+ *   readPause: () => Promise<import('./pauseFlag.ts').PauseRecord | null>,
  *   readLock?: () => Promise<import('./runLock.js').RunRecord | null>,
  *   readQueue?: () => Promise<import('./runQueue.js').QueuedRun[]>,
  *   readManualPauses?: () => Promise<import('./manualPause.js').ManualPause[]>,

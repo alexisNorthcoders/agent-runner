@@ -1,4 +1,4 @@
-import { OWNER } from './outbox.js';
+import { OWNER } from './outbox.ts';
 import { issueKey, prAttemptStateKey } from './cronState.js';
 import { classifyGithubPrMergeability } from './issuePipeline/githubPr.js';
 import { errorMessageFromUnknown } from './issuePipeline/index.js';
@@ -156,7 +156,7 @@ function truncate(s, max = 1500) {
  * @param {{
  *   startIssueRun: ReturnType<typeof import('./runner.js').createRunner>['startIssueRun'],
  *   lock: Pick<ReturnType<typeof import('./runLock.js').createRunLock>, 'current'>,
- *   pause: Pick<ReturnType<typeof import('./pauseFlag.js').createPauseFlag>, 'get'>,
+ *   pause: Pick<ReturnType<typeof import('./pauseFlag.ts').createPauseFlag>, 'get'>,
  *   manualPause: Pick<ReturnType<typeof import('./manualPause.js').createManualPause>, 'general' | 'forWorkspace'>,
  *   usageLimit: Pick<ReturnType<typeof import('./usageLimitPause.js').createUsageLimitPause>, 'get'>,
  *   sweepStale?: () => Promise<unknown>,
@@ -164,7 +164,7 @@ function truncate(s, max = 1500) {
  *   workspaces: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
  *   github: Pick<ReturnType<typeof import('./issuePipeline/githubIssue.js').createGithubIssues>,
  *     'resolveIssueRepo' | 'listOpenIssues' | 'blockedByCount' | 'listOpenAgentPrsByIssue' | 'branchHeadSha'>,
- *   outbox: Pick<ReturnType<typeof import('./outbox.js').createOutbox>, 'send'>,
+ *   outbox: Pick<ReturnType<typeof import('./outbox.ts').createOutbox>, 'send'>,
  *   aliases: string[],
  *   intervalMs: number,
  *   logger?: Pick<Console, 'info' | 'warn'>,

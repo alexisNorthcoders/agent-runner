@@ -1,7 +1,7 @@
 import { readdir, readFile, unlink } from 'fs/promises';
 import { join } from 'path';
-import { pidAlive } from './pidAlive.js';
-import { writeJsonAtomic } from './jsonFile.js';
+import { pidAlive } from './pidAlive.ts';
+import { writeJsonAtomic } from './jsonFile.ts';
 
 /**
  * One `active/<runId>.json` file per in-flight run, rewritten (throttled) as it progresses and

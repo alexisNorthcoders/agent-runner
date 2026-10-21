@@ -10,7 +10,7 @@ const CLEAR_ATTEMPTS = 3;
  */
 
 /**
- * @param {{ activeRun: import('./runLock.js').RunRecord | null, pause: import('./pauseFlag.js').PauseRecord | null }} s
+ * @param {{ activeRun: import('./runLock.js').RunRecord | null, pause: import('./pauseFlag.ts').PauseRecord | null }} s
  * @returns {{ ok: true } | { ok: false, reason: string }}
  */
 export function decideSafeRestart({ activeRun, pause }) {
@@ -32,7 +32,7 @@ export function decideSafeRestart({ activeRun, pause }) {
 /**
  * @param {{
  *   lock: Pick<ReturnType<typeof import('./runLock.js').createRunLock>, 'current'>,
- *   pause: Pick<ReturnType<typeof import('./pauseFlag.js').createPauseFlag>, 'get' | 'set' | 'clear'>,
+ *   pause: Pick<ReturnType<typeof import('./pauseFlag.ts').createPauseFlag>, 'get' | 'set' | 'clear'>,
  *   restartProcess: () => Promise<void>,
  *   waitForReady: () => Promise<void>,
  * }} deps

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPauseFlag } from '../src/pauseFlag.js';
+import { createPauseFlag } from '../src/pauseFlag.ts';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
 describe('pauseFlag', () => {

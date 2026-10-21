@@ -6,7 +6,7 @@ import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { createStreamAccumulator, resultUsage } from './claudeStreamParser.js';
 import { usageLimitFrom } from './claudeUsageLimit.js';
-import { augmentedPathEnv } from '../processPath.js';
+import { augmentedPathEnv } from '../processPath.ts';
 import { USAGE_FILE_ENV } from '../jobUsage.js';
 
 /**

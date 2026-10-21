@@ -11,8 +11,8 @@ import { loadConfig } from '../src/config.js';
 import { connectRedis, createRedisStore, publishStateChange } from '../src/redisStore.js';
 import { notifyingStore } from '../src/stateChanges.js';
 import { createRunLock } from '../src/runLock.js';
-import { createPauseFlag } from '../src/pauseFlag.js';
-import { createOutbox } from '../src/outbox.js';
+import { createPauseFlag } from '../src/pauseFlag.ts';
+import { createOutbox } from '../src/outbox.ts';
 import { runSafeRestart } from '../src/safeRestart.js';
 
 const READY_TIMEOUT_MS = 60_000;

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { maskSecrets } from '../src/maskSecrets.js';
+import { maskSecrets } from '../src/maskSecrets.ts';
 
 describe('maskSecrets', () => {
   /** @type {[string, string, string][]} name, line, masked */

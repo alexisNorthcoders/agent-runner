@@ -11,7 +11,7 @@ import { createClient } from 'redis';
 import { loadConfig } from '../src/config.js';
 import { createRedisStore, publishStateChange } from '../src/redisStore.js';
 import { notifyingStore } from '../src/stateChanges.js';
-import { createPauseFlag } from '../src/pauseFlag.js';
+import { createPauseFlag } from '../src/pauseFlag.ts';
 import { createRunLock } from '../src/runLock.js';
 import { createActiveRuns } from '../src/activeRuns.js';
 import { createRunHistory } from '../src/runHistory.js';

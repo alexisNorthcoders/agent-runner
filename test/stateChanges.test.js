@@ -5,7 +5,7 @@ import { createMemoryStore } from './helpers/memoryStore.js';
 import { createRunLock } from '../src/runLock.js';
 import { createRunQueue } from '../src/runQueue.js';
 import { createManualPause } from '../src/manualPause.js';
-import { createOutbox } from '../src/outbox.js';
+import { createOutbox } from '../src/outbox.ts';
 
 describe('state changes', () => {
   it('tells every subscriber, with the reason, until it unsubscribes', () => {

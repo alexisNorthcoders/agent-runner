@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createOutbox, OWNER, OUTBOX_KEY } from '../src/outbox.js';
+import { createOutbox, OWNER, OUTBOX_KEY } from '../src/outbox.ts';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
 const DAY = 24 * 60 * 60 * 1000;

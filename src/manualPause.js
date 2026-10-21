@@ -1,6 +1,6 @@
 /**
  * Pauses the owner sets by hand (`claude:pause` / `npm run agent:pause`) before working in a repo
- * themselves. Separate from the safe-restart pause flag (`pauseFlag.js`), so a restart still works
+ * themselves. Separate from the safe-restart pause flag (`pauseFlag.ts`), so a restart still works
  * while one is set.
  *
  * - The general pause stops every new run: requests queue, the cron skips its ticks.
