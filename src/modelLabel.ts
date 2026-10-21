@@ -4,13 +4,10 @@ const MODELS = ['opus', 'sonnet', 'haiku'];
 /**
  * The model an issue's `model:` labels ask for. Matching ignores case and surrounding whitespace.
  * An unknown value is ignored with a warning; several valid ones pick the strongest, with a warning.
- * @param {string[] | undefined} labels
- * @returns {{ model: string | null, warnings: string[] }}
  */
-export function modelFromLabels(labels) {
-  /** @type {string[]} */
-  const warnings = [];
-  const valid = new Set();
+export function modelFromLabels(labels: string[] | undefined): { model: string | null; warnings: string[] } {
+  const warnings: string[] = [];
+  const valid = new Set<string>();
   for (const raw of Array.isArray(labels) ? labels : []) {
     const m = /^model:(.*)$/i.exec(String(raw).trim());
     if (!m) continue;

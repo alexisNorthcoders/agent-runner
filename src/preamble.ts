@@ -1,9 +1,8 @@
 /**
  * Prepended to every agent prompt. The agent runs as a child of agent-runner, so restarting that
  * PM2 app kills the run before it can report.
- * @param {{ repoRoot: string }} p
  */
-export function buildPreamble({ repoRoot }) {
+export function buildPreamble({ repoRoot }: { repoRoot: string }) {
   return `[Invocation from agent-runner (headless, requested over WhatsApp). Read carefully.]
 - Never restart, reload, stop or delete the \`agent-runner\` PM2 process (\`pm2 restart agent-runner\`, \`pm2 reload\`, \`pm2 delete\`, \`killall node\`, …). This run is its child: that kills the run and its report.
 - If agent-runner itself must be restarted, run \`npm run safe-restart\` in ${repoRoot}. It refuses while any run is active, including this one. If your own run is the blocker, don't work around it: say in your summary that a restart is needed, and the user will send \`claude:restart\` afterwards.
@@ -16,9 +15,8 @@ export function buildPreamble({ repoRoot }) {
 /**
  * The preamble for freeform and Joplin runs. Unlike an issue run, nothing commits after the agent,
  * and a repo left dirty blocks later issue runs there (the cron's git prep refuses a dirty tree).
- * @param {{ repoRoot: string }} p
  */
-export function buildFreeformPreamble({ repoRoot }) {
+export function buildFreeformPreamble({ repoRoot }: { repoRoot: string }) {
   return `${buildPreamble({ repoRoot })}
 - Git: a request may be only system work (PM2, config outside a repo, answering a question). Then there's nothing to commit. But whenever you change files in a git repo, never leave that repo dirty or off its default branch. Unless the request says otherwise, finish each repo you changed like this:
   1. Before editing, run \`git status\`. If the repo already has uncommitted changes you didn't make, or is on another branch with unpushed work, don't touch, commit or discard them. Leave that repo alone and say so in your summary.

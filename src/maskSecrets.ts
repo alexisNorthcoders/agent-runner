@@ -11,8 +11,7 @@ const MASK = '***';
 /** A secret's name: ends in `_KEY`, `_TOKEN`, `_SECRET` or `_PASSWORD`, any case. */
 const NAME = '[A-Za-z0-9_]*_(?:key|token|secret|password)';
 
-/** @type {[RegExp, string | ((...m: string[]) => string)][]} */
-const RULES = [
+const RULES: [RegExp, string | ((...m: string[]) => string)][] = [
   [/(?<![A-Za-z0-9])github_pat_[A-Za-z0-9_]{20,}/g, `github_pat_${MASK}`],
   [/(?<![A-Za-z0-9])(gh[pousr]_)[A-Za-z0-9]{20,}/g, `$1${MASK}`],
   [/(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{16,}/g, `sk-${MASK}`],
@@ -30,9 +29,8 @@ const RULES = [
   [new RegExp(`("${NAME}"\\s*:\\s*)"(?:[^"\\\\]|\\\\.)*"`, 'gi'), `$1"${MASK}"`],
 ];
 
-/** @param {string} line */
-export function maskSecrets(line) {
+export function maskSecrets(line: string) {
   let out = line;
-  for (const [re, to] of RULES) out = out.replace(re, /** @type {any} */ (to));
+  for (const [re, to] of RULES) out = typeof to === 'string' ? out.replace(re, to) : out.replace(re, to);
   return out;
 }
