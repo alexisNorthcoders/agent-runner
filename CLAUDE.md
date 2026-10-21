@@ -31,8 +31,12 @@ are in `GLOSSARY.md`.
 
 ## Conventions
 
-- Node ESM, no build. Tests are `node:test` with injected fakes (`npm test`), and `npm run typecheck`
-  runs `tsc --checkJs` over JSDoc types. Run both before committing.
+- Node ESM, no build. Node runs `.ts` directly. The code is moving from JSDoc-checked `.js` to strict
+  `.ts`: `npm run typecheck` runs strict `tsc` over `.ts` and a loose checkJs pass over the remaining
+  `.js` (`jsconfig.json`). `npm test` runs the typecheck, then the `node:test` tests with injected fakes.
+- Entry modules (`src/main.js`, `bin/*`) start work only inside `if (import.meta.main)`;
+  `test/entryGuards.test.ts` checks that importing one does nothing. PM2 loads `src/main.js` with
+  `import()`, where `import.meta.main` is false, so its guard also accepts an exact `pm_exec_path`.
 - Modules say "agent", not "claude". Claude-specific code stays in `src/agentBackend/claude.js`
   (and its stream parser). User-facing commands stay `claude*`.
 - Redis access goes through the `Store` interface (`src/redisStore.js`). Tests use

@@ -642,6 +642,6 @@ are told the same rule in their prompt preamble.
 ## Tests
 
 ```sh
-npm test            # node:test with injected fakes; the Redis contract test uses DB 15 if Redis is up
-npm run typecheck   # tsc --checkJs
+npm test            # typecheck, then node:test with injected fakes; the Redis contract test uses DB 15 if Redis is up
+npm run typecheck   # strict tsc over .ts, then the checkJs pass over the remaining .js
 ```
