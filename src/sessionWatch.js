@@ -2,7 +2,7 @@ import { open, readdir, realpath as fsRealpath, stat } from 'fs/promises';
 import { basename, join } from 'path';
 import { applyTranscriptLines, emptyTranscript, listClaudeCwds, subagentCount } from './agentBackend/claudeTranscripts.js';
 import { errorMessageFromUnknown } from './issuePipeline/index.js';
-import { canonicalPath, workspaceOfPaths } from './workspaceInference.js';
+import { canonicalPath, workspaceOfPaths } from './workspaceInference.ts';
 
 /**
  * The session watch: which interactive agent sessions are open on this machine, which workspace
@@ -103,7 +103,7 @@ export function nodeTranscriptFs() {
  *   intervalMs?: number,
  *   activeMs?: number,
  *   now?: () => number,
- *   onChange?: import('./stateChanges.js').NotifyChange,
+ *   onChange?: import('./stateChanges.ts').NotifyChange,
  *   logger?: Pick<Console, 'info' | 'warn'>,
  * }} deps
  *   `claudeCwds`: the cwd of each running agent process (`/proc`), injected so tests can fake it.

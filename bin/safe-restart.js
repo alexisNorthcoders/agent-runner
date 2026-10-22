@@ -7,10 +7,10 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { parseArgs } from 'util';
-import { loadConfig } from '../src/config.js';
-import { connectRedis, createRedisStore, publishStateChange } from '../src/redisStore.js';
-import { notifyingStore } from '../src/stateChanges.js';
-import { createRunLock } from '../src/runLock.js';
+import { loadConfig } from '../src/config.ts';
+import { connectRedis, createRedisStore, publishStateChange } from '../src/redisStore.ts';
+import { notifyingStore } from '../src/stateChanges.ts';
+import { createRunLock } from '../src/runLock.ts';
 import { createPauseFlag } from '../src/pauseFlag.ts';
 import { createOutbox } from '../src/outbox.ts';
 import { runSafeRestart } from '../src/safeRestart.js';

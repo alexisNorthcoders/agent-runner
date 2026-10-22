@@ -12,7 +12,7 @@ import {
   classifyGithubPrMergeability,
 } from '../src/issuePipeline/githubPr.js';
 import { loadPipelineSettings } from '../src/issuePipeline/settings.js';
-import { callbackExec } from './helpers/fakeExec.js';
+import { callbackExec } from './helpers/fakeExec.ts';
 
 /** @type {(cmd: string, args: string[], opts: object, cb: Function) => void} */
 let handler = () => {

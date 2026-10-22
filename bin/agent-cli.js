@@ -8,20 +8,20 @@
 import { spawn } from 'child_process';
 import { access, readFile } from 'fs/promises';
 import { createClient } from 'redis';
-import { loadConfig } from '../src/config.js';
-import { createRedisStore, publishStateChange } from '../src/redisStore.js';
-import { notifyingStore } from '../src/stateChanges.js';
+import { loadConfig } from '../src/config.ts';
+import { createRedisStore, publishStateChange } from '../src/redisStore.ts';
+import { notifyingStore } from '../src/stateChanges.ts';
 import { createPauseFlag } from '../src/pauseFlag.ts';
-import { createRunLock } from '../src/runLock.js';
-import { createActiveRuns } from '../src/activeRuns.js';
-import { createRunHistory } from '../src/runHistory.js';
-import { createCronState } from '../src/cronState.js';
+import { createRunLock } from '../src/runLock.ts';
+import { createActiveRuns } from '../src/activeRuns.ts';
+import { createRunHistory } from '../src/runHistory.ts';
+import { createCronState } from '../src/cronState.ts';
 import { collectStatus } from '../src/statusCollect.js';
-import { createRunQueue } from '../src/runQueue.js';
-import { applyPauseCommand, createManualPause } from '../src/manualPause.js';
-import { createUsageLimitPause } from '../src/usageLimitPause.js';
+import { createRunQueue } from '../src/runQueue.ts';
+import { applyPauseCommand, createManualPause } from '../src/manualPause.ts';
+import { createUsageLimitPause } from '../src/usageLimitPause.ts';
 import { parsePauseArgs } from '../src/commands.js';
-import { createWorkspaceAllowlist } from '../src/workspaces.js';
+import { createWorkspaceAllowlist } from '../src/workspaces.ts';
 import { ansi, plain, renderHistoryLines, renderStatus } from '../src/statusFormat.js';
 
 const USAGE = `agent-cli: observability for agent-runner
@@ -67,7 +67,7 @@ async function main() {
           throw err;
         }
       })());
-    /** @template T @param {(store: import('../src/redisStore.js').Store) => Promise<T>} fn */
+    /** @template T @param {(store: import('../src/redisStore.ts').Store) => Promise<T>} fn */
     async function withStore(fn) {
       const client = await connect();
       try {

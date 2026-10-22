@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createManualPause, formatRemaining, parseDuration } from '../src/manualPause.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createManualPause, formatRemaining, parseDuration } from '../src/manualPause.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 describe('manual pause', () => {
   it('lists live pauses, the general one first, and forgets expired ones', async () => {

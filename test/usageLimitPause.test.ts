@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createUsageLimitPause, describeUsageLimitPause } from '../src/usageLimitPause.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createUsageLimitPause, describeUsageLimitPause } from '../src/usageLimitPause.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 describe('usage-limit pause', () => {
   const setup = () => {

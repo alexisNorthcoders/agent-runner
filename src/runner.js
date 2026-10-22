@@ -2,18 +2,18 @@ import { randomUUID } from 'crypto';
 import { readFile, stat } from 'fs/promises';
 import { join } from 'path';
 import { parseCommand } from './commands.js';
-import { ALL, applyPauseCommand, describeManualPause } from './manualPause.js';
+import { ALL, applyPauseCommand, describeManualPause } from './manualPause.ts';
 import { OWNER } from './outbox.ts';
 import { DEFAULT_JOB_TIMEOUT_MINUTES } from './scheduledJobs.js';
 import { decideSafeRestart } from './safeRestart.js';
-import { describeRun, UNKNOWN_RUN_ID } from './runLock.js';
-import { describeUsageLimitPause } from './usageLimitPause.js';
+import { describeRun, UNKNOWN_RUN_ID } from './runLock.ts';
+import { describeUsageLimitPause } from './usageLimitPause.ts';
 import { pidAlive } from './pidAlive.ts';
-import { createWorkspaceInference } from './workspaceInference.js';
+import { createWorkspaceInference } from './workspaceInference.ts';
 import { formatDuration, renderHistoryText, renderStatusText } from './statusFormat.js';
-import { REQUEUED_NOTE } from './runQueue.js';
+import { REQUEUED_NOTE } from './runQueue.ts';
 import { modelFromLabels } from './modelLabel.ts';
-import { sumJobUsage, USAGE_FILE_ENV } from './jobUsage.js';
+import { sumJobUsage, USAGE_FILE_ENV } from './jobUsage.ts';
 
 /**
  * The runner: turns a `claude…` command into at most one agent run at a time and reports every
@@ -52,7 +52,7 @@ const EARLY_END_OUTCOMES = new Set(['stopped', 'limited', 'timeout', 'failed']);
 const modelSuffix = (m) => (modelNote(m) ? `, model ${modelNote(m)}` : '');
 
 /**
- * @param {import('./runLock.js').RunRecord} rec
+ * @param {import('./runLock.ts').RunRecord} rec
  * @param {import('./agentBackend/index.js').AgentResult} r
  */
 export function formatRunResult(rec, r) {
@@ -79,7 +79,7 @@ export function formatRunResult(rec, r) {
 
 /**
  * A failed scheduled job's one-line report. Null for a success, which stays quiet.
- * @param {import('./runLock.js').RunRecord} rec
+ * @param {import('./runLock.ts').RunRecord} rec
  * @param {import('./jobProcess.js').JobResult} r
  * @param {number} durationMs
  */
@@ -104,12 +104,12 @@ export function formatJobResult(rec, r, durationMs) {
 /**
  * @typedef {import('./agentBackend/index.js').AgentRun} AgentRun
  * @typedef {{
- *   record: import('./runLock.js').RunRecord,
+ *   record: import('./runLock.ts').RunRecord,
  *   run: { pid: number | null, stop: () => void },
  *   progress: import('./agentBackend/index.js').AgentProgress | null,
  *   phase: 'agent' | 'post-run' | 'job',
  *   stopRequested: boolean,
- *   tracker: ReturnType<ReturnType<typeof import('./activeRuns.js').createActiveRuns>['track']>,
+ *   tracker: ReturnType<ReturnType<typeof import('./activeRuns.ts').createActiveRuns>['track']>,
  *   followUps?: Array<{ label: string, outcome: string, logPath: string, costUsd: number | null, turns: number }>,
  *   passLogPath?: string,
  *   logFrom?: number,
@@ -131,15 +131,15 @@ export function formatJobResult(rec, r, durationMs) {
 
 /**
  * @param {{
- *   lock: ReturnType<typeof import('./runLock.js').createRunLock>,
+ *   lock: ReturnType<typeof import('./runLock.ts').createRunLock>,
  *   pause: ReturnType<typeof import('./pauseFlag.ts').createPauseFlag>,
- *   manualPause: ReturnType<typeof import('./manualPause.js').createManualPause>,
- *   usageLimit: ReturnType<typeof import('./usageLimitPause.js').createUsageLimitPause>,
- *   queue: ReturnType<typeof import('./runQueue.js').createRunQueue>,
+ *   manualPause: ReturnType<typeof import('./manualPause.ts').createManualPause>,
+ *   usageLimit: ReturnType<typeof import('./usageLimitPause.ts').createUsageLimitPause>,
+ *   queue: ReturnType<typeof import('./runQueue.ts').createRunQueue>,
  *   outbox: ReturnType<typeof import('./outbox.ts').createOutbox>,
  *   backend: import('./agentBackend/index.js').AgentBackend,
- *   history: Pick<ReturnType<typeof import('./runHistory.js').createRunHistory>, 'append' | 'read'>,
- *   activeRuns: Pick<ReturnType<typeof import('./activeRuns.js').createActiveRuns>, 'track'>,
+ *   history: Pick<ReturnType<typeof import('./runHistory.ts').createRunHistory>, 'append' | 'read'>,
+ *   activeRuns: Pick<ReturnType<typeof import('./activeRuns.ts').createActiveRuns>, 'track'>,
  *   statusSnapshot: () => Promise<import('./statusCollect.js').StatusSnapshot>,
  *   joplin: { getNote: (query: string) => Promise<{ id: string, title: string, body: string }> },
  *   launchSafeRestart: (replyTo: string) => void,
@@ -161,10 +161,10 @@ export function formatJobResult(rec, r, durationMs) {
  *   stopOrphanAgent?: (pid: number) => Promise<boolean>,
  *   logSize?: (path: string) => Promise<number>,
  *   logger?: Pick<Console, 'error' | 'warn' | 'info'>,
- *   onChange?: import('./stateChanges.js').NotifyChange,
+ *   onChange?: import('./stateChanges.ts').NotifyChange,
  * }} deps
  *   `onChange` is told about state that lives only here or in files (progress, phase, the run
- *   starting and finishing); Redis state tells it through its store (src/stateChanges.js).
+ *   starting and finishing); Redis state tells it through its store (src/stateChanges.ts).
  */
 export function createRunner({
   lock,
@@ -265,7 +265,7 @@ export function createRunner({
    * queue if the limit stopped it before it did any real work, so it runs by itself after the pause.
    * @param {ActiveRun} a
    * @param {import('./agentBackend/index.js').AgentResult} result
-   * @param {import('./runQueue.js').QueuedRun} [retry]
+   * @param {import('./runQueue.ts').QueuedRun} [retry]
    */
   async function hitUsageLimit(a, result, retry) {
     if (result.outcome !== 'limited' || !result.limit) return;
@@ -293,7 +293,7 @@ export function createRunner({
   /**
    * Take the single-flight lock for `record`. Returns why it wasn't taken (with the reply), or null
    * once it's held.
-   * @param {import('./runLock.js').RunRecord} record
+   * @param {import('./runLock.ts').RunRecord} record
    * @returns {Promise<{ why: 'busy' | 'paused', reply: string } | null>}
    */
   async function acquire(record) {
@@ -315,8 +315,8 @@ export function createRunner({
   }
 
   /**
-   * @param {{ kind: string, label: string, replyTo: string, workspaceRoot: string } & Partial<import('./runLock.js').RunRecord>} p
-   * @returns {import('./runLock.js').RunRecord}
+   * @param {{ kind: string, label: string, replyTo: string, workspaceRoot: string } & Partial<import('./runLock.ts').RunRecord>} p
+   * @returns {import('./runLock.ts').RunRecord}
    */
   function newRecord(p) {
     const runId = newRunId();
@@ -336,7 +336,7 @@ export function createRunner({
    * result into the outbox text (or null to send nothing) and the history fields; if it throws,
    * `fallback` is used.
    * @template R
-   * @param {import('./runLock.js').RunRecord} record
+   * @param {import('./runLock.ts').RunRecord} record
    * @param {{ pid: number | null, done: Promise<R & { outcome: string, exitCode: number | null }>, stop: () => void }} run
    * @param {'agent' | 'job'} phase
    * @param {(result: R & { outcome: string, exitCode: number | null }, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
@@ -411,11 +411,11 @@ export function createRunner({
    * Start the agent for a run that holds the lock, then report in the background (`supervise`):
    * `report` turns the agent's result into the outbox text and extra history fields. Releases the
    * lock if the agent can't start.
-   * @param {import('./runLock.js').RunRecord} record
+   * @param {import('./runLock.ts').RunRecord} record
    * @param {Omit<import('./agentBackend/index.js').AgentStartOptions, 'logPath' | 'onProgress'>} opts
    *   `preamble` defaults to the issue-run preamble.
    * @param {(result: import('./agentBackend/index.js').AgentResult, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
-   * @param {import('./runQueue.js').QueuedRun} [retry] the request to re-queue if the usage limit
+   * @param {import('./runQueue.ts').QueuedRun} [retry] the request to re-queue if the usage limit
    *   stops it before it starts (manual requests only)
    */
   async function launch(record, opts, report, retry) {
@@ -524,7 +524,7 @@ export function createRunner({
   }
 
   /**
-   * @param {{ kind: 'freeform', prompt: string, model?: string } | { kind: 'joplin', noteQuery: string, model?: string } | { kind: 'more', instructions: string, parent: import('./runQueue.js').ContinuationParent, model?: string }} cmd
+   * @param {{ kind: 'freeform', prompt: string, model?: string } | { kind: 'joplin', noteQuery: string, model?: string } | { kind: 'more', instructions: string, parent: import('./runQueue.ts').ContinuationParent, model?: string }} cmd
    * @param {string} replyTo
    * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
    */
@@ -783,7 +783,7 @@ export function createRunner({
 
   /**
    * WIP-commit an interrupted issue run's leftover work. Returns the sentence for the report.
-   * @param {import('./runLock.js').RunRecord} rec
+   * @param {import('./runLock.ts').RunRecord} rec
    */
   async function recoverIssueWork(rec) {
     if (!issues || !rec.workspaceRoot || !rec.issueNumber) return '';
@@ -804,7 +804,7 @@ export function createRunner({
 
   /**
    * Start a run request now. `refused` means it couldn't take the lock (busy or paused).
-   * @param {import('./runQueue.js').QueuedRun['cmd']} cmd
+   * @param {import('./runQueue.ts').QueuedRun['cmd']} cmd
    * @param {string} replyTo
    * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
    */
@@ -815,7 +815,7 @@ export function createRunner({
     return { reply: r.reply, started: r.done != null, ...(r.refused ? { refused: r.refused } : {}) };
   }
 
-  /** @param {import('./runQueue.js').QueuedRun['cmd']} cmd */
+  /** @param {import('./runQueue.ts').QueuedRun['cmd']} cmd */
   const labelFor = (cmd) =>
     cmd.kind === 'freeform'
       ? oneLine(cmd.prompt, 60)
@@ -828,16 +828,16 @@ export function createRunner({
           : `issue ${cmd.alias ? `${cmd.alias}#` : '#'}${cmd.issueNumber}`;
 
   /**
-   * @param {import('./runQueue.js').QueuedRun['cmd']} cmd
+   * @param {import('./runQueue.ts').QueuedRun['cmd']} cmd
    * @param {string} replyTo
-   * @returns {import('./runQueue.js').QueuedRun}
+   * @returns {import('./runQueue.ts').QueuedRun}
    */
   const queuedRun = (cmd, replyTo) => ({ id: randomUUID(), cmd, replyTo, label: labelFor(cmd), queuedAt: new Date(now()).toISOString() });
 
   /**
    * A run request (from a user, or a due scheduled job): start it now if nothing is ahead of it,
    * else queue it. `accepted` is false only when the queue was full.
-   * @param {import('./runQueue.js').QueuedRun['cmd']} cmd
+   * @param {import('./runQueue.ts').QueuedRun['cmd']} cmd
    * @param {string} replyTo
    * @returns {Promise<{ reply: string, accepted: boolean }>}
    */
@@ -905,7 +905,7 @@ export function createRunner({
    * or one that matches it) should continue it rather than a row from history. Null for an issue
    * run or job, or when nothing is active: the history picks apply then.
    * @param {string} [runRef]
-   * @returns {Promise<import('./runQueue.js').ContinuationParent | null>}
+   * @returns {Promise<import('./runQueue.ts').ContinuationParent | null>}
    */
   async function runningParent(runRef) {
     const cur = await lock.current();
@@ -918,7 +918,7 @@ export function createRunner({
    * The Parent run for a `claude:more`: the newest freeform or Joplin run in history, whatever its
    * outcome. A refusal's one line when there is none or it can't be resumed.
    * @param {string} [runRef] a run-id prefix: continue that run instead
-   * @returns {Promise<import('./runQueue.js').ContinuationParent | string>}
+   * @returns {Promise<import('./runQueue.ts').ContinuationParent | string>}
    */
   async function pickParent(runRef) {
     const rows = await history.read();
@@ -943,9 +943,9 @@ export function createRunner({
   }
 
   /**
-   * @param {import('./runHistory.js').HistoryEntry | undefined} row
+   * @param {import('./runHistory.ts').HistoryEntry | undefined} row
    * @param {string} [pendingRunId] set when the row is a still-running Parent's: it may be missing
-   * @returns {import('./runQueue.js').ContinuationParent | string}
+   * @returns {import('./runQueue.ts').ContinuationParent | string}
    */
   function parentFromRow(row, pendingRunId) {
     if (!row) return pendingRunId ? `Cannot continue run ${pendingRunId}: it left no history row, so there is no session to resume.` : 'Nothing to continue: no freeform or Joplin run in history.';
@@ -1057,7 +1057,7 @@ export function createRunner({
       }
     },
 
-    /** @returns {Promise<{ busy: boolean, activeRun: (import('./runLock.js').RunRecord & Partial<import('./agentBackend/index.js').AgentProgress> & { phase?: ActiveRun['phase'] }) | null, paused: boolean, queued: number }>} */
+    /** @returns {Promise<{ busy: boolean, activeRun: (import('./runLock.ts').RunRecord & Partial<import('./agentBackend/index.js').AgentProgress> & { phase?: ActiveRun['phase'] }) | null, paused: boolean, queued: number }>} */
     async status() {
       const [held, paused, queued] = await Promise.all([lock.current(), pausedReason(), queue.length()]);
       const live = active && held?.runId === active.record.runId ? { ...active.progress, phase: active.phase } : null;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readdir, rm, writeFile, mkdir } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createActiveRuns } from '../src/activeRuns.js';
+import { createActiveRuns } from '../src/activeRuns.ts';
 
 const rec = (runId, extra = {}) => ({ runId, kind: 'freeform', label: 'job', startedAt: `2026-01-01T00:00:0${runId.length}Z`, ownerPid: 10, agentPid: 20, ...extra });
 

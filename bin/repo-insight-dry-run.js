@@ -6,10 +6,10 @@
  * Also available as `npm run repo-insight:decide [-- --no-persist]`.
  */
 import { createClient } from 'redis';
-import { loadConfig } from '../src/config.js';
-import { createRedisStore } from '../src/redisStore.js';
-import { createCronState } from '../src/cronState.js';
-import { createWorkspaceAllowlist } from '../src/workspaces.js';
+import { loadConfig } from '../src/config.ts';
+import { createRedisStore } from '../src/redisStore.ts';
+import { createCronState } from '../src/cronState.ts';
+import { createWorkspaceAllowlist } from '../src/workspaces.ts';
 import { createIssuePipeline } from '../src/issuePipeline/index.js';
 import { REPO_INSIGHT_PRIORITY, createRepoInsightCursor, createRepoInsightLookups, decideRepoInsightTarget } from '../src/repoInsight.js';
 

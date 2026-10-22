@@ -7,7 +7,7 @@ import { join } from 'path';
 import { promisify } from 'util';
 import { buildIssueRunMessage, createIssuePipeline, errorMessageFromUnknown } from '../src/issuePipeline/index.js';
 import { loadPipelineSettings } from '../src/issuePipeline/settings.js';
-import { realExec, realGitFakeGh } from './helpers/fakeExec.js';
+import { realExec, realGitFakeGh } from './helpers/fakeExec.ts';
 
 const execFileAsync = promisify(execFile);
 

@@ -1,4 +1,4 @@
-import { ALL, DEFAULT_MANUAL_PAUSE_SECONDS, MAX_MANUAL_PAUSE_SECONDS, parseDuration } from './manualPause.js';
+import { ALL, DEFAULT_MANUAL_PAUSE_SECONDS, MAX_MANUAL_PAUSE_SECONDS, parseDuration } from './manualPause.ts';
 
 /**
  * Parses the raw WhatsApp text the bot forwards (`claude…`) into a runner command. Pure.

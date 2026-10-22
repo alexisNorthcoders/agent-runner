@@ -9,15 +9,15 @@ import { pidAlive } from './pidAlive.ts';
  *
  * @typedef {{
  *   now: number,
- *   active: import('./activeRuns.js').ActiveRun[],
+ *   active: import('./activeRuns.ts').ActiveRun[],
  *   paused: import('./pauseFlag.ts').PauseRecord | null | 'unknown',
- *   cron: import('./cronState.js').CronState | null,
+ *   cron: import('./cronState.ts').CronState | null,
  *   cronAlive: boolean,
- *   history: import('./runHistory.js').HistoryEntry[],
- *   queue?: import('./runQueue.js').QueuedRun[],
- *   manualPauses?: import('./manualPause.js').ManualPause[],
- *   usageLimit?: import('./usageLimitPause.js').UsageLimitPause | null,
- *   lock?: import('./runLock.js').RunRecord | null,
+ *   history: import('./runHistory.ts').HistoryEntry[],
+ *   queue?: import('./runQueue.ts').QueuedRun[],
+ *   manualPauses?: import('./manualPause.ts').ManualPause[],
+ *   usageLimit?: import('./usageLimitPause.ts').UsageLimitPause | null,
+ *   lock?: import('./runLock.ts').RunRecord | null,
  *   sessions?: import('./sessionWatch.js').OfficeSession[],
  * }} StatusSnapshot
  *   `history` covers the last 7 days, newest first. `lock` is the lock holder (null when free or
@@ -45,14 +45,14 @@ function timeBoxed(read, fallback, ms) {
 
 /**
  * @param {{
- *   activeRuns: Pick<ReturnType<typeof import('./activeRuns.js').createActiveRuns>, 'list'>,
- *   history: Pick<ReturnType<typeof import('./runHistory.js').createRunHistory>, 'read'>,
- *   readCron: () => Promise<import('./cronState.js').CronState | null>,
+ *   activeRuns: Pick<ReturnType<typeof import('./activeRuns.ts').createActiveRuns>, 'list'>,
+ *   history: Pick<ReturnType<typeof import('./runHistory.ts').createRunHistory>, 'read'>,
+ *   readCron: () => Promise<import('./cronState.ts').CronState | null>,
  *   readPause: () => Promise<import('./pauseFlag.ts').PauseRecord | null>,
- *   readLock?: () => Promise<import('./runLock.js').RunRecord | null>,
- *   readQueue?: () => Promise<import('./runQueue.js').QueuedRun[]>,
- *   readManualPauses?: () => Promise<import('./manualPause.js').ManualPause[]>,
- *   readUsageLimit?: () => Promise<import('./usageLimitPause.js').UsageLimitPause | null>,
+ *   readLock?: () => Promise<import('./runLock.ts').RunRecord | null>,
+ *   readQueue?: () => Promise<import('./runQueue.ts').QueuedRun[]>,
+ *   readManualPauses?: () => Promise<import('./manualPause.ts').ManualPause[]>,
+ *   readUsageLimit?: () => Promise<import('./usageLimitPause.ts').UsageLimitPause | null>,
  *   readSessions?: () => Promise<import('./sessionWatch.js').OfficeSession[]>,
  *   isAlive?: (pid: number) => boolean,
  *   now?: () => number,

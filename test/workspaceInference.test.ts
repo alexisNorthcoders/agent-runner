@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'fs/promises';
 import { createStreamAccumulator } from '../src/agentBackend/claudeStreamParser.js';
 import { createToolTouchReader, splitCommand } from '../src/agentBackend/claudeToolTouch.js';
-import { canonicalPath, createWorkspaceInference, workspaceOfPaths } from '../src/workspaceInference.js';
+import { canonicalPath, createWorkspaceInference, workspaceOfPaths } from '../src/workspaceInference.ts';
 
 const HOME = '/home/alexis';
 const PROJECTS = `${HOME}/Projects`;

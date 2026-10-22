@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import type { Store } from './redisStore.js';
+import type { Store } from './redisStore.ts';
 
 /**
  * Runner-wide pause flag in Redis. While it is set the runner starts no new runs (and the cron

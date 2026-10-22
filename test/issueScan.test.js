@@ -1,9 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createIssueScan } from '../src/issueScan.js';
-import { createCronState } from '../src/cronState.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
-import { notifyingStore } from '../src/stateChanges.js';
+import { createCronState } from '../src/cronState.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
+import { notifyingStore } from '../src/stateChanges.ts';
 
 const REPO = 'o/bot';
 const REPO_P = 'o/plat';

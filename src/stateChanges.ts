@@ -7,7 +7,7 @@
  * Sources: every Redis state write (lock, queue, pauses, cron state) through `notifyingStore`, the
  * runner's in-memory changes (agent progress, phase, a run starting and ending), and writes by
  * other processes (the `agent:pause` CLI, safe-restart), which publish them on a Redis channel
- * (`STATE_CHANNEL` in src/redisStore.js) the runner subscribes to.
+ * (`STATE_CHANNEL` in src/redisStore.ts) the runner subscribes to.
  *
  * @typedef {(reason: string) => void} NotifyChange
  */
@@ -41,9 +41,9 @@ export function createStateChanges({ logger = console } = {}) {
  * `store` with `notify(key)` after each write that changed something. Reads and the outbox stream
  * (messages, not state) stay quiet, and so do conditional writes that didn't apply. A write
  * settles once `notify` has (so a CLI's publish goes out before it exits).
- * @param {import('./redisStore.js').Store} store
+ * @param {import('./redisStore.ts').Store} store
  * @param {(key: string) => void | Promise<void>} notify
- * @returns {import('./redisStore.js').Store}
+ * @returns {import('./redisStore.ts').Store}
  */
 export function notifyingStore(store, notify) {
   /**

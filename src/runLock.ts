@@ -1,6 +1,6 @@
 /**
  * Single-flight lock for agent runs, in Redis so the safe-restart CLI (and later the bot) can see
- * it. A request while the lock is held waits in the run queue (src/runQueue.js). The lock value is the
+ * it. A request while the lock is held waits in the run queue (src/runQueue.ts). The lock value is the
  * active run's record, which doubles as the "interrupted run" marker read on startup.
  *
  * @typedef {'manual' | 'cron' | 'schedule'} RunTrigger
@@ -37,7 +37,7 @@ export const UNKNOWN_RUN_ID = 'unknown';
 export const describeRun = (rec) => `run ${rec.runId}${rec.label ? ` (${rec.label})` : ''}`;
 
 /**
- * @param {{ store: import('./redisStore.js').Store, ttlSeconds: number, key?: string }} p
+ * @param {{ store: import('./redisStore.ts').Store, ttlSeconds: number, key?: string }} p
  *   `ttlSeconds` must outlive the longest run; it only matters if the runner dies without releasing.
  */
 export function createRunLock({ store, ttlSeconds, key = LOCK_KEY }) {

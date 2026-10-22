@@ -1,10 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createStateChanges, notifyingStore } from '../src/stateChanges.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
-import { createRunLock } from '../src/runLock.js';
-import { createRunQueue } from '../src/runQueue.js';
-import { createManualPause } from '../src/manualPause.js';
+import { createStateChanges, notifyingStore } from '../src/stateChanges.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
+import { createRunLock } from '../src/runLock.ts';
+import { createRunQueue } from '../src/runQueue.ts';
+import { createManualPause } from '../src/manualPause.ts';
 import { createOutbox } from '../src/outbox.ts';
 
 describe('state changes', () => {

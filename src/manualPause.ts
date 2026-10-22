@@ -53,7 +53,7 @@ function parse(raw) {
 }
 
 /**
- * @param {{ store: import('./redisStore.js').Store, key?: string, now?: () => number }} p
+ * @param {{ store: import('./redisStore.ts').Store, key?: string, now?: () => number }} p
  */
 export function createManualPause({ store, key = MANUAL_PAUSE_KEY, now = Date.now }) {
   /** @returns {Promise<ManualPause[]>} live pauses, the general one first, then by alias */
@@ -112,7 +112,7 @@ export function describeManualPause(p, nowMs) {
  * (an unknown workspace alias).
  * @param {{
  *   manualPause: ReturnType<typeof createManualPause>,
- *   usageLimit?: Pick<ReturnType<typeof import('./usageLimitPause.js').createUsageLimitPause>, 'clear'>,
+ *   usageLimit?: Pick<ReturnType<typeof import('./usageLimitPause.ts').createUsageLimitPause>, 'clear'>,
  *   workspaces?: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
  *   cmd: { kind: 'pause', scope: string, seconds: number, reason: string } | { kind: 'resume', scope: string | null },
  *   now?: () => number,

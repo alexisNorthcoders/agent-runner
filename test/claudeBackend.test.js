@@ -425,7 +425,7 @@ describe('read-only exploration session', () => {
 
   it("appends the session's model, cost and tokens to the job's usage file, even when it reports an error", async () => {
     const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.js');
-    const { sumJobUsage } = await import('../src/jobUsage.js');
+    const { sumJobUsage } = await import('../src/jobUsage.ts');
     /** @type {string[]} */
     const written = [];
     const result = {

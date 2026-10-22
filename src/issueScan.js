@@ -58,7 +58,7 @@ const NEEDS_INFO_LABEL = 'needs-info';
  *   prAttempts: () => Promise<Map<string, string>>,
  *   intervalMs?: number,
  *   now?: () => number,
- *   onChange?: import('./stateChanges.js').NotifyChange,
+ *   onChange?: import('./stateChanges.ts').NotifyChange,
  *   logger?: Pick<Console, 'info' | 'warn'>,
  * }} deps
  *   `prAttempts`: the cron's recorded PR attempts (`cronState.prAttempts`), read only.

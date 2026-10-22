@@ -57,7 +57,7 @@ function parse(raw) {
 }
 
 /**
- * @param {{ store: import('./redisStore.js').Store, key?: string, maxLength?: number }} p
+ * @param {{ store: import('./redisStore.ts').Store, key?: string, maxLength?: number }} p
  */
 export function createRunQueue({ store, key = QUEUE_KEY, maxLength = MAX_QUEUE_LENGTH }) {
   return {

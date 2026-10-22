@@ -1,7 +1,7 @@
 /**
- * In-memory fake of `Store` (src/redisStore.js). TTLs are ignored; `test/store.contract.test.js`
+ * In-memory fake of `Store` (src/redisStore.ts). TTLs are ignored; `test/store.contract.test.ts`
  * keeps its behaviour in step with the real Redis store.
- * @returns {import('../../src/redisStore.js').Store & { kv: Map<string, string>, hashes: Map<string, Map<string, string>>, streams: Map<string, Array<{ id: string, fields: Record<string, string> }>>, failNext: (err: Error) => void }}
+ * @returns {import('../../src/redisStore.ts').Store & { kv: Map<string, string>, hashes: Map<string, Map<string, string>>, streams: Map<string, Array<{ id: string, fields: Record<string, string> }>>, failNext: (err: Error) => void }}
  */
 export function createMemoryStore() {
   const kv = new Map();

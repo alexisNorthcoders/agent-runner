@@ -2,7 +2,7 @@ import { createClient } from 'redis';
 
 /**
  * The narrow slice of Redis the runner uses. The lock, pause flag, queue, outbox and cron state depend on this
- * interface, not on the client, so tests swap in `test/helpers/memoryStore.js`.
+ * interface, not on the client, so tests swap in `test/helpers/memoryStore.ts`.
  *
  * @typedef {{
  *   get: (key: string) => Promise<string | null>,

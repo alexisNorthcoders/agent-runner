@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { appendFile, mkdtemp, readFile, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createRunHistory } from '../src/runHistory.js';
+import { createRunHistory } from '../src/runHistory.ts';
 
 describe('runHistory', () => {
   /** @type {string} */

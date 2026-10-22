@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import * as page from '../dashboard/format.js';
 import * as cli from '../src/statusFormat.js';
-import { formatRemaining } from '../src/manualPause.js';
+import { formatRemaining } from '../src/manualPause.ts';
 
 describe('dashboard formatting matches agent:status', () => {
   it('formats durations, tokens, cost and models the same way', () => {

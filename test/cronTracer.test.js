@@ -1,11 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCronTracer, partitionIssuesWithOpenPr, pickNextRunnableIssue } from '../src/cronTracer.js';
-import { cronAliasesFromEnv } from '../src/config.js';
-import { createManualPause } from '../src/manualPause.js';
-import { createUsageLimitPause } from '../src/usageLimitPause.js';
-import { createCronState } from '../src/cronState.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { cronAliasesFromEnv } from '../src/config.ts';
+import { createManualPause } from '../src/manualPause.ts';
+import { createUsageLimitPause } from '../src/usageLimitPause.ts';
+import { createCronState } from '../src/cronState.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 const REPO = 'alexisNorthcoders/WhatsappBot';
 const REPO_P = 'alexisNorthcoders/Platformer';

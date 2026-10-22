@@ -1,4 +1,4 @@
-import { ALL } from './manualPause.js';
+import { ALL } from './manualPause.ts';
 import { spend, totalTokens, usageLimitText } from './statusFormat.js';
 
 /**
@@ -11,12 +11,12 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  * The page is served on the LAN, so the snapshot carries no paths (log, workspace), reply
  * addresses or prompts: runs are named by their label, and workspaces by their alias.
  *
- * @typedef {import('./activeRuns.js').RunHealth} RunHealth
+ * @typedef {import('./activeRuns.ts').RunHealth} RunHealth
  *
  * @typedef {{
  *   runId: string,
  *   kind: string | null,
- *   trigger: import('./runLock.js').RunTrigger,
+ *   trigger: import('./runLock.ts').RunTrigger,
  *   label: string | null,
  *   workspaceAlias: string | null,
  *   inferredWorkspace: string | null,
@@ -45,7 +45,7 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  * @typedef {{
  *   runId: string,
  *   kind: string | null,
- *   trigger: import('./runLock.js').RunTrigger,
+ *   trigger: import('./runLock.ts').RunTrigger,
  *   label: string | null,
  *   workspaceAlias: string | null,
  *   inferredWorkspace: string | null,
@@ -91,7 +91,7 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  *   intervalMs: number,
  *   lastTickStartedAt: string | null,
  *   lastTickEndedAt: string | null,
- *   outcome: import('./cronState.js').CronTickOutcome | null,
+ *   outcome: import('./cronState.ts').CronTickOutcome | null,
  *   nextTickAt: string | null,
  * }} OfficeCron
  *   `nextTickAt` is the last tick's start plus the interval, as `agent:status` predicts it (null
@@ -100,7 +100,7 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  * @typedef {{
  *   runId: string,
  *   kind: string | null,
- *   trigger: import('./runLock.js').RunTrigger,
+ *   trigger: import('./runLock.ts').RunTrigger,
  *   label: string | null,
  *   workspaceAlias: string | null,
  *   inferredWorkspace: string | null,
@@ -153,7 +153,7 @@ const safely = (read) => {
 /** @param {string | null | undefined} iso @param {number} now */
 const elapsedSince = (iso, now) => (iso && Number.isFinite(Date.parse(iso)) ? now - Date.parse(iso) : null);
 
-/** @param {unknown} trigger @returns {import('./runLock.js').RunTrigger} */
+/** @param {unknown} trigger @returns {import('./runLock.ts').RunTrigger} */
 const triggerOf = (trigger) => (trigger === 'cron' || trigger === 'schedule' ? trigger : 'manual');
 
 /** @param {unknown} room @returns {string | null} */
@@ -166,7 +166,7 @@ const jobNameOf = (name) => (typeof name === 'string' ? name : null);
 const aliasOf = (alias) => (typeof alias === 'string' ? alias : null);
 
 /**
- * @param {import('./activeRuns.js').ActiveRun} r
+ * @param {import('./activeRuns.ts').ActiveRun} r
  * @param {LiveRun | null} live
  * @param {number} now
  * @returns {OfficeRun}
@@ -198,7 +198,7 @@ function officeRun(r, live, now) {
   };
 }
 
-/** @param {import('./runHistory.js').HistoryEntry} h @returns {OfficeHistoryEntry} */
+/** @param {import('./runHistory.ts').HistoryEntry} h @returns {OfficeHistoryEntry} */
 function historyEntry(h) {
   const durationMs = h.durationMs ?? (h.startedAt ? Date.parse(h.endedAt) - Date.parse(h.startedAt) : null);
   return {
@@ -225,7 +225,7 @@ function historyEntry(h) {
   };
 }
 
-/** @param {import('./manualPause.js').ManualPause} p @returns {OfficeManualPause} */
+/** @param {import('./manualPause.ts').ManualPause} p @returns {OfficeManualPause} */
 const manualPause = (p) => ({ reason: p.reason, pausedAt: p.pausedAt, until: p.until });
 
 /**

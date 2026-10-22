@@ -75,7 +75,7 @@ export async function decideRepoInsightTarget({ order = REPO_INSIGHT_PRIORITY, c
   return null;
 }
 
-/** @param {{ store: import('./redisStore.js').Store }} p */
+/** @param {{ store: import('./redisStore.ts').Store }} p */
 export function createRepoInsightCursor({ store }) {
   return {
     /** @returns {Promise<string | null>} the alias last visited */

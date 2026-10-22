@@ -13,7 +13,7 @@ import { writeJsonAtomic } from './jsonFile.ts';
  *   `running`: the runner process that owns it is alive. `orphaned`: the runner died but the agent
  *   process is still going, so nobody will report its result. `stale`: both are gone.
  *
- * @typedef {import('./runLock.js').RunRecord & Partial<import('./agentBackend/index.js').AgentProgress> & { updatedAt?: string }} ActiveRunFile
+ * @typedef {import('./runLock.ts').RunRecord & Partial<import('./agentBackend/index.js').AgentProgress> & { updatedAt?: string }} ActiveRunFile
  * @typedef {ActiveRunFile & { health: RunHealth }} ActiveRun
  */
 
@@ -59,7 +59,7 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
     /**
      * Publish a run as active. `update` is throttled, and a skipped write is flushed shortly after
      * (trailing edge). `finish` removes the file; nothing is written after it.
-     * @param {import('./runLock.js').RunRecord} record
+     * @param {import('./runLock.ts').RunRecord} record
      */
     track(record) {
       let rec = record;
@@ -110,7 +110,7 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
         update,
         /**
          * Rewrite the record (same runId) now, unthrottled, keeping the progress.
-         * @param {import('./runLock.js').RunRecord} next
+         * @param {import('./runLock.ts').RunRecord} next
          */
         setRecord(next) {
           rec = next;

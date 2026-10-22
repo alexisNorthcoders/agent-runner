@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createWorkspaceAllowlist, parseCompactMap } from '../src/workspaces.js';
+import { createWorkspaceAllowlist, parseCompactMap } from '../src/workspaces.ts';
 
 describe('parseCompactMap', () => {
   it('parses alias=value pairs and drops malformed ones', () => {

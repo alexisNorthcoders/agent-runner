@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCronState, prAttemptStateKey } from '../src/cronState.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createCronState, prAttemptStateKey } from '../src/cronState.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 const REPO = 'alexisNorthcoders/WhatsappBot';
 

@@ -1,7 +1,7 @@
 /**
  * The usage-limit pause: set when an agent run ends on its usage limit, it holds every new run
  * (requests and scheduled jobs queue, the cron skips its ticks) until the limit resets. Separate
- * from the safe-restart flag (`pauseFlag.ts`) and the owner's pauses (`manualPause.js`).
+ * from the safe-restart flag (`pauseFlag.ts`) and the owner's pauses (`manualPause.ts`).
  *
  * One Redis key whose TTL ends with the pause, so it expires on its own; its end time is inside too,
  * and a pause past it reads as absent. Setting it only ever extends it. The read and write aren't
@@ -26,7 +26,7 @@ function parse(raw) {
 }
 
 /**
- * @param {{ store: import('./redisStore.js').Store, key?: string, now?: () => number }} p
+ * @param {{ store: import('./redisStore.ts').Store, key?: string, now?: () => number }} p
  */
 export function createUsageLimitPause({ store, key = USAGE_LIMIT_KEY, now = Date.now }) {
   /** @returns {Promise<UsageLimitPause | null>} the live pause, if any */

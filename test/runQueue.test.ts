@@ -1,9 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRunQueue } from '../src/runQueue.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createRunQueue } from '../src/runQueue.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
-/** @param {string} id @returns {import('../src/runQueue.js').QueuedRun} */
+/** @param {string} id @returns {import('../src/runQueue.ts').QueuedRun} */
 const item = (id) => ({ id, cmd: { kind: 'freeform', prompt: id }, replyTo: 'jid', label: id, queuedAt: '2026-09-24T12:00:00.000Z' });
 
 describe('runQueue.update', () => {

@@ -1,13 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRunner } from '../src/runner.js';
-import { createRunLock } from '../src/runLock.js';
+import { createRunLock } from '../src/runLock.ts';
 import { createPauseFlag } from '../src/pauseFlag.ts';
-import { createRunQueue } from '../src/runQueue.js';
-import { createManualPause } from '../src/manualPause.js';
+import { createRunQueue } from '../src/runQueue.ts';
+import { createManualPause } from '../src/manualPause.ts';
 import { createOutbox, OUTBOX_KEY } from '../src/outbox.ts';
-import { createUsageLimitPause } from '../src/usageLimitPause.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createUsageLimitPause } from '../src/usageLimitPause.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 /** Controllable AgentBackend fake: each start() creates a run you settle by hand. */
 /** @param {import('../src/agentBackend/index.js').AgentModelChoice} [modelChoice] */

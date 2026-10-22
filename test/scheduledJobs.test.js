@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { createJobScheduler, decideJobs, JOBS_LAST_FIRED_KEY, jobSchedule, loadJobsFile, nextDueAt, parseJobs } from '../src/scheduledJobs.js';
 import { createOutbox, OUTBOX_KEY } from '../src/outbox.ts';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 const cleanup = { name: 'cleanup_agent', room: 'reddit-bot', cwd: '/home/u/reddit-bot', command: 'npm run cleanup_agent', at: '02:00', logFile: '/home/u/reddit-bot/reports/cron-cleanup.log' };
 const report = { name: 'report_agent', room: 'reddit-bot', cwd: '/home/u/reddit-bot', command: 'npm run report_agent', at: '02:30' };

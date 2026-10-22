@@ -1,7 +1,7 @@
 /**
  * The office feed: a read-only Server-Sent Events stream of office snapshots
  * (src/officeSnapshot.js) for the dashboard page. Each client gets a full snapshot on connect, then
- * a new one after each state change (src/stateChanges.js). Changes are coalesced: the first one
+ * a new one after each state change (src/stateChanges.ts). Changes are coalesced: the first one
  * schedules a push `coalesceMs` later, and pushes are at least `minIntervalMs` apart, so a stream
  * of agent progress costs one snapshot build per interval for every client together, and a change
  * shows within about `minIntervalMs`.
@@ -27,7 +27,7 @@ export const FEED_MAX_CLIENTS = 20;
 /**
  * @param {{
  *   snapshot: () => Promise<unknown>,
- *   subscribe: (fn: import('./stateChanges.js').NotifyChange) => () => void,
+ *   subscribe: (fn: import('./stateChanges.ts').NotifyChange) => () => void,
  *   coalesceMs?: number,
  *   minIntervalMs?: number,
  *   heartbeatMs?: number,

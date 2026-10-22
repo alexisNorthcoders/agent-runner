@@ -4,7 +4,7 @@
  * to the logical `owner`.
  */
 
-import type { Store } from './redisStore.js';
+import type { Store } from './redisStore.ts';
 
 export const OUTBOX_KEY = 'agent-runner:outbox';
 export const OWNER = 'owner';

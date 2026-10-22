@@ -1,4 +1,4 @@
-import { parseCompactMap } from '../workspaces.js';
+import { parseCompactMap } from '../workspaces.ts';
 
 /**
  * Reads a GitHub issue with `gh` and renders it as the agent's prompt. Which repo the issue lives

@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPauseFlag } from '../src/pauseFlag.ts';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 describe('pauseFlag', () => {
   it('set returns a token and get reports the pause', async () => {

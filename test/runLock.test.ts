@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRunLock } from '../src/runLock.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createRunLock } from '../src/runLock.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 const run = (runId, extra = {}) => ({ runId, kind: 'freeform', replyTo: 'r', startedAt: 't', ...extra });
 

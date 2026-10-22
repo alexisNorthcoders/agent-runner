@@ -62,7 +62,7 @@ export function issueKey(repo, number) {
 }
 
 /**
- * @param {{ store: import('./redisStore.js').Store, now?: () => number, pid?: number }} p
+ * @param {{ store: import('./redisStore.ts').Store, now?: () => number, pid?: number }} p
  */
 export function createCronState({ store, now = Date.now, pid = process.pid }) {
   /** @param {string} key @returns {Promise<Map<string, string>>} */

@@ -1,15 +1,15 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from 'redis';
-import { createRedisStore } from '../src/redisStore.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createRedisStore } from '../src/redisStore.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 /**
  * The same contract runs against the in-memory fake (used by every other test) and a real Redis,
  * so the fake cannot silently drift. The Redis half is skipped when no server is reachable.
  */
 
-/** @param {() => { store: import('../src/redisStore.js').Store, readStream: (key: string) => Promise<Array<{ id: string, fields: Record<string, string> }>> }} setup */
+/** @param {() => { store: import('../src/redisStore.ts').Store, readStream: (key: string) => Promise<Array<{ id: string, fields: Record<string, string> }>> }} setup */
 function contract(setup) {
   const k = (name) => `agent-runner:test:${process.pid}:${name}`;
 
