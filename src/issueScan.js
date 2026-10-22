@@ -1,5 +1,5 @@
 import { classifyReadyIssues, hasLabel } from './cronTracer.js';
-import { errorMessageFromUnknown } from './issuePipeline/index.js';
+import { errorText } from './narrow.ts';
 
 /**
  * The issue scan: the work waiting in each allowlisted workspace's GitHub repo, for the office
@@ -114,7 +114,7 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
     try {
       aliases = await workspaces.aliases();
     } catch (err) {
-      logger.warn(`issue scan: cannot read the workspace allowlist: ${errorMessageFromUnknown(err)}`);
+      logger.warn(`issue scan: cannot read the workspace allowlist: ${errorText(err)}`);
       result = { scannedAt, repos: (result?.repos ?? []).map((r) => ({ ...r, stale: true })) };
       onChange('issue-scan');
       return;
@@ -125,7 +125,7 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
       try {
         repos.push(await scanRepo(alias, scannedAt));
       } catch (err) {
-        logger.warn(`issue scan: ${alias} failed, keeping its last data: ${errorMessageFromUnknown(err)}`);
+        logger.warn(`issue scan: ${alias} failed, keeping its last data: ${errorText(err)}`);
         repos.push(staleRepo(alias));
       }
     }
@@ -147,7 +147,7 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
       try {
         do {
           again = false;
-          await scanOnce().catch((err) => logger.warn(`issue scan failed: ${errorMessageFromUnknown(err)}`));
+          await scanOnce().catch((err) => logger.warn(`issue scan failed: ${errorText(err)}`));
         } while (again);
       } finally {
         running = null;

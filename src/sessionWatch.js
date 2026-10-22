@@ -1,7 +1,7 @@
 import { open, readdir, realpath as fsRealpath, stat } from 'fs/promises';
 import { basename, join } from 'path';
 import { applyTranscriptLines, emptyTranscript, listClaudeCwds, subagentCount } from './agentBackend/claudeTranscripts.ts';
-import { errorMessageFromUnknown } from './issuePipeline/index.js';
+import { errorText } from './narrow.ts';
 import { canonicalPath, workspaceOfPaths } from './workspaceInference.ts';
 
 /**
@@ -188,7 +188,7 @@ export function createSessionWatch({
       } catch (err) {
         // a transcript that can't be read now (removed, permissions) is tried again next poll
         tracked.delete(file.path);
-        logger.warn(`session watch: ${basename(file.path)}: ${errorMessageFromUnknown(err)}`);
+        logger.warn(`session watch: ${basename(file.path)}: ${errorText(err)}`);
       }
     }
     const interactive = read.filter(({ tr }) => tr.transcript.interactive === true && tr.transcript.state && tr.transcript.cwd);
@@ -244,7 +244,7 @@ export function createSessionWatch({
       sessions = await scan();
       warned = false;
     } catch (err) {
-      if (!warned) logger.warn(`session watch: ${errorMessageFromUnknown(err)}`);
+      if (!warned) logger.warn(`session watch: ${errorText(err)}`);
       warned = true;
       sessions = [];
       tracked.clear();

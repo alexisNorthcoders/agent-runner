@@ -5,30 +5,11 @@ import { mkdtemp, readFile, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
-import { buildIssueRunMessage, createIssuePipeline, errorMessageFromUnknown } from '../src/issuePipeline/index.js';
+import { buildIssueRunMessage, createIssuePipeline } from '../src/issuePipeline/index.js';
 import { loadPipelineSettings } from '../src/issuePipeline/settings.ts';
 import { realExec, realGitFakeGh } from './helpers/fakeExec.ts';
 
 const execFileAsync = promisify(execFile);
-
-describe('errorMessageFromUnknown', () => {
-  it('uses Error.message', () => {
-    assert.equal(errorMessageFromUnknown(new Error('oops')), 'oops');
-  });
-
-  it('stringifies non-Error throws', () => {
-    assert.equal(errorMessageFromUnknown('boom'), 'boom');
-    assert.equal(errorMessageFromUnknown(null), 'null');
-  });
-
-  it('reads message from plain object', () => {
-    assert.equal(errorMessageFromUnknown({ message: 'from object' }), 'from object');
-  });
-
-  it('falls back when message is empty', () => {
-    assert.ok(String(errorMessageFromUnknown({ message: '' })).length > 0);
-  });
-});
 
 describe('buildIssueRunMessage', () => {
   const issue = { number: 114, title: 'Fix the thing' };

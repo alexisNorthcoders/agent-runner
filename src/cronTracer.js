@@ -1,7 +1,7 @@
 import { OWNER } from './outbox.ts';
 import { issueKey, prAttemptStateKey } from './cronState.ts';
 import { classifyGithubPrMergeability } from './issuePipeline/githubPr.js';
-import { errorMessageFromUnknown } from './issuePipeline/index.js';
+import { errorText } from './narrow.ts';
 
 /**
  * The cron issue tracer: every interval, find the next `ready-for-agent` issue across the cron's
@@ -177,7 +177,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
 
   /** @param {string} text */
   const tell = (text) =>
-    outbox.send({ replyTo: OWNER, text }).catch((err) => logger.warn(`cron: outbox write failed: ${errorMessageFromUnknown(err)}`));
+    outbox.send({ replyTo: OWNER, text }).catch((err) => logger.warn(`cron: outbox write failed: ${errorText(err)}`));
 
   /**
    * `rows` minus the issues whose open PR is parked, telling the owner once per parked state. A
@@ -194,7 +194,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
       loaded = await loadOpenAgentPrs(github, repo);
       [attempted, notified] = await Promise.all([state.prAttempts(), state.parkNotices()]);
     } catch (err) {
-      logger.warn(`cron: open PR lookup failed for ${repo}: ${errorMessageFromUnknown(err)}`);
+      logger.warn(`cron: open PR lookup failed for ${repo}: ${errorText(err)}`);
       return rows;
     }
     const { rows: kept, parked } = partitionIssuesWithOpenPr(rows, repo, loaded.openPrs, loaded.baseShaByBranch, attempted);
@@ -227,7 +227,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
       const pr = openPrs.get(issueNumber);
       if (pr) await state.setPrAttempt(repo, issueNumber, prStateKey(pr, baseShaByBranch));
     } catch (err) {
-      logger.warn(`cron: could not record the PR state of ${repo}#${issueNumber}: ${errorMessageFromUnknown(err)}`);
+      logger.warn(`cron: could not record the PR state of ${repo}#${issueNumber}: ${errorText(err)}`);
     }
   }
 
@@ -279,7 +279,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
         }
       }
     } catch (err) {
-      const e = errorMessageFromUnknown(err);
+      const e = errorText(err);
       outcome.result = 'failed';
       outcome.note = truncate(e, 200);
       await tell(`Cron (${alias}): the run for ${repo}#${issue.number} failed: ${truncate(e)}`);
@@ -296,7 +296,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
   async function tick() {
     let phase = 'checking the lock';
     try {
-      await sweepStale().catch((err) => logger.warn(`cron: stale active-run sweep failed: ${errorMessageFromUnknown(err)}`));
+      await sweepStale().catch((err) => logger.warn(`cron: stale active-run sweep failed: ${errorText(err)}`));
       if ((await pause.get()) || (await manualPause.general())) return { kind: 'paused' };
       if (await usageLimit.get()) return { kind: 'limited' };
       if (await lock.current()) return { kind: 'busy' };
@@ -309,7 +309,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
           if (await manualPause.forWorkspace(ws.alias)) continue;
           repo = await github.resolveIssueRepo(ws.root, alias);
         } catch (err) {
-          logger.warn(`cron: skipping workspace "${alias}": ${errorMessageFromUnknown(err)}`);
+          logger.warn(`cron: skipping workspace "${alias}": ${errorText(err)}`);
           continue;
         }
         phase = `listing open issues (${alias})`;
@@ -325,7 +325,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
       }
       return { kind: 'no_eligible' };
     } catch (err) {
-      const e = errorMessageFromUnknown(err);
+      const e = errorText(err);
       logger.warn(`cron: tick failed while ${phase}: ${e}`);
       await tell(`Cron tick failed while ${phase}: ${truncate(e)}`);
       return { kind: 'error', note: `${phase}: ${truncate(e, 200)}` };
@@ -343,7 +343,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
     const startedAt = Date.now();
     try {
       const outcome = await tick();
-      await state.writeTick({ outcome, intervalMs, startedAt }).catch((err) => logger.warn(`cron: could not save the tick: ${errorMessageFromUnknown(err)}`));
+      await state.writeTick({ outcome, intervalMs, startedAt }).catch((err) => logger.warn(`cron: could not save the tick: ${errorText(err)}`));
       return outcome;
     } finally {
       inFlight = false;
@@ -357,7 +357,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
     /** Tick now, then every `intervalMs`. */
     async start() {
       if (timer) return;
-      await state.writeStarted({ intervalMs }).catch((err) => logger.warn(`cron: could not save its state: ${errorMessageFromUnknown(err)}`));
+      await state.writeStarted({ intervalMs }).catch((err) => logger.warn(`cron: could not save its state: ${errorText(err)}`));
       timer = setInterval(() => void runOnce(), intervalMs);
       logger.info(`agent-runner: cron issue tracer every ${Math.round(intervalMs / 1000)}s over ${aliases.join(', ') || '(no workspaces)'}`);
       void runOnce();

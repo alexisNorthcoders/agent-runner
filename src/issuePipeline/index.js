@@ -6,6 +6,7 @@ import { createGithubPr } from './githubPr.js';
 import { createLlm } from './llm.ts';
 import { createGmailSender } from './mailer.ts';
 import { createPostRun } from './postRun.js';
+import { errorText } from '../narrow.ts';
 import { REQUEUED_NOTE } from '../runQueue.ts';
 
 /**
@@ -19,17 +20,6 @@ import { REQUEUED_NOTE } from '../runQueue.ts';
  *   `limited`: the agent (the first pass or the autofix) hit its usage limit, so the run stopped short.
  * @typedef {Pick<import('../agentBackend/index.ts').AgentResult, 'outcome' | 'exitCode' | 'stderr'>} AgentOutcomeLike
  */
-
-/** @param {unknown} err */
-export function errorMessageFromUnknown(err) {
-  if (err instanceof Error) return err.message?.trim() ? err.message : err.name || 'Error';
-  if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message.trim()) return err.message;
-  try {
-    return String(err);
-  } catch {
-    return 'Unknown error';
-  }
-}
 
 /** One-line reason the agent itself didn't succeed. @param {AgentOutcomeLike | undefined} r */
 function agentFailureReason(r) {
@@ -238,7 +228,7 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
       try {
         fetched = await issues.fetchIssuePrompt({ issueNumber, workspaceRoot, alias, extraInstructions });
       } catch (err) {
-        throw new Error(`Failed to read GitHub issue #${issueNumber}: ${errorMessageFromUnknown(err)}`);
+        throw new Error(`Failed to read GitHub issue #${issueNumber}: ${errorText(err)}`);
       }
       const issue = { number: fetched.number, repo: fetched.repo, title: fetched.title };
       try {
@@ -255,7 +245,7 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
         const preAgentHeadSha = await git.headSha(workspaceRoot).catch(() => null);
         return { prompt, issue, branchName: prep.branchName, defaultBranch: prep.defaultBranch, resumed: prep.resumed, preAgentHeadSha, labels: fetched.labels ?? [] };
       } catch (err) {
-        throw new Error(`Git setup for issue #${issueNumber} failed: ${errorMessageFromUnknown(err)}`);
+        throw new Error(`Git setup for issue #${issueNumber} failed: ${errorText(err)}`);
       }
     },
 
@@ -286,7 +276,7 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
       try {
         post = await postRun.runPostRun({ repo, userPrompt: prompt, agentOk, issueNumber: issue.number, preAgentHeadSha, runAgent, trigger });
       } catch (err) {
-        postErrMessage = errorMessageFromUnknown(err);
+        postErrMessage = errorText(err);
         post = { ran: false, note: '', skipReason: 'post_run_threw' };
         log('post-run threw', err?.stack || postErrMessage);
       }
@@ -320,7 +310,7 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
         const wip = await git.commitWip(repo, issueNumber);
         return wip.ok ? { ok: true, sha: wip.sha, branch } : { ok: false, reason: 'git_error', branch, error: wip.error || wip.reason };
       } catch (err) {
-        return { ok: false, reason: 'git_error', error: errorMessageFromUnknown(err) };
+        return { ok: false, reason: 'git_error', error: errorText(err) };
       }
     },
   };
