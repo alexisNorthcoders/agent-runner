@@ -300,7 +300,7 @@ curl -sN localhost:3790/office/feed
 
 ### Snapshot shape
 
-`OfficeSnapshot` in `src/officeSnapshot.ts` (JSDoc-typed) is the contract. It is built from the
+`OfficeSnapshot` in `src/officeSnapshot.ts` is the contract. It is built from the
 same status snapshot as `npm run agent:status`, plus the live phase and progress the runner holds
 in memory, so the numbers match. It carries no reply addresses or prompts, and no paths but each
 interactive session's `cwd`.

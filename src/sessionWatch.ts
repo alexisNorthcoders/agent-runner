@@ -93,7 +93,10 @@ export type Tracked = {
   openSince: number | null;
 };
 
-/** `claudeCwds`: the cwd of each running agent process (`/proc`), injected so tests can fake it. */
+/**
+ * Watches the transcripts under `root`. `claudeCwds`: the cwd of each running agent process
+ * (`/proc`), injected so tests can fake it.
+ */
 export function createSessionWatch({
   root,
   workspaces,
@@ -182,7 +185,10 @@ export function createSessionWatch({
         logger.warn(`session watch: ${basename(file.path)}: ${errorText(err)}`);
       }
     }
-    const interactive = read.filter(({ tr }) => tr.transcript.interactive === true && tr.transcript.state && tr.transcript.cwd);
+    const interactive = read.flatMap(({ file, tr }) => {
+      const { interactive, state, cwd } = tr.transcript;
+      return interactive === true && state && cwd ? [{ file, tr, state, cwd }] : [];
+    });
     let procs: Map<string, number>;
     let roots: Array<{ alias: string; root: string }>;
     if (interactive.length) {
@@ -195,7 +201,7 @@ export function createSessionWatch({
     }
     const byCwd: Map<string, typeof interactive> = new Map();
     for (const s of interactive) {
-      const cwd = await canonicalPath(s.tr.transcript.cwd as string, realpath);
+      const cwd = await canonicalPath(s.cwd, realpath);
       byCwd.set(cwd, [...(byCwd.get(cwd) ?? []), s]);
     }
     const open: OfficeSession[] = [];
@@ -203,16 +209,16 @@ export function createSessionWatch({
     for (const [cwd, group] of byCwd) {
       // with agent processes found in the directory, one session each (the most recently written); with none found, all
       const keep = group.sort((a, b) => (b.tr.transcript.lastEntryAt ?? b.file.mtimeMs) - (a.tr.transcript.lastEntryAt ?? a.file.mtimeMs)).slice(0, procs.get(cwd) || group.length);
-      for (const { file, tr } of keep) {
+      for (const { file, tr, state, cwd: sessionCwd } of keep) {
         const x = tr.transcript;
         tr.openSince ??= t;
         openPaths.add(file.path);
         open.push({
           id: x.sessionId ?? basename(file.path, '.jsonl'),
           workspaceAlias: await workspaceOfPaths([cwd], roots, realpath),
-          cwd: (x.cwd as string),
+          cwd: sessionCwd,
           branch: x.branch,
-          state: (x.state as 'working' | 'waiting'),
+          state,
           activity: x.activity,
           subagents: subagentCount(x, t),
           since: new Date(tr.openSince).toISOString(),
