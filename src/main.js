@@ -10,7 +10,7 @@ import { createRunQueue } from './runQueue.ts';
 import { createManualPause } from './manualPause.ts';
 import { createUsageLimitPause } from './usageLimitPause.ts';
 import { createOutbox } from './outbox.ts';
-import { createAgentBackend } from './agentBackend/index.js';
+import { createAgentBackend } from './agentBackend/index.ts';
 import { createRunHistory } from './runHistory.ts';
 import { createActiveRuns } from './activeRuns.ts';
 import { createCronState } from './cronState.ts';

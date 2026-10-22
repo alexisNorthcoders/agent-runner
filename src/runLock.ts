@@ -1,4 +1,4 @@
-import { parseJsonObject } from './narrow.ts';
+import { isRecord, parseJsonObject } from './narrow.ts';
 import type { Store } from './redisStore.ts';
 
 /**
@@ -37,10 +37,9 @@ const RUN_TRIGGERS: readonly RunTrigger[] = ['manual', 'cron', 'schedule'];
 const STRING_FIELDS = ['kind', 'replyTo', 'startedAt', 'label', 'workspaceRoot', 'logPath', 'workspaceAlias', 'inferredWorkspace', 'parentRunId', 'jobName', 'room'] as const;
 const NUMBER_FIELDS = ['ownerPid', 'issueNumber'] as const;
 
-/** A lock value as a record, keeping only well-typed fields. Null without a string `runId`. */
-export function parseRunRecord(raw: string): RunRecord | null {
-  const o = parseJsonObject(raw);
-  if (typeof o?.runId !== 'string') return null;
+/** A run record's well-typed fields (a lock value, a run's active file). Null without a string `runId`. */
+export function parseRunRecord(o: unknown): RunRecord | null {
+  if (!isRecord(o) || typeof o.runId !== 'string') return null;
   const rec: RunRecord = { runId: o.runId };
   for (const k of STRING_FIELDS) {
     const v = o[k];
@@ -68,7 +67,7 @@ export function createRunLock({ store, ttlSeconds, key = LOCK_KEY }: { store: St
   async function current(): Promise<RunRecord | null> {
     const raw = await store.get(key);
     if (raw == null) return null;
-    return parseRunRecord(raw) ?? { runId: UNKNOWN_RUN_ID };
+    return parseRunRecord(parseJsonObject(raw)) ?? { runId: UNKNOWN_RUN_ID };
   }
 
   return {

@@ -1,5 +1,6 @@
 import { readdir, readFile, readlink } from 'fs/promises';
-import { describeToolUse } from './claudeStreamParser.js';
+import { parseJsonObject, recordOrEmpty } from '../narrow.ts';
+import { describeToolUse } from './claudeStreamParser.ts';
 
 /**
  * Reads Claude Code's session transcripts (`~/.claude/projects/<folder>/<session-id>.jsonl`, one
@@ -16,65 +17,56 @@ import { describeToolUse } from './claudeStreamParser.js';
 export const SUBAGENT_RECENT_MS = 3 * 60_000;
 
 /**
- * @typedef {{
- *   sessionId: string | null,
- *   cwd: string | null,
- *   branch: string | null,
- *   lastEntryAt: number | null,
- *   interactive: boolean | null,
- *   state: 'working' | 'waiting' | null,
- *   activity: string | null,
- *   sidechains: Map<string, number>,
- * }} TranscriptState
- *   `interactive`: null until an entry says (`entrypoint`). `state` is null until a main-thread
- *   entry shows it. `activity`: the last main-thread tool call, or `writing…`. `sidechains`: when
- *   each subagent last wrote (epoch ms), by agent id.
+ * `interactive`: null until an entry says (`entrypoint`). `state` is null until a main-thread
+ * entry shows it. `activity`: the last main-thread tool call, or `writing…`. `sidechains`: when
+ * each subagent last wrote (epoch ms), by agent id.
  */
+export type TranscriptState = {
+  sessionId: string | null;
+  cwd: string | null;
+  branch: string | null;
+  lastEntryAt: number | null;
+  interactive: boolean | null;
+  state: 'working' | 'waiting' | null;
+  activity: string | null;
+  sidechains: Map<string, number>;
+};
 
-/** @returns {TranscriptState} */
-export function emptyTranscript() {
+export function emptyTranscript(): TranscriptState {
   return { sessionId: null, cwd: null, branch: null, lastEntryAt: null, interactive: null, state: null, activity: null, sidechains: new Map() };
 }
 
-/** @param {unknown} v @returns {string | null} */
-const str = (v) => (typeof v === 'string' && v ? v : null);
+/** The content blocks that say whether the session is working or waiting. */
+const STATE_BLOCKS: ReadonlySet<unknown> = new Set(['tool_use', 'thinking', 'text']);
+
+const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
 
 /**
  * What a main-thread entry says about the session, from its last content block.
- * @param {Record<string, any>} entry
- * @returns {{ state: 'working' | 'waiting', activity?: string | null } | null}
  */
-function mainThreadEffect(entry) {
-  const content = entry.message?.content;
+function mainThreadEffect(entry: Record<string, unknown>): { state: 'working' | 'waiting'; activity?: string | null } | null {
+  const content = recordOrEmpty(entry.message).content;
   if (entry.type === 'user') {
     // a tool_result keeps the activity of the call it answers; a prompt starts new work
-    const result = Array.isArray(content) && content.some((b) => b?.type === 'tool_result');
+    const result = Array.isArray(content) && content.some((b) => recordOrEmpty(b).type === 'tool_result');
     return result ? { state: 'working' } : { state: 'working', activity: 'writing…' };
   }
   if (entry.type !== 'assistant' || !Array.isArray(content)) return null;
-  const last = [...content].reverse().find((b) => b && typeof b === 'object' && ['tool_use', 'thinking', 'text'].includes(b.type));
+  const last = content.map(recordOrEmpty).findLast((b) => STATE_BLOCKS.has(b.type));
   if (!last) return null;
-  if (last.type === 'tool_use') return { state: 'working', activity: describeToolUse(String(last.name ?? 'tool'), last.input && typeof last.input === 'object' ? last.input : {}) };
+  if (last.type === 'tool_use') return { state: 'working', activity: describeToolUse(String(last.name ?? 'tool'), recordOrEmpty(last.input)) };
   if (last.type === 'thinking') return { state: 'working', activity: 'writing…' };
   return { state: 'waiting' };
 }
 
 /**
  * Fold the lines a transcript gained into its state. Never throws.
- * @param {TranscriptState} state mutated
- * @param {string[]} lines
- * @returns {TranscriptState}
+ * @param state mutated
  */
-export function applyTranscriptLines(state, lines) {
+export function applyTranscriptLines(state: TranscriptState, lines: string[]): TranscriptState {
   for (const line of lines) {
-    /** @type {any} */
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (!entry || typeof entry !== 'object' || (entry.type !== 'user' && entry.type !== 'assistant')) continue;
+    const entry = parseJsonObject(line);
+    if (!entry || (entry.type !== 'user' && entry.type !== 'assistant')) continue;
     state.sessionId = str(entry.sessionId) ?? state.sessionId;
     state.cwd = str(entry.cwd) ?? state.cwd;
     state.branch = str(entry.gitBranch) ?? state.branch;
@@ -98,9 +90,8 @@ export function applyTranscriptLines(state, lines) {
 /**
  * The subagents running at `now`: those that wrote within SUBAGENT_RECENT_MS, and none while the
  * session waits for the owner. Best effort.
- * @param {TranscriptState} state @param {number} now
  */
-export function subagentCount(state, now) {
+export function subagentCount(state: TranscriptState, now: number) {
   if (state.state === 'waiting') return 0;
   let n = 0;
   for (const [id, at] of state.sidechains) {
@@ -113,10 +104,8 @@ export function subagentCount(state, now) {
 /**
  * The working directories of the running `claude` processes, from `/proc` (Linux): every
  * `/proc/<pid>` whose `comm` is `claude`, by its `cwd` link. A process that goes away mid-read is skipped.
- * @param {string} [proc]
- * @returns {Promise<string[]>}
  */
-export async function listClaudeCwds(proc = '/proc') {
+export async function listClaudeCwds(proc: string = '/proc'): Promise<string[]> {
   const cwds = [];
   for (const pid of (await readdir(proc)).filter((n) => /^\d+$/.test(n))) {
     try {

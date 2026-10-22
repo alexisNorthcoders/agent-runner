@@ -1,9 +1,11 @@
 /**
  * Claude's usage-limit message, e.g. `You've hit your session limit · resets 7am (Europe/London)`,
- * turned into the neutral `AgentUsageLimit` (./index.js): when runs may start again. A reset epoch
+ * turned into the neutral `AgentUsageLimit` (./index.ts): when runs may start again. A reset epoch
  * from the stream's rate-limit event wins over the text. The reset gets a small buffer and is
  * capped; text that can't be read gives a short pause, so the next run acts as a probe.
  */
+
+import type { AgentUsageLimit } from './index.ts';
 
 export const RESET_BUFFER_MS = 2 * 60_000;
 export const FALLBACK_PAUSE_MS = 60 * 60_000;
@@ -13,8 +15,7 @@ const RESETS_RE = /\bresets\s+(?:([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(?:at\s+
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const DAY_MS = 24 * 60 * 60_000;
 
-/** @param {string} tz */
-function validZone(tz) {
+function validZone(tz: string) {
   try {
     new Intl.DateTimeFormat('en-GB', { timeZone: tz });
     return true;
@@ -23,8 +24,8 @@ function validZone(tz) {
   }
 }
 
-/** Wall-clock parts of instant `ms` in `tz`. @param {number} ms @param {string} tz */
-function zonedParts(ms, tz) {
+/** Wall-clock parts of instant `ms` in `tz`. */
+function zonedParts(ms: number, tz: string) {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: tz,
     hourCycle: 'h23',
@@ -35,23 +36,21 @@ function zonedParts(ms, tz) {
     minute: 'numeric',
     second: 'numeric',
   }).formatToParts(ms);
-  /** @param {string} type */
-  const get = (type) => Number(parts.find((p) => p.type === type)?.value);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
   return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour'), minute: get('minute'), second: get('second') };
 }
 
-/** How far `tz` is ahead of UTC at instant `ms`. @param {number} ms @param {string} tz */
-function zoneOffset(ms, tz) {
+/** How far `tz` is ahead of UTC at instant `ms`. */
+function zoneOffset(ms: number, tz: string) {
   const p = zonedParts(ms, tz);
   return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ms / 1000) * 1000;
 }
 
 /**
  * The instant a wall-clock time in `tz` happens (the day may overflow, e.g. the 32nd).
- * @param {{ year: number, month: number, day: number, hour: number, minute: number }} t `month` is 1-based
- * @param {string} tz
+ * `month` is 1-based.
  */
-function zonedInstant({ year, month, day, hour, minute }, tz) {
+function zonedInstant({ year, month, day, hour, minute }: { year: number; month: number; day: number; hour: number; minute: number }, tz: string) {
   const wall = Date.UTC(year, month - 1, day, hour, minute);
   const guess = wall - zoneOffset(wall, tz);
   // the offset at the guess can differ from the one at `wall` across a DST change
@@ -60,11 +59,8 @@ function zonedInstant({ year, month, day, hour, minute }, tz) {
 
 /**
  * The next instant the `resets …` text names, or null when it can't be read.
- * @param {string} text
- * @param {number} now
- * @returns {{ at: number, note: string, timeZone: string } | null}
  */
-function parseResetText(text, now) {
+function parseResetText(text: string, now: number): { at: number; note: string; timeZone: string } | null {
   const m = RESETS_RE.exec(text);
   if (!m) return null;
   const [, mon, dayStr, hourStr, minStr, ampm, zoneStr] = m;
@@ -96,10 +92,8 @@ function parseResetText(text, now) {
  * When runs may start again after the usage-limit message `text`: `resetsAtEpoch` (seconds or ms,
  * from the stream) if given, else the text's reset time, plus the buffer, capped at 7 days. Text
  * that can't be read gives a 1h pause.
- * @param {{ text: string, resetsAtEpoch?: number | null, now: number }} p
- * @returns {import('./index.js').AgentUsageLimit}
  */
-export function usageLimitFrom({ text, resetsAtEpoch = null, now }) {
+export function usageLimitFrom({ text, resetsAtEpoch = null, now }: { text: string; resetsAtEpoch?: number | null; now: number }): AgentUsageLimit {
   const parsed = parseResetText(String(text ?? ''), now);
   const epochMs = resetsAtEpoch && resetsAtEpoch > 0 ? (resetsAtEpoch < 1e12 ? resetsAtEpoch * 1000 : resetsAtEpoch) : null;
   const reset = epochMs ?? parsed?.at ?? null;

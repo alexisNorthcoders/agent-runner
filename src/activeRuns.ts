@@ -3,8 +3,10 @@ import { join } from 'path';
 import { pidAlive } from './pidAlive.ts';
 import { writeJsonAtomic } from './jsonFile.ts';
 import { parseJsonObject } from './narrow.ts';
+import { parseRunRecord } from './runLock.ts';
 import type { RunRecord } from './runLock.ts';
-import type { AgentProgress } from './agentBackend/index.js';
+import { parseAgentProgress } from './agentBackend/index.ts';
+import type { AgentProgress } from './agentBackend/index.ts';
 
 /**
  * One `active/<runId>.json` file per in-flight run, rewritten (throttled) as it progresses and
@@ -44,8 +46,9 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
       try {
         // only `track` writes these files, so a runId is enough to skip a torn or foreign one
         const o = parseJsonObject(await readFile(join(activeDir, name), 'utf8'));
-        if (typeof o?.runId !== 'string') continue;
-        const run = o as ActiveRunFile;
+        const record = parseRunRecord(o);
+        if (!o || !record) continue;
+        const run: ActiveRunFile = { ...record, ...parseAgentProgress(o), ...(typeof o.updatedAt === 'string' ? { updatedAt: o.updatedAt } : {}) };
         const health = !ownersGone && isAlive(run.ownerPid) ? 'running' : isAlive(run.agentPid) ? 'orphaned' : 'stale';
         runs.push({ ...run, health });
       } catch {

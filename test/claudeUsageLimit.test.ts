@@ -1,13 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { usageLimitFrom, RESET_BUFFER_MS, FALLBACK_PAUSE_MS, MAX_PAUSE_MS } from '../src/agentBackend/claudeUsageLimit.js';
+import { usageLimitFrom, RESET_BUFFER_MS, FALLBACK_PAUSE_MS, MAX_PAUSE_MS } from '../src/agentBackend/claudeUsageLimit.ts';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
-const iso = (ms) => new Date(ms).toISOString();
+const iso = (ms: number) => new Date(ms).toISOString();
 
 describe('usageLimitFrom: the reset text', () => {
-  const at = (s) => Date.parse(s);
+  const at = (s: string) => Date.parse(s);
 
   it('a time later today, in the zone, plus the buffer (BST)', () => {
     const now = at('2026-09-26T05:07:00Z'); // 06:07 BST

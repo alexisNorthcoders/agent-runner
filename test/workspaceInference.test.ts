@@ -1,9 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'fs/promises';
-import { createStreamAccumulator } from '../src/agentBackend/claudeStreamParser.js';
-import { createToolTouchReader, splitCommand } from '../src/agentBackend/claudeToolTouch.js';
-import type { AgentTouch } from '../src/agentBackend/index.js';
+import { createStreamAccumulator } from '../src/agentBackend/claudeStreamParser.ts';
+import { createToolTouchReader, splitCommand } from '../src/agentBackend/claudeToolTouch.ts';
+import type { AgentTouch } from '../src/agentBackend/index.ts';
 import { canonicalPath, createWorkspaceInference, workspaceOfPaths } from '../src/workspaceInference.ts';
 
 const HOME = '/home/alexis';

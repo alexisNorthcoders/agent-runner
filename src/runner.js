@@ -41,11 +41,11 @@ const cap = (s, n) => (s.length <= n ? s : `${s.slice(0, n)}\n…(truncated, see
 
 /**
  * `opus (workspace)` for a model that didn't come from the runner default, else ''.
- * @param {import('./agentBackend/index.js').AgentModelChoice | undefined} m
+ * @param {import('./agentBackend/index.ts').AgentModelChoice | undefined} m
  */
 export const modelNote = (m) => (m && m.source !== 'default' ? `${m.name} (${m.source})` : '');
 
-/** @param {import('./agentBackend/index.js').AgentModelChoice | undefined} m */
+/** @param {import('./agentBackend/index.ts').AgentModelChoice | undefined} m */
 /** A Parent run that ended one of these ways gets the lead line in its Continuation's instructions. */
 const EARLY_END_OUTCOMES = new Set(['stopped', 'limited', 'timeout', 'failed']);
 
@@ -53,7 +53,7 @@ const modelSuffix = (m) => (modelNote(m) ? `, model ${modelNote(m)}` : '');
 
 /**
  * @param {import('./runLock.ts').RunRecord} rec
- * @param {import('./agentBackend/index.js').AgentResult} r
+ * @param {import('./agentBackend/index.ts').AgentResult} r
  */
 export function formatRunResult(rec, r) {
   const name = capitalize(describeRun(rec));
@@ -102,11 +102,11 @@ export function formatJobResult(rec, r, durationMs) {
 }
 
 /**
- * @typedef {import('./agentBackend/index.js').AgentRun} AgentRun
+ * @typedef {import('./agentBackend/index.ts').AgentRun} AgentRun
  * @typedef {{
  *   record: import('./runLock.ts').RunRecord,
  *   run: { pid: number | null, stop: () => void },
- *   progress: import('./agentBackend/index.js').AgentProgress | null,
+ *   progress: import('./agentBackend/index.ts').AgentProgress | null,
  *   phase: 'agent' | 'post-run' | 'job',
  *   stopRequested: boolean,
  *   tracker: ReturnType<ReturnType<typeof import('./activeRuns.ts').createActiveRuns>['track']>,
@@ -137,7 +137,7 @@ export function formatJobResult(rec, r, durationMs) {
  *   usageLimit: ReturnType<typeof import('./usageLimitPause.ts').createUsageLimitPause>,
  *   queue: ReturnType<typeof import('./runQueue.ts').createRunQueue>,
  *   outbox: ReturnType<typeof import('./outbox.ts').createOutbox>,
- *   backend: import('./agentBackend/index.js').AgentBackend,
+ *   backend: import('./agentBackend/index.ts').AgentBackend,
  *   history: Pick<ReturnType<typeof import('./runHistory.ts').createRunHistory>, 'append' | 'read'>,
  *   activeRuns: Pick<ReturnType<typeof import('./activeRuns.ts').createActiveRuns>, 'track'>,
  *   statusSnapshot: () => Promise<import('./statusCollect.js').StatusSnapshot>,
@@ -217,7 +217,7 @@ export function createRunner({
    * workspace: set once on the active run, its lock record and active-run file, and later its
    * history row. Null when there's no allowlist to infer from.
    * @param {string} runId
-   * @returns {((t: import('./agentBackend/index.js').AgentTouch) => void) | undefined}
+   * @returns {((t: import('./agentBackend/index.ts').AgentTouch) => void) | undefined}
    */
   function inferWorkspace(runId) {
     const list = workspaces?.list;
@@ -264,7 +264,7 @@ export function createRunner({
    * naming the pause in force. `retry` (a manual request's first pass) goes back to the head of the
    * queue if the limit stopped it before it did any real work, so it runs by itself after the pause.
    * @param {ActiveRun} a
-   * @param {import('./agentBackend/index.js').AgentResult} result
+   * @param {import('./agentBackend/index.ts').AgentResult} result
    * @param {import('./runQueue.ts').QueuedRun} [retry]
    */
   async function hitUsageLimit(a, result, retry) {
@@ -412,9 +412,9 @@ export function createRunner({
    * `report` turns the agent's result into the outbox text and extra history fields. Releases the
    * lock if the agent can't start.
    * @param {import('./runLock.ts').RunRecord} record
-   * @param {Omit<import('./agentBackend/index.js').AgentStartOptions, 'logPath' | 'onProgress'>} opts
+   * @param {Omit<import('./agentBackend/index.ts').AgentStartOptions, 'logPath' | 'onProgress'>} opts
    *   `preamble` defaults to the issue-run preamble.
-   * @param {(result: import('./agentBackend/index.js').AgentResult, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
+   * @param {(result: import('./agentBackend/index.ts').AgentResult, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
    * @param {import('./runQueue.ts').QueuedRun} [retry] the request to re-queue if the usage limit
    *   stops it before it starts (manual requests only)
    */
@@ -426,7 +426,7 @@ export function createRunner({
       await lock.release(record.runId).catch(() => {});
       throw err;
     }
-    /** @param {import('./agentBackend/index.js').AgentResult} result */
+    /** @param {import('./agentBackend/index.ts').AgentResult} result */
     const agentHistory = (result) => ({ backend: backend.name, logPath: result.logPath, ...result.usage, ...(result.limit ? { limit: result.limit } : {}) });
     /** @param {string} text */
     const toOwner = (text) =>
@@ -1057,7 +1057,7 @@ export function createRunner({
       }
     },
 
-    /** @returns {Promise<{ busy: boolean, activeRun: (import('./runLock.ts').RunRecord & Partial<import('./agentBackend/index.js').AgentProgress> & { phase?: ActiveRun['phase'] }) | null, paused: boolean, queued: number }>} */
+    /** @returns {Promise<{ busy: boolean, activeRun: (import('./runLock.ts').RunRecord & Partial<import('./agentBackend/index.ts').AgentProgress> & { phase?: ActiveRun['phase'] }) | null, paused: boolean, queued: number }>} */
     async status() {
       const [held, paused, queued] = await Promise.all([lock.current(), pausedReason(), queue.length()]);
       const live = active && held?.runId === active.record.runId ? { ...active.progress, phase: active.phase } : null;

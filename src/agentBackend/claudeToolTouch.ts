@@ -1,9 +1,10 @@
 import { homedir } from 'os';
 import { isAbsolute, resolve } from 'path';
+import type { AgentTouch } from './index.ts';
 
 /**
  * Which paths a Claude tool call works on, as the agent-neutral `AgentTouch` the runner infers a
- * freeform run's workspace from (see ./index.js). Edits name their file; a Bash command touches
+ * freeform run's workspace from (see ./index.ts). Edits name their file; a Bash command touches
  * the directory it runs in and the paths it targets. Reads and searches touch nothing.
  *
  * The Bash tool keeps its working directory between calls, so the reader follows `cd` from one
@@ -16,25 +17,23 @@ const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 const DIR_OPTIONS = new Set(['-C', '--prefix', '--cwd', '--dir']);
 const GLOB = /[*?[{]/;
 
-/** `~`, `~/x`, `$HOME/x` and `${HOME}/x` expanded; other words as they are. @param {string} w @param {string} home */
-function expandHome(w, home) {
+/** `~`, `~/x`, `$HOME/x` and `${HOME}/x` expanded; other words as they are. */
+function expandHome(w: string, home: string) {
   if (w === '~' || w === '$HOME' || w === '${HOME}') return home;
   const m = /^(?:~|\$HOME|\$\{HOME\})\/(.*)$/.exec(w);
   return m ? `${home}/${m[1]}` : w;
 }
 
-/** A word's path up to its first glob character (`src/*.js` → `src/`). @param {string} w */
-const beforeGlob = (w) => {
+/** A word's path up to its first glob character (`src/*.js` → `src/`). */
+const beforeGlob = (w: string) => {
   const i = w.search(GLOB);
   return i < 0 ? w : w.slice(0, i);
 };
 
 /**
  * The command's simple commands, each as its words, quotes dropped.
- * @param {string} command
- * @returns {string[][]}
  */
-export function splitCommand(command) {
+export function splitCommand(command: string): string[][] {
   return String(command)
     .split(/&&|\|\||[;|\n()]/)
     .map((part) =>
@@ -46,17 +45,12 @@ export function splitCommand(command) {
     .filter((words) => words.length);
 }
 
-/**
- * @param {{ cwd: string, home?: string }} p `cwd`: where the agent was started, the Bash tool's
- *   first working directory.
- */
-export function createToolTouchReader({ cwd, home = homedir() }) {
+/** `cwd`: where the agent was started, the Bash tool's first working directory. */
+export function createToolTouchReader({ cwd, home = homedir() }: { cwd: string; home?: string }) {
   let shellCwd = cwd;
-  /** @param {string} w @param {string} from */
-  const pathOf = (w, from) => resolve(from, expandHome(beforeGlob(w), home) || '.');
+  const pathOf = (w: string, from: string) => resolve(from, expandHome(beforeGlob(w), home) || '.');
 
-  /** @param {string} command @returns {string[]} */
-  function commandPaths(command) {
+  function commandPaths(command: string): string[] {
     const paths = [shellCwd];
     let here = shellCwd;
     for (const words of splitCommand(command)) {
@@ -80,11 +74,9 @@ export function createToolTouchReader({ cwd, home = homedir() }) {
 
   return {
     /**
-     * @param {string} name the tool
-     * @param {Record<string, unknown>} [input]
-     * @returns {import('./index.js').AgentTouch | null}
+     * @param name the tool
      */
-    read(name, input = {}) {
+    read(name: string, input: Record<string, unknown> = {}): AgentTouch | null {
       if (EDIT_TOOLS.has(name)) {
         const file = input.file_path ?? input.notebook_path;
         return typeof file === 'string' && file ? { action: 'edit', paths: [pathOf(file, shellCwd)] } : null;

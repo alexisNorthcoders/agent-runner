@@ -39,7 +39,7 @@ are in `GLOSSARY.md`.
   `import()`, where `import.meta.main` is false, so its guard also accepts an exact `pm_exec_path`.
   Agent runs inherit `pm_exec_path` from PM2, so inside a run in the live checkout, importing
   `src/main.js` starts a second runner. Never import or run an entry module to check that it loads.
-- Modules say "agent", not "claude". Claude-specific code stays in `src/agentBackend/claude.js`
+- Modules say "agent", not "claude". Claude-specific code stays in `src/agentBackend/claude.ts`
   (and its stream parser). User-facing commands stay `claude*`.
 - Redis access goes through the `Store` interface (`src/redisStore.ts`). Tests use
   `test/helpers/memoryStore.ts`, kept honest by `test/store.contract.test.ts`.

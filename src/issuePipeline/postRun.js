@@ -46,7 +46,7 @@ import { buildPostCloseChangesEmail } from './mailer.js';
  * }} AutofixResult
  *   `wip` is the leftover work of an autofix the usage limit cut short, committed but not pushed.
  *
- * @typedef {(p: { prompt: string, label: string }) => Promise<Pick<import('../agentBackend/index.js').AgentResult, 'outcome' | 'exitCode' | 'text' | 'stderr'>>} RunAgent
+ * @typedef {(p: { prompt: string, label: string }) => Promise<Pick<import('../agentBackend/index.ts').AgentResult, 'outcome' | 'exitCode' | 'text' | 'stderr'>>} RunAgent
  *   Runs a follow-up agent pass in the repo (the autofix). Never rejects.
  */
 
