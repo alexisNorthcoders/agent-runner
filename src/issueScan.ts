@@ -1,4 +1,4 @@
-import { classifyReadyIssues, hasLabel } from './cronTracer.js';
+import { classifyReadyIssues, hasLabel } from './cronTracer.ts';
 import { errorText } from './narrow.ts';
 
 /**
@@ -7,7 +7,7 @@ import { errorText } from './narrow.ts';
  * issues with `gh` on startup, every `intervalMs` and after each run, and caches the result for
  * the office feed, so the page never talks to GitHub.
  *
- * `ready-for-agent` issues are split the way the cron issue tracer (src/cronTracer.js) would see
+ * `ready-for-agent` issues are split the way the cron issue tracer (src/cronTracer.ts) would see
  * them, with its own helpers: **parked** (an open agent PR whose current state the cron already
  * attempted), **blocked** (an open native dependency, or a failed lookup), else **runnable**. The
  * scan only reads the cron's PR attempts; it never writes cron state.

@@ -1,5 +1,5 @@
 import { isRecord, parseJsonObject } from './narrow.ts';
-import type { ScheduledJob } from './scheduledJobs.js';
+import type { ScheduledJob } from './scheduledJobs.ts';
 import type { Store } from './redisStore.ts';
 
 /**

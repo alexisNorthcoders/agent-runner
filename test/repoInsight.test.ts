@@ -8,7 +8,7 @@ import {
   pickNextIdleWorkspace as pick,
   runRepoInsight,
   sweepRepoInsight,
-} from '../src/repoInsight.js';
+} from '../src/repoInsight.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';
 
 const allIdle = Object.fromEntries(ORDER.map((a) => [a, true]));
@@ -80,7 +80,7 @@ describe('repo insight lookups', () => {
   const issue = (number, ...labels) => ({ number, title: `T${number}`, labels });
   const suggested = /** @type {import('../src/issuePipeline/githubIssue.ts').SuggestedIssue[]} */ ([{ number: 9, title: 'S', url: 'u', state: 'closed', labels: ['agent-suggested', 'wontfix'] }]);
   const setup = async ({ issues = [], blockers = {}, prs = new Map(), attempts = new Map() } = {}) => {
-    const { createRepoInsightLookups } = await import('../src/repoInsight.js');
+    const { createRepoInsightLookups } = await import('../src/repoInsight.ts');
     return createRepoInsightLookups({
       workspaces: { resolveIssueWorkspace: async (alias) => ({ alias, root: `/ws/${alias}` }) },
       github: {

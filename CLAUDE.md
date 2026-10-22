@@ -21,12 +21,12 @@ service's Redis outbox (`agent-runner:outbox` stream). The design record is What
 
 Built so far: freeform runs, `claude joplin:<note>`, the GitHub issue pipeline
 (`claude issue:<alias>:<n>`: fetch → branch in place → agent → commit → PR → review → autofix →
-merge, in `src/issuePipeline/`), `claude:stop`, `claude:restart` / `npm run safe-restart`, scheduled jobs (`src/scheduledJobs.js`, daily commands in place of crontab lines),
+merge, in `src/issuePipeline/`), `claude:stop`, `claude:restart` / `npm run safe-restart`, scheduled jobs (`src/scheduledJobs.ts`, daily commands in place of crontab lines),
 `claude:status` / `claude:history` and the `npm run agent:*` CLIs, the Redis single-flight lock, run queue,
 pause flag and manual pauses (`claude:pause` / `npm run agent:pause`, general or per workspace), startup recovery (with a WIP commit for issue runs), and the cron issue tracer
-(`src/cronTracer.js`, over `runner.startIssueRun`, with its state in Redis), and the office
+(`src/cronTracer.ts`, over `runner.startIssueRun`, with its state in Redis), and the office
 dashboard's feed (`GET /office/feed`, SSE, pushed from `src/stateChanges.ts`, with the active run's masked live log from `src/logTail.ts`) and plain panel
-(`dashboard/`), with each repo's pending issues from the issue scan (`src/issueScan.js`). Layout, Redis keys and the office snapshot shape are in `README.md`; dashboard terms
+(`dashboard/`), with each repo's pending issues from the issue scan (`src/issueScan.ts`). Layout, Redis keys and the office snapshot shape are in `README.md`; dashboard terms
 are in `GLOSSARY.md`.
 
 ## Conventions

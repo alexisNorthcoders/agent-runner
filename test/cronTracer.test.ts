@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCronTracer, partitionIssuesWithOpenPr, pickNextRunnableIssue } from '../src/cronTracer.js';
+import { createCronTracer, partitionIssuesWithOpenPr, pickNextRunnableIssue } from '../src/cronTracer.ts';
 import { cronAliasesFromEnv } from '../src/config.ts';
 import { createManualPause } from '../src/manualPause.ts';
 import { createUsageLimitPause } from '../src/usageLimitPause.ts';

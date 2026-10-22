@@ -13,7 +13,7 @@ import { notifyingStore } from '../src/stateChanges.ts';
 import { createRunLock } from '../src/runLock.ts';
 import { createPauseFlag } from '../src/pauseFlag.ts';
 import { createOutbox } from '../src/outbox.ts';
-import { runSafeRestart } from '../src/safeRestart.js';
+import { runSafeRestart } from '../src/safeRestart.ts';
 
 const READY_TIMEOUT_MS = 60_000;
 const PM2_TIMEOUT_MS = 60_000;

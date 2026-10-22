@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createJobScheduler, decideJobs, JOBS_LAST_FIRED_KEY, jobSchedule, loadJobsFile, nextDueAt, parseJobs } from '../src/scheduledJobs.js';
+import { createJobScheduler, decideJobs, JOBS_LAST_FIRED_KEY, jobSchedule, loadJobsFile, nextDueAt, parseJobs } from '../src/scheduledJobs.ts';
 import { createOutbox, OUTBOX_KEY } from '../src/outbox.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';
 

@@ -5,7 +5,7 @@
  * - `agent-runner:repo-insight:cursor` (string): the alias last visited.
  */
 
-import { classifyReadyIssues } from './cronTracer.js';
+import { classifyReadyIssues } from './cronTracer.ts';
 
 /** @typedef {import('./issuePipeline/githubIssue.ts').SuggestedIssue} SuggestedIssue */
 

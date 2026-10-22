@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
-import { createJobLauncher } from '../src/jobProcess.js';
+import { createJobLauncher } from '../src/jobProcess.ts';
 
 const CMD = 'echo out-1; echo err-1 >&2; echo out-2; echo "cwd=$(pwd) X=$X"; exit 3';
 

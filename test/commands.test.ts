@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCommand, USAGE } from '../src/commands.js';
+import { parseCommand, USAGE } from '../src/commands.ts';
 
 describe('parseCommand', () => {
   it('parses a freeform instruction', () => {

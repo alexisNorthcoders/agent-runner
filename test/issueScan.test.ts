@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createIssueScan } from '../src/issueScan.js';
+import { createIssueScan } from '../src/issueScan.ts';
 import { createCronState } from '../src/cronState.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';
 import { notifyingStore } from '../src/stateChanges.ts';

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { decideSafeRestart, runSafeRestart } from '../src/safeRestart.js';
+import { decideSafeRestart, runSafeRestart } from '../src/safeRestart.ts';
 import { createRunLock } from '../src/runLock.ts';
 import { createPauseFlag } from '../src/pauseFlag.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';

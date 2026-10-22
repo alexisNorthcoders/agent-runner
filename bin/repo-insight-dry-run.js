@@ -11,7 +11,7 @@ import { createRedisStore } from '../src/redisStore.ts';
 import { createCronState } from '../src/cronState.ts';
 import { createWorkspaceAllowlist } from '../src/workspaces.ts';
 import { createIssuePipeline } from '../src/issuePipeline/index.ts';
-import { REPO_INSIGHT_PRIORITY, createRepoInsightCursor, createRepoInsightLookups, decideRepoInsightTarget } from '../src/repoInsight.js';
+import { REPO_INSIGHT_PRIORITY, createRepoInsightCursor, createRepoInsightLookups, decideRepoInsightTarget } from '../src/repoInsight.ts';
 
 async function main() {
   const persist = !process.argv.includes('--no-persist');

@@ -4,7 +4,7 @@ import { OWNER } from './outbox.ts';
 
 /**
  * Scheduled jobs: commands the runner runs at a fixed UTC time, once a day or on a set weekday or day of the month, in place of crontab
- * lines. A due job joins the run queue as a `job` request and runs as-is under the lock (src/jobProcess.js),
+ * lines. A due job joins the run queue as a `job` request and runs as-is under the lock (src/jobProcess.ts),
  * without a preamble or post-run.
  *
  * - **Config**: a JSON array in `SCHEDULED_JOBS_FILE` (default `scheduled-jobs.json` in the repo),

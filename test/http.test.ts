@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHttpServer } from '../src/http.js';
+import { createHttpServer } from '../src/http.ts';
 
 describe('http API', () => {
   /** @type {any[]} */
