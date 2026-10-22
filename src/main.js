@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { mkdirSync } from 'fs';
+import { mkdirSync, realpathSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { loadConfig } from './config.js';
@@ -219,5 +219,15 @@ async function main() {
 }
 
 // PM2 loads this file with import() from its own wrapper, so import.meta.main is false there. Its
-// pm_exec_path names the script; agent runs inherit it, so the match has to be exact.
-if (import.meta.main || process.env.pm_exec_path === fileURLToPath(import.meta.url)) await main();
+// pm_exec_path names the script; agent runs inherit it, so the match has to be exact. PM2 keeps the
+// path as given while ESM resolves symlinks, so compare real paths.
+function startedByPm2() {
+  if (!process.env.pm_exec_path) return false;
+  try {
+    return realpathSync(process.env.pm_exec_path) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (import.meta.main || startedByPm2()) await main();
