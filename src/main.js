@@ -18,7 +18,7 @@ import { createCronTracer } from './cronTracer.ts';
 import { collectStatus } from './statusCollect.ts';
 import { createJoplinClient } from './joplin.ts';
 import { buildFreeformPreamble, buildPreamble } from './preamble.ts';
-import { createRunner } from './runner.js';
+import { createRunner } from './runner.ts';
 import { createHttpServer } from './http.ts';
 import { createWorkspaceAllowlist } from './workspaces.ts';
 import { createIssuePipeline } from './issuePipeline/index.ts';

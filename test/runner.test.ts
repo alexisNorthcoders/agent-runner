@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRunner } from '../src/runner.js';
+import { createRunner } from '../src/runner.ts';
+import type { RunnerDeps } from '../src/runner.ts';
 import { createRunLock } from '../src/runLock.ts';
 import { createPauseFlag } from '../src/pauseFlag.ts';
 import { createRunQueue } from '../src/runQueue.ts';
@@ -8,24 +9,40 @@ import { createManualPause } from '../src/manualPause.ts';
 import { createOutbox, OUTBOX_KEY } from '../src/outbox.ts';
 import { createUsageLimitPause } from '../src/usageLimitPause.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';
+import type { AgentModelChoice, AgentOutcome, AgentProgress, AgentResult, AgentRun, AgentStartOptions, AgentTouch, AgentUsageLimit } from '../src/agentBackend/index.ts';
+import type { HistoryEntry } from '../src/runHistory.ts';
+import type { QueuedRun } from '../src/runQueue.ts';
+import type { RunRecord } from '../src/runLock.ts';
+import type { StatusSnapshot } from '../src/statusCollect.ts';
+import type { JobResult, JobRun, JobStartOptions } from '../src/jobProcess.ts';
+import type { PostRunResult } from '../src/issuePipeline/postRun.ts';
+
+type TestHistoryEntry = HistoryEntry & { followUps?: { costUsd: number | null }[] };
+
+type FakeAgentRun = AgentRun & {
+  opts: AgentStartOptions;
+  settle: (r: AgentResult) => void;
+  stopped: boolean;
+  finish: (outcome?: AgentOutcome, text?: string, sessionId?: string | null) => void;
+  hitLimit: (limit: AgentUsageLimit, turns?: number) => void;
+  touch: (t: AgentTouch) => void;
+  progress: (p: AgentProgress) => void;
+};
 
 /** Controllable AgentBackend fake: each start() creates a run you settle by hand. */
-/** @param {import('../src/agentBackend/index.ts').AgentModelChoice} [modelChoice] */
-function fakeBackend(modelChoice = { name: 'sonnet', source: 'default' }) {
-  /** @type {any[]} */
-  const starts = [];
+function fakeBackend(modelChoice: AgentModelChoice = { name: 'sonnet', source: 'default' }) {
+  const starts: FakeAgentRun[] = [];
   return {
     starts,
     backend: {
       name: 'fake',
-      async start(opts) {
-        /** @type {(r: any) => void} */
-        let settle = () => {};
-        const done = new Promise((r) => (settle = r));
-        const run = {
+      async start(opts: AgentStartOptions) {
+        let settle: (r: AgentResult) => void = (): void => {};
+        const done = new Promise<AgentResult>((r) => (settle = r));
+        const run: FakeAgentRun = {
           opts,
           settle: (r) => settle(r),
-          model: opts.model ? { name: opts.model, source: opts.modelSource ?? /** @type {const} */ ('prefix') } : modelChoice,
+          model: opts.model ? { name: opts.model, source: opts.modelSource ?? ('prefix' as const) } : modelChoice,
           stopped: false,
           pid: 900 + starts.length,
           done,
@@ -37,7 +54,14 @@ function fakeBackend(modelChoice = { name: 'sonnet', source: 'default' }) {
             const r = result(outcome, text);
             settle({ ...r, usage: { ...r.usage, sessionId } });
           },
-          /** @param {import('../src/agentBackend/index.ts').AgentUsageLimit} limit @param {number} [turns] */
+          touch: (t) => {
+            assert.ok(opts.onTouch);
+            opts.onTouch(t);
+          },
+          progress: (p) => {
+            assert.ok(opts.onProgress);
+            opts.onProgress(p);
+          },
           hitLimit: (limit, turns = 3) => {
             const r = result('limited', "You've hit your session limit");
             settle({ ...r, exitCode: 1, limit, usage: { ...r.usage, turns } });
@@ -50,7 +74,13 @@ function fakeBackend(modelChoice = { name: 'sonnet', source: 'default' }) {
   };
 }
 
-const result = (outcome, text) => ({
+function last<T>(items: T[]): T {
+  const item = items.at(-1);
+  assert.ok(item);
+  return item;
+}
+
+const result = (outcome: AgentOutcome, text: string): AgentResult => ({
   outcome,
   exitCode: outcome === 'success' ? 0 : outcome === 'failed' ? 1 : null,
   text,
@@ -59,22 +89,23 @@ const result = (outcome, text) => ({
   usage: { model: 'm', sessionId: null, turns: 3, costUsd: 0.12, tokens: { input: 1, output: 2, cacheRead: 0, cacheCreate: 0 } },
 });
 
-function setup(overrides = {}) {
+function isHistoryEntry(e: object): e is TestHistoryEntry {
+  return 'runId' in e && typeof e.runId === 'string' && 'endedAt' in e && typeof e.endedAt === 'string' && 'outcome' in e && typeof e.outcome === 'string';
+}
+
+function setup(overrides: Partial<RunnerDeps> & { modelChoice?: AgentModelChoice } = {}) {
   const store = createMemoryStore();
   const lock = createRunLock({ store, ttlSeconds: 60 });
   const pause = createPauseFlag({ store });
   const queue = createRunQueue({ store, maxLength: 3 });
   const outbox = createOutbox({ store });
   const { backend, starts } = fakeBackend(overrides.modelChoice);
-  /** @type {any[]} */
-  const history = [];
-  /** @type {string[]} */
-  const restarts = [];
-  /** @type {{ record: any, progress: any[], finished: boolean }[]} */
-  const tracked = [];
-  const activeRuns = {
+  const history: TestHistoryEntry[] = [];
+  const restarts: string[] = [];
+  const tracked: { record: RunRecord; progress: AgentProgress[]; finished: boolean }[] = [];
+  const activeRuns: RunnerDeps['activeRuns'] = {
     track(record) {
-      const t = { record, progress: [], finished: false };
+      const t: (typeof tracked)[number] = { record, progress: [], finished: false };
       tracked.push(t);
       return {
         ready: Promise.resolve(),
@@ -84,7 +115,7 @@ function setup(overrides = {}) {
       };
     },
   };
-  let snapshot = {
+  let snapshot: StatusSnapshot = {
     now: Date.parse('2026-09-24T12:00:00Z'),
     active: [],
     paused: null,
@@ -105,7 +136,8 @@ function setup(overrides = {}) {
     outbox,
     backend,
     history: {
-      append: async (e) => void history.push(e),
+      // a row without its required fields is skipped, as the real reader does
+      append: async (e) => void (isHistoryEntry(e) && history.push(e)),
       read: async ({ limit = Infinity } = {}) => [...history].reverse().slice(0, limit),
     },
     activeRuns,
@@ -141,12 +173,19 @@ function setup(overrides = {}) {
     restarts,
     tracked,
     outboxEntries,
-    /** @param {number} ms */
-    advance: (ms) => void (clock += ms),
-    /** @param {object} s */
-    setSnapshot: (s) => void (snapshot = { ...snapshot, ...s }),
+    advance: (ms: number) => void (clock += ms),
+    setSnapshot: (s: Partial<StatusSnapshot>) => void (snapshot = { ...snapshot, ...s }),
   };
 }
+
+function moreParent(item: QueuedRun | undefined) {
+  assert.ok(item);
+  const { cmd } = item;
+  assert.ok(cmd.kind === 'more');
+  return cmd.parent;
+}
+
+type Runner = ReturnType<typeof setup>['runner'];
 
 describe('runner: freeform runs', () => {
   it('says which model a run uses in its acknowledgment and report when it came from the workspace', async () => {
@@ -266,8 +305,9 @@ describe('runner: freeform runs', () => {
   it('a new request waits behind queued ones even if the runner looks idle', async () => {
     const { runner, queue, starts, pause } = setup();
     const token = await pause.set('safe-restart');
+    assert.ok(token);
     await runner.handleCommand({ text: 'claude first', replyTo: 'a' });
-    await pause.clear(/** @type {string} */ (token));
+    await pause.clear(token);
     const { reply } = await runner.handleCommand({ text: 'claude second', replyTo: 'a' });
     assert.match(reply, /Queued \(position 2\)/);
     await runner.idle();
@@ -309,9 +349,10 @@ describe('runner: freeform runs', () => {
     const { runner, queue, pause, starts } = setup();
     await queue.push({ id: 'q1', cmd: { kind: 'freeform', prompt: 'left over' }, replyTo: 'a', label: 'left over', queuedAt: '' });
     const token = await pause.set('safe-restart');
+    assert.ok(token);
     await runner.drainQueue();
     assert.equal(starts.length, 0);
-    await pause.clear(/** @type {string} */ (token));
+    await pause.clear(token);
     await runner.drainQueue();
     assert.equal(starts[0]?.opts.prompt, 'left over');
   });
@@ -376,27 +417,26 @@ describe('runner: freeform runs', () => {
 });
 
 describe('runner: a freeform run finds its workspace', () => {
-  const allowlist = {
-    resolveIssueWorkspace: async (alias) => ({ alias, root: `/repos/${alias}` }),
+  const allowlist: NonNullable<RunnerDeps['workspaces']> = {
+    resolveIssueWorkspace: async (alias) => ({ alias: alias ?? 'bot', root: `/repos/${alias ?? 'bot'}` }),
     list: async () => [
       { alias: 'bot', root: '/repos/bot' },
       { alias: 'chess', root: '/repos/chess' },
     ],
   };
   // /repos doesn't exist, so each path resolves to itself after a few failed realpath calls
-  /** Resolves once `cond` holds (or after 2s). @param {() => Promise<boolean>} cond */
-  const until = async (cond) => {
+  /** Resolves once `cond` holds (or after 2s). */
+  const until = async (cond: () => Promise<boolean>) => {
     for (let i = 0; i < 200 && !(await cond()); i++) await new Promise((r) => setTimeout(r, 10));
   };
 
   it('records the first edit or command in a workspace on the active run, the lock, status and history', async () => {
-    const changes = [];
+    const changes: string[] = [];
     const { runner, starts, lock, tracked, history } = setup({ workspaces: allowlist, onChange: (w) => changes.push(w) });
     await runner.handleCommand({ text: 'claude fix the bot', replyTo: 'jid' });
-    const { onTouch } = starts[0].opts;
-    onTouch({ action: 'command', paths: ['/home/u/Projects'] });
-    onTouch({ action: 'edit', paths: ['/repos/bot/src/a.js'] });
-    onTouch({ action: 'edit', paths: ['/repos/chess/b.js'] });
+    starts[0].touch({ action: 'command', paths: ['/home/u/Projects'] });
+    starts[0].touch({ action: 'edit', paths: ['/repos/bot/src/a.js'] });
+    starts[0].touch({ action: 'edit', paths: ['/repos/chess/b.js'] });
     await until(async () => changes.includes('inferred-workspace'));
     // time for the later touch to have been looked at too
     await new Promise((r) => setTimeout(r, 50));
@@ -413,7 +453,7 @@ describe('runner: a freeform run finds its workspace', () => {
   it('a run that touches no workspace has none', async () => {
     const { runner, starts, history } = setup({ workspaces: allowlist });
     await runner.handleCommand({ text: 'claude look around', replyTo: 'jid' });
-    starts[0].opts.onTouch({ action: 'command', paths: ['/home/u/Projects', '/tmp/x'] });
+    starts[0].touch({ action: 'command', paths: ['/home/u/Projects', '/tmp/x'] });
     await new Promise((r) => setTimeout(r, 50));
     starts[0].finish();
     await runner.idle();
@@ -502,9 +542,10 @@ describe('runner: status', () => {
     const { runner, starts, pause } = setup();
     assert.deepEqual(await runner.status(), { busy: false, activeRun: null, paused: false, queued: 0 });
     await runner.handleCommand({ text: 'claude job', replyTo: 'a' });
-    starts[0].opts.onProgress({ model: 'm', turns: 2, outputTokens: 5, contextTokens: 9, lastActivity: 'Bash: ls' });
+    starts[0].progress({ model: 'm', turns: 2, outputTokens: 5, contextTokens: 9, lastActivity: 'Bash: ls' });
     const s = await runner.status();
     assert.equal(s.busy, true);
+    assert.ok(s.activeRun);
     assert.equal(s.activeRun.runId, 'run-1');
     assert.equal(s.activeRun.lastActivity, 'Bash: ls');
     assert.equal(s.activeRun.replyTo, 'a');
@@ -515,12 +556,11 @@ describe('runner: status', () => {
 
 describe('runner: state change notification', () => {
   it('tells onChange when a run starts, progresses, changes phase and ends', async () => {
-    /** @type {string[]} */
-    const changes = [];
+    const changes: string[] = [];
     const { runner, starts } = setup({ onChange: (r) => changes.push(r) });
     await runner.handleCommand({ text: 'claude job', replyTo: 'a' });
     assert.deepEqual(changes, ['run-started']);
-    starts[0].opts.onProgress({ model: 'm', turns: 1, outputTokens: 1, contextTokens: 1, lastActivity: 'Bash: ls' });
+    starts[0].progress({ model: 'm', turns: 1, outputTokens: 1, contextTokens: 1, lastActivity: 'Bash: ls' });
     assert.deepEqual(changes, ['run-started', 'progress']);
     starts[0].finish();
     await runner.idle();
@@ -536,7 +576,7 @@ describe('runner: active-run files', () => {
     assert.equal(tracked[0].record.runId, 'run-1');
     assert.equal(tracked[0].record.agentPid, 900);
     const p = { model: 'm', turns: 2, outputTokens: 5, contextTokens: 9, lastActivity: 'Bash: ls' };
-    starts[0].opts.onProgress(p);
+    starts[0].progress(p);
     assert.deepEqual(tracked[0].progress, [p]);
     advance(90_000);
     starts[0].finish();
@@ -568,7 +608,7 @@ describe('runner: claude:status and claude:history', () => {
     const { runner, starts } = setup();
     for (const job of ['one', 'two', 'three']) {
       await runner.handleCommand({ text: `claude ${job}`, replyTo: 'a' });
-      starts.at(-1).finish();
+      last(starts).finish();
       await runner.idle();
     }
     const { reply } = await runner.handleCommand({ text: 'claude:history 2', replyTo: 'a' });
@@ -614,7 +654,7 @@ describe('runner: startup recovery', () => {
   });
 
   it('warns when the old agent process is still alive', async () => {
-    const { runner, lock, outboxEntries } = setup({ isAlive: (pid) => pid === 55 });
+    const { runner, lock, outboxEntries } = setup({ isAlive: (pid: number) => pid === 55 });
     await lock.tryAcquire({ runId: 'old', agentPid: 55 });
     await runner.recoverInterruptedRun();
     assert.match(outboxEntries()[0].text, /pid 55.*still running/s);
@@ -633,47 +673,48 @@ describe('runner: startup recovery', () => {
  * Fake issue pipeline: `finish` resolves when the test calls `release(result)`, and can run a
  * follow-up agent pass through the `runAgent` it was given.
  */
-function fakeIssues({ prepareError = null, labels = [] } = {}) {
-  /** @type {any[]} */
-  const prepares = [];
-  /** @type {any[]} */
-  const finishes = [];
-  /** @type {any[]} */
-  const recoveries = [];
-  let recovery = { ok: true, sha: 'abc1234', branch: 'claude/issue-7-fix-it' };
-  return {
-    prepares,
-    finishes,
-    recoveries,
-    setRecovery: (r) => (recovery = r),
-    issues: {
-      async prepare(p) {
-        prepares.push(p);
-        if (prepareError) throw new Error(prepareError);
-        return {
-          prompt: '# GitHub issue #7',
-          issue: { number: 7, repo: 'o/r', title: 'Fix it' },
-          branchName: 'claude/issue-7-fix-it',
-          defaultBranch: 'main',
-          resumed: false,
-          preAgentHeadSha: 'sha0',
-          labels,
-        };
-      },
-      finish(p) {
-        return new Promise((resolve) => {
-          finishes.push({ ...p, release: (r = { result: 'merged', message: '✅ #7 merged — Fix it', silent: false }) => resolve({ post: {}, mergeNetworkError: false, ...r }) });
+type Issues = NonNullable<RunnerDeps['issues']>;
+type IssueFinishResult = Awaited<ReturnType<Issues['finish']>>;
+type IssueRelease = Omit<IssueFinishResult, 'post' | 'mergeNetworkError'> & { mergeNetworkError?: boolean; post?: Partial<PostRunResult> };
+type IssueFinish = Parameters<Issues['finish']>[0] & { release: (r?: IssueRelease) => void };
+
+function fakeIssues({ prepareError = null, labels = [] }: { prepareError?: string | null; labels?: string[] } = {}) {
+  const prepares: Parameters<Issues['prepare']>[0][] = [];
+  const finishes: IssueFinish[] = [];
+  const recoveries: Parameters<Issues['commitInterruptedWork']>[0][] = [];
+  let recovery: Awaited<ReturnType<Issues['commitInterruptedWork']>> = { ok: true, sha: 'abc1234', branch: 'claude/issue-7-fix-it' };
+  const issues: Issues = {
+    async prepare(p) {
+      prepares.push(p);
+      if (prepareError) throw new Error(prepareError);
+      return {
+        prompt: '# GitHub issue #7',
+        issue: { number: 7, repo: 'o/r', title: 'Fix it' },
+        branchName: 'claude/issue-7-fix-it',
+        defaultBranch: 'main',
+        resumed: false,
+        preAgentHeadSha: 'sha0',
+        labels,
+      };
+    },
+    finish(p) {
+      return new Promise((resolve) => {
+        finishes.push({
+          ...p,
+          release: (r = { result: 'merged', message: '✅ #7 merged — Fix it', silent: false }) =>
+            resolve({ mergeNetworkError: false, ...r, post: { ran: false, note: '', ...r.post } }),
         });
-      },
-      async commitInterruptedWork(p) {
-        recoveries.push(p);
-        return recovery;
-      },
+      });
+    },
+    async commitInterruptedWork(p) {
+      recoveries.push(p);
+      return recovery;
     },
   };
+  return { prepares, finishes, recoveries, setRecovery: (r: typeof recovery) => (recovery = r), issues };
 }
 
-const fakeWorkspaces = {
+const fakeWorkspaces: NonNullable<RunnerDeps['workspaces']> = {
   async resolveIssueWorkspace(alias) {
     if (alias === 'nope') throw new Error('Unknown workspace alias "nope". Valid aliases: a');
     return { alias: alias ?? 'a', root: '/repos/a' };
@@ -683,21 +724,20 @@ const fakeWorkspaces = {
 /** Let queued promise callbacks run. */
 const flush = () => new Promise((r) => setImmediate(r));
 
-function issueSetup(opts = {}) {
+function issueSetup(opts: Parameters<typeof fakeIssues>[0] & { overrides?: Partial<RunnerDeps> } = {}) {
   const fi = fakeIssues(opts);
   return { ...fi, ...setup({ issues: fi.issues, workspaces: fakeWorkspaces, ...(opts.overrides ?? {}) }) };
 }
 
 describe('runner: issue runs', () => {
-  /** @param {string[]} labels @param {'manual' | 'cron'} [trigger] */
-  const labelRun = async (labels, trigger = 'manual') => {
+  const labelRun = async (labels: string[], trigger: 'manual' | 'cron' = 'manual') => {
     const h = issueSetup({ labels });
     const r = await h.runner.startIssueRun({ issueNumber: 7, alias: 'a', replyTo: 'owner', trigger });
     return { ...h, r };
   };
 
   it('runs a labelled issue on that model, autofix included, and says so', async () => {
-    for (const trigger of /** @type {const} */ (['manual', 'cron'])) {
+    for (const trigger of (['manual', 'cron'] as const)) {
       const { r, starts, finishes, outboxEntries } = await labelRun([' Model:Opus '], trigger);
       assert.match(r.reply, /, model opus \(label\)\./);
       assert.equal(starts[0].opts.model, 'opus');
@@ -859,15 +899,15 @@ describe('runner: issue runs', () => {
     assert.equal(tracked[0].finished, true);
     assert.equal(tracked[1].record.agentPid, starts[1].pid);
     const p = { model: 'm', turns: 1, outputTokens: 1, contextTokens: 1, lastActivity: 'Edit' };
-    starts[1].opts.onProgress(p);
+    starts[1].progress(p);
     assert.deepEqual(tracked[1].progress, [p]);
     starts[1].finish('success');
     await autofix;
     finishes[0].release();
     await runner.idle();
     assert.equal(tracked[1].finished, true);
-    assert.equal(history[0].costUsd.toFixed(2), '0.24');
-    assert.equal(history[0].followUps[0].costUsd, 0.12);
+    assert.equal(history[0].costUsd?.toFixed(2), '0.24');
+    assert.equal(history[0].followUps?.[0].costUsd, 0.12);
   });
 
   it('explains that post-run itself cannot be interrupted', async () => {
@@ -947,7 +987,7 @@ describe('runner: startup recovery of an issue run', () => {
 
 describe('runner: an orphaned agent at startup', () => {
   it('is stopped first, then its issue work is WIP-committed', async () => {
-    const stopped = [];
+    const stopped: number[] = [];
     const { runner, lock, recoveries, outboxEntries } = issueSetup({
       overrides: { isAlive: () => true, stopOrphanAgent: async (pid) => (stopped.push(pid), true) },
     });
@@ -997,7 +1037,9 @@ describe('runner: pauses set by hand', () => {
     // a freeform run still starts, and is told to leave the paused workspace alone
     await runner.handleCommand({ text: 'claude check the disk', replyTo: 'jid-1' });
     assert.equal(starts.length, 1);
-    assert.match(starts[0].opts.preamble, /^FREEFORM PREAMBLE\n- The owner is working by hand in these workspaces[\s\S]*  - a \(\/repos\/a\): fixing by hand$/);
+    const { preamble } = starts[0].opts;
+    assert.ok(preamble);
+    assert.match(preamble, /^FREEFORM PREAMBLE\n- The owner is working by hand in these workspaces[\s\S]*  - a \(\/repos\/a\): fixing by hand$/);
   });
 
   it('rejects an unknown workspace alias and too long a pause', async () => {
@@ -1018,26 +1060,25 @@ describe('runner: pauses set by hand', () => {
 });
 
 /** Controllable job launcher fake: each start() creates a job run you settle by hand. */
-function fakeJobs({ startError = null } = {}) {
-  /** @type {any[]} */
-  const starts = [];
+type FakeJobRun = JobRun & { opts: JobStartOptions; stopped: boolean; exit: (exitCode?: number) => void };
+
+function fakeJobs({ startError = null }: { startError?: string | null } = {}) {
+  const starts: FakeJobRun[] = [];
   return {
     starts,
     jobs: {
-      async start(opts) {
+      async start(opts: JobStartOptions) {
         if (startError) throw new Error(startError);
-        /** @type {(r: any) => void} */
-        let settle = () => {};
-        const run = {
+        let settle: (r: JobResult) => void = (): void => {};
+        const run: FakeJobRun = {
           opts,
           stopped: false,
           pid: 700 + starts.length,
-          done: new Promise((r) => (settle = r)),
+          done: new Promise<JobResult>((r) => (settle = r)),
           stop() {
             run.stopped = true;
             settle({ outcome: 'stopped', exitCode: null, signal: 'SIGTERM' });
           },
-          /** @param {number} [exitCode] */
           exit: (exitCode = 0) => settle({ outcome: exitCode === 0 ? 'success' : 'failed', exitCode, signal: null }),
         };
         starts.push(run);
@@ -1056,7 +1097,7 @@ const cleanupJob = {
   logFile: '/home/u/reddit-bot/reports/cron-cleanup.log',
 };
 
-function jobSetup({ startError = null, overrides = {} } = {}) {
+function jobSetup({ startError = null, overrides = {} }: { startError?: string | null; overrides?: Partial<RunnerDeps> } = {}) {
   const fj = fakeJobs({ startError });
   return { ...fj, jobStarts: fj.starts, ...setup({ jobs: fj.jobs, jobTimeoutMs: 1_200_000, ...overrides }) };
 }
@@ -1110,27 +1151,31 @@ describe('runner: scheduled jobs', () => {
   describe('usage file', () => {
     /** A job setup whose usage files live in a map the fake job writes to. */
     function usageSetup() {
-      /** @type {Map<string, string>} */
-      const files = new Map();
+      const files: Map<string, string> = new Map();
       const s = jobSetup({
         overrides: {
-          readUsageFile: async (/** @type {string} */ p) => {
-            if (!files.has(p)) throw Object.assign(new Error('nope'), { code: 'ENOENT' });
-            return /** @type {string} */ (files.get(p));
+          readUsageFile: async (p: string) => {
+            const text = files.get(p);
+            if (text === undefined) throw Object.assign(new Error('nope'), { code: 'ENOENT' });
+            return text;
           },
         },
       });
-      const write = (/** @type {string} */ text) => files.set(s.jobStarts[0].opts.env.AGENT_RUNNER_USAGE_FILE, text);
+      const write = (text: string) => {
+        const file = s.jobStarts[0].opts.env?.AGENT_RUNNER_USAGE_FILE;
+        assert.ok(file);
+        files.set(file, text);
+      };
       return { ...s, write };
     }
-    const line = (o) => JSON.stringify(o);
-    const tok = (n) => ({ input: n, output: n * 2, cacheRead: n * 3, cacheCreate: n * 4 });
+    const line = (o: object) => JSON.stringify(o);
+    const tok = (n: number) => ({ input: n, output: n * 2, cacheRead: n * 3, cacheCreate: n * 4 });
 
     it('the job cannot override the usage file variable, and its other env applies', async () => {
       const { runner, jobStarts } = usageSetup();
       await runner.submitJob({ ...cleanupJob, env: { A: 'b', AGENT_RUNNER_USAGE_FILE: '/elsewhere' } });
-      assert.equal(jobStarts[0].opts.env.A, 'b');
-      assert.equal(jobStarts[0].opts.env.AGENT_RUNNER_USAGE_FILE, '/runner/logs/agent-runs/run-1.usage.jsonl');
+      assert.equal(jobStarts[0].opts.env?.A, 'b');
+      assert.equal(jobStarts[0].opts.env?.AGENT_RUNNER_USAGE_FILE, '/runner/logs/agent-runs/run-1.usage.jsonl');
     });
 
     it('sums the lines into the history row, with the highest-cost model', async () => {
@@ -1145,10 +1190,10 @@ describe('runner: scheduled jobs', () => {
       );
       jobStarts[0].exit(0);
       await new Promise((r) => setTimeout(r, 10));
-      const row = history.at(-1);
+      const row = last(history);
       assert.equal(row.model, 'claude-opus-5-5');
       assert.equal(row.turns, 6);
-      assert.ok(Math.abs(row.costUsd - 0.6) < 1e-9);
+      assert.ok(typeof row.costUsd === 'number' && Math.abs(row.costUsd - 0.6) < 1e-9);
       assert.deepEqual(row.tokens, { input: 3, output: 6, cacheRead: 9, cacheCreate: 12 });
     });
 
@@ -1158,7 +1203,7 @@ describe('runner: scheduled jobs', () => {
       write(line({ model: 'a', turns: 1 }) + '\n' + line({ model: 'b' }));
       jobStarts[0].exit(0);
       await new Promise((r) => setTimeout(r, 10));
-      const row = history.at(-1);
+      const row = last(history);
       assert.equal(row.model, 'a');
       assert.equal(row.turns, 1);
       assert.equal(row.costUsd, null);
@@ -1171,7 +1216,7 @@ describe('runner: scheduled jobs', () => {
       write('garbage\n' + line({ model: 'a', turns: 2, costUsd: 1, tokens: tok(1) }) + '\n{"x"');
       jobStarts[0].exit(0);
       await new Promise((r) => setTimeout(r, 10));
-      const row = history.at(-1);
+      const row = last(history);
       assert.equal(row.outcome, 'success');
       assert.equal(row.turns, 2);
     });
@@ -1183,7 +1228,7 @@ describe('runner: scheduled jobs', () => {
         if (text != null) write(text);
         jobStarts[0].exit(0);
         await new Promise((r) => setTimeout(r, 10));
-        const row = history.at(-1);
+        const row = last(history);
         assert.equal(row.outcome, 'success');
         for (const k of ['model', 'turns', 'costUsd', 'tokens']) assert.equal(k in row, false, k);
       }
@@ -1195,16 +1240,16 @@ describe('runner: scheduled jobs', () => {
       failed.write(line({ model: 'a', turns: 4, costUsd: 1 }));
       failed.jobStarts[0].exit(2);
       await new Promise((r) => setTimeout(r, 10));
-      assert.equal(failed.history.at(-1).turns, 4);
-      assert.equal(failed.history.at(-1).outcome, 'failed');
+      assert.equal(last(failed.history).turns, 4);
+      assert.equal(last(failed.history).outcome, 'failed');
 
       const stopped = usageSetup();
       await stopped.runner.submitJob(cleanupJob);
       stopped.write(line({ model: 'a', turns: 5, costUsd: 1 }));
       stopped.jobStarts[0].stop();
       await new Promise((r) => setTimeout(r, 10));
-      assert.equal(stopped.history.at(-1).turns, 5);
-      assert.equal(stopped.history.at(-1).outcome, 'stopped');
+      assert.equal(last(stopped.history).turns, 5);
+      assert.equal(last(stopped.history).outcome, 'stopped');
     });
   });
 
@@ -1284,9 +1329,8 @@ describe('runner: scheduled jobs', () => {
   });
 
   it('startup recovery says when the job process outlived the runner, without the agent orphan check', async () => {
-    /** @type {number[]} */
-    const orphanStops = [];
-    const { runner, lock, outboxEntries } = jobSetup({ overrides: { isAlive: (pid) => pid === 55, stopOrphanAgent: async (pid) => (orphanStops.push(pid), true) } });
+    const orphanStops: number[] = [];
+    const { runner, lock, outboxEntries } = jobSetup({ overrides: { isAlive: (pid: number) => pid === 55, stopOrphanAgent: async (pid) => (orphanStops.push(pid), true) } });
     await lock.tryAcquire({ runId: 'old', kind: 'job', label: 'scheduled job cleanup_agent', agentPid: 55 });
     await runner.recoverInterruptedRun();
     assert.deepEqual(orphanStops, []);
@@ -1573,7 +1617,7 @@ describe('runner: claude:more', () => {
     sessionId: 'sess-old',
     ...extra,
   });
-  const more = (runner, text = 'claude:more add tests') => runner.handleCommand({ text, replyTo: 'jid-1' });
+  const more = (runner: Runner, text = 'claude:more add tests') => runner.handleCommand({ text, replyTo: 'jid-1' });
 
   it('resumes the newest freeform run in its cwd, with no static preamble, and names the parent', async () => {
     const { runner, starts, history } = setup();
@@ -1592,12 +1636,12 @@ describe('runner: claude:more', () => {
     history.push(row({ kind: 'joplin', label: 'Joplin note "Plan"', inferredWorkspace: 'a' }));
     await more(runner, 'claude:more   carry on\nplease');
     assert.deepEqual(
-      { kind: (await lock.current()).kind, ws: (await lock.current()).inferredWorkspace },
+      { kind: (await lock.current())?.kind, ws: (await lock.current())?.inferredWorkspace },
       { kind: 'joplin', ws: 'a' }
     );
     starts[0].finish();
     await runner.idle();
-    const h = history.at(-1);
+    const h = last(history);
     assert.equal(h.kind, 'joplin');
     assert.equal(h.label, '↪ carry on please');
     assert.equal(h.parentRunId, 'old-1');
@@ -1609,8 +1653,10 @@ describe('runner: claude:more', () => {
     history.push(row());
     await manualPause.set({ scope: 'a', seconds: 3600, reason: 'by hand' });
     await more(runner);
-    assert.match(starts[0].opts.preamble, /^The owner is working by hand in these workspaces[\s\S]*  - a: by hand$/);
-    assert.ok(!starts[0].opts.preamble.includes('FREEFORM PREAMBLE'));
+    const { preamble } = starts[0].opts;
+    assert.ok(preamble);
+    assert.match(preamble, /^The owner is working by hand in these workspaces[\s\S]*  - a: by hand$/);
+    assert.ok(!preamble.includes('FREEFORM PREAMBLE'));
   });
 
   it('queues behind an active run and keeps the parent picked on submit', async () => {
@@ -1619,13 +1665,13 @@ describe('runner: claude:more', () => {
     await lock.tryAcquire({ runId: 'busy-1', kind: 'issue', label: 'issue a#7', workspaceRoot: '/repos/a' });
     const { reply } = await more(runner);
     assert.match(reply, /^Queued \(position 1\): ↪ add tests\./);
-    assert.equal(/** @type {any} */ ((await queue.list())[0].cmd).parent.runId, 'old-1');
+    assert.equal(moreParent((await queue.list())[0]).runId, 'old-1');
     await lock.release('busy-1');
     await runner.handleCommand({ text: 'claude:resume', replyTo: 'jid-1' });
     await runner.idle();
     assert.equal(starts.length, 1);
     assert.deepEqual(starts[0].opts.resume, { sessionId: 'sess-old' });
-    assert.match(outboxEntries().at(-1).text, /Queued request "↪ add tests": Started run/);
+    assert.match(last(outboxEntries()).text, /Queued request "↪ add tests": Started run/);
   });
 
   it('queues under the general pause and starts after the resume', async () => {
@@ -1637,7 +1683,7 @@ describe('runner: claude:more', () => {
     await runner.handleCommand({ text: 'claude:resume', replyTo: 'jid-1' });
     await runner.idle();
     assert.equal(starts.length, 1);
-    assert.equal(starts[0].opts.resume.sessionId, 'sess-old');
+    assert.equal(starts[0].opts.resume?.sessionId, 'sess-old');
   });
 
   it('goes back to the head of the queue when the usage limit stops it before it starts', async () => {
@@ -1648,7 +1694,9 @@ describe('runner: claude:more', () => {
     await runner.idle();
     const [item] = await queue.list();
     assert.equal(item.label, '↪ add tests');
-    assert.equal(/** @type {any} */ (item.cmd).parent.sessionId, 'sess-old');
+    const parent = moreParent(item);
+    assert.ok('sessionId' in parent);
+    assert.equal(parent.sessionId, 'sess-old');
   });
 
   it('refuses in one line, starting nothing, with no parent, no session or no instructions', async () => {
@@ -1675,7 +1723,7 @@ describe('runner: claude:more <run-id prefix>', () => {
     sessionId: 'sess-a',
     ...extra,
   });
-  const more = (runner, text) => runner.handleCommand({ text, replyTo: 'jid-1' });
+  const more = (runner: Runner, text: string) => runner.handleCommand({ text, replyTo: 'jid-1' });
 
   it('continues the matching run, not the newest, with its kind, cwd, workspace and parentRunId', async () => {
     const { runner, starts, history } = setup();
@@ -1689,7 +1737,7 @@ describe('runner: claude:more <run-id prefix>', () => {
     assert.equal(starts[0].opts.prompt, 'add tests');
     starts[0].finish();
     await runner.idle();
-    const h = history.at(-1);
+    const h = last(history);
     assert.deepEqual([h.kind, h.parentRunId, h.inferredWorkspace], ['joplin', '2026-09-24T11-00-00-000Z', 'a']);
   });
 
@@ -1699,13 +1747,13 @@ describe('runner: claude:more <run-id prefix>', () => {
     await more(runner, 'claude:more 2026-09-24 first');
     starts[0].finish();
     await runner.idle();
-    const childId = history.at(-1).runId;
-    history.at(-1).sessionId = 'sess-child';
+    const childId = last(history).runId;
+    last(history).sessionId = 'sess-child';
     await more(runner, `claude:more ${childId} second`);
     assert.deepEqual(starts[1].opts.resume, { sessionId: 'sess-child' });
     starts[1].finish();
     await runner.idle();
-    assert.equal(history.at(-1).parentRunId, childId);
+    assert.equal(last(history).parentRunId, childId);
   });
 
   it('takes instructions that only start with a non-prefix word in full, continuing the newest', async () => {
@@ -1737,7 +1785,7 @@ describe('runner: claude:more <run-id prefix>', () => {
 });
 
 describe('runner: claude:more continues the active run', () => {
-  const more = (runner, text = 'claude:more add tests') => runner.handleCommand({ text, replyTo: 'jid-1' });
+  const more = (runner: Runner, text = 'claude:more add tests') => runner.handleCommand({ text, replyTo: 'jid-1' });
   const oldRow = (extra = {}) => ({
     runId: '2026-09-20T11-00-00-000Z',
     kind: 'freeform',
@@ -1755,7 +1803,7 @@ describe('runner: claude:more continues the active run', () => {
     await runner.handleCommand({ text: 'claude fix the bot', replyTo: 'jid-0' });
     const { reply } = await more(runner);
     assert.match(reply, /^Continuing run run-1 \("fix the bot"\), which is still running\. Queued \(position 1\)/);
-    assert.equal(/** @type {any} */ ((await queue.list())[0].cmd).parent.runId, 'run-1');
+    assert.equal(moreParent((await queue.list())[0]).runId, 'run-1');
     starts[0].finish('success', 'done', 'sess-new');
     await runner.idle();
     assert.equal(starts.length, 2);
@@ -1763,8 +1811,8 @@ describe('runner: claude:more continues the active run', () => {
     assert.equal(starts[1].opts.prompt, 'add tests');
     starts[1].finish();
     await runner.idle();
-    assert.equal(history.at(-1).parentRunId, 'run-1');
-    assert.equal(history.at(-1).kind, 'freeform');
+    assert.equal(last(history).parentRunId, 'run-1');
+    assert.equal(last(history).kind, 'freeform');
   });
 
   it('continues an active Joplin run with its kind and cwd, also when a run prefix matches it', async () => {
@@ -1776,7 +1824,7 @@ describe('runner: claude:more continues the active run', () => {
     await runner.idle();
     assert.deepEqual(starts[1].opts.resume, { sessionId: 'sess-j' });
     assert.equal(starts[1].opts.cwd, '/home/u/Projects');
-    assert.equal((await lock.current()).kind, 'joplin');
+    assert.equal((await lock.current())?.kind, 'joplin');
   });
 
   it('a run prefix that does not match the active run still picks from history', async () => {
@@ -1791,7 +1839,11 @@ describe('runner: claude:more continues the active run', () => {
     assert.equal(starts[1].opts.cwd, '/repos/old');
   });
 
-  for (const [kind, extra] of /** @type {[string, object][]} */ ([['issue', { workspaceAlias: 'a', issueNumber: 7 }], ['job', { trigger: 'schedule' }]])) {
+  const busyRuns: [string, Partial<RunRecord>][] = [
+    ['issue', { workspaceAlias: 'a', issueNumber: 7 }],
+    ['job', { trigger: 'schedule' }],
+  ];
+  for (const [kind, extra] of busyRuns) {
     it(`falls back to the newest freeform/Joplin history row while a ${kind} run is active`, async () => {
       const { runner, starts, history, lock } = setup();
       history.push(oldRow());
@@ -1802,8 +1854,8 @@ describe('runner: claude:more continues the active run', () => {
       await lock.release('busy-1');
       await runner.handleCommand({ text: 'claude:resume', replyTo: 'jid-1' });
       await new Promise((r) => setTimeout(r, 20));
-      assert.deepEqual(starts.at(-1).opts.resume, { sessionId: 'sess-old' });
-      assert.equal(starts.at(-1).opts.cwd, '/repos/old');
+      assert.deepEqual(last(starts).opts.resume, { sessionId: 'sess-old' });
+      assert.equal(last(starts).opts.cwd, '/repos/old');
     });
   }
 
@@ -1814,13 +1866,13 @@ describe('runner: claude:more continues the active run', () => {
     starts[0].finish('failed', '');
     await runner.idle();
     assert.equal(starts.length, 1);
-    assert.match(outboxEntries().at(-1).text, /did not start: Cannot continue "fix the bot": that run has no recorded session\./);
+    assert.match(last(outboxEntries()).text, /did not start: Cannot continue "fix the bot": that run has no recorded session\./);
     void history;
   });
 });
 
 describe('runner: claude:more adds to a queued Continuation of the same parent', () => {
-  const row = (runId, extra = {}) => ({
+  const row = (runId: string, extra = {}) => ({
     runId,
     kind: 'freeform',
     label: `run ${runId}`,
@@ -1830,7 +1882,7 @@ describe('runner: claude:more adds to a queued Continuation of the same parent',
     sessionId: `sess-${runId}`,
     ...extra,
   });
-  const say = (runner, text) => runner.handleCommand({ text, replyTo: 'jid-1' });
+  const say = (runner: Runner, text: string) => runner.handleCommand({ text, replyTo: 'jid-1' });
 
   it('merges a second message into the one queued request, in order, keeping its place', async () => {
     const { runner, starts, history, queue, lock } = setup();
@@ -1891,7 +1943,7 @@ describe('runner: claude:more model and early end', () => {
     model: 'claude-opus-5-5',
     ...extra,
   });
-  const more = (runner, text = 'claude:more add tests') => runner.handleCommand({ text, replyTo: 'jid-1' });
+  const more = (runner: Runner, text = 'claude:more add tests') => runner.handleCommand({ text, replyTo: 'jid-1' });
 
   it('a model prefix wins over the parent model (source: prefix)', async () => {
     const { runner, starts, history } = setup();
@@ -1947,6 +1999,7 @@ describe('runner: claude:more model and early end', () => {
     history.push(row({ outcome: 'failed' }));
     await manualPause.set({ scope: 'a', seconds: 3600, reason: 'by hand' });
     await more(runner);
+    assert.ok(starts[0].opts.preamble);
     assert.match(starts[0].opts.preamble, /^The owner is working by hand/);
     assert.match(starts[0].opts.prompt, /^Your previous run ended early \(failed\)/);
   });
@@ -1956,9 +2009,9 @@ describe('runner: claude:more model and early end', () => {
     history.push(row());
     await more(runner);
     const r = result('failed', '');
-    starts[0].settle?.({ ...r, sessionMissing: true });
+    starts[0].settle({ ...r, sessionMissing: true });
     await runner.idle();
-    const text = outboxEntries().at(-1).text;
+    const text = last(outboxEntries()).text;
     assert.match(text, /session of run old-1 no longer exists/);
     assert.match(text, /Start a fresh run with claude <instructions>/);
   });

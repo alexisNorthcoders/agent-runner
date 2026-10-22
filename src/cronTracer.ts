@@ -4,7 +4,7 @@ import { classifyGithubPrMergeability } from './issuePipeline/githubPr.ts';
 import { errorText } from './narrow.ts';
 import type { OpenIssue, OpenAgentPr, createGithubIssues } from './issuePipeline/githubIssue.ts';
 import type { CronTickOutcome, CronStateStore } from './cronState.ts';
-import type { createRunner } from './runner.js';
+import type { createRunner } from './runner.ts';
 import type { createRunLock } from './runLock.ts';
 import type { createPauseFlag } from './pauseFlag.ts';
 import type { createManualPause } from './manualPause.ts';

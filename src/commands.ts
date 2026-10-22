@@ -44,6 +44,7 @@ const MORE_USAGE = 'Usage: claude:more [haiku|sonnet|opus:] [run-id prefix] <ins
 const RUN_PREFIX = /^\d{4}-[\dTZ-]*$/;
 
 const SUBCOMMANDS = ['stop', 'restart', 'status'] as const;
+const isSubcommand = (name: string): name is (typeof SUBCOMMANDS)[number] => SUBCOMMANDS.some((s) => s === name);
 
 export const DEFAULT_HISTORY_COUNT = 10;
 export const MAX_HISTORY_COUNT = 30;
@@ -84,9 +85,7 @@ export function parseCommand(text: string): Command {
   const sub = rest.match(/^:(\S+)(?:\s([\s\S]*))?$/);
   if (sub) {
     const name = sub[1].toLowerCase();
-    if ((SUBCOMMANDS as readonly string[]).includes(name)) {
-      return { kind: (name as 'stop' | 'restart' | 'status') };
-    }
+    if (isSubcommand(name)) return { kind: name };
     if (name === 'more') {
       const prefix = (sub[2] ?? '').trim().match(/^(haiku|sonnet|opus)\s*:\s*([\s\S]*)$/i);
       const withModel = prefix ? { model: prefix[1].toLowerCase() } : {};

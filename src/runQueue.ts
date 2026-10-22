@@ -1,4 +1,4 @@
-import { isRecord, parseJsonObject } from './narrow.ts';
+import { isRecord, parseJsonObject, recordOrEmpty } from './narrow.ts';
 import { parseJob } from './scheduledJobs.ts';
 import type { ScheduledJob } from './scheduledJobs.ts';
 import type { Store } from './redisStore.ts';
@@ -108,7 +108,24 @@ function parse(raw: string): QueuedRun | null {
   return { id: item.id, cmd, replyTo: item.replyTo, label: item.label, queuedAt: item.queuedAt };
 }
 
-export function createRunQueue({ store, key = QUEUE_KEY, maxLength = MAX_QUEUE_LENGTH }: { store: Store; key?: string; maxLength?: number }) {
+/** `id <id>, kind <kind>` of a queued item that didn't parse, as far as it can be read. */
+function describeTorn(raw: string) {
+  const item = parseJsonObject(raw);
+  const kind = recordOrEmpty(item?.cmd).kind;
+  return `id ${isString(item?.id) ? item.id : '?'}, kind ${isString(kind) ? kind : '?'}`;
+}
+
+export function createRunQueue({
+  store,
+  key = QUEUE_KEY,
+  maxLength = MAX_QUEUE_LENGTH,
+  logger = console,
+}: {
+  store: Store;
+  key?: string;
+  maxLength?: number;
+  logger?: Pick<Console, 'warn'>;
+}) {
   return {
     maxLength,
     /**
@@ -127,6 +144,7 @@ export function createRunQueue({ store, key = QUEUE_KEY, maxLength = MAX_QUEUE_L
         if (raw == null) return null;
         const item = parse(raw);
         if (item) return item;
+        logger.warn(`queue: dropped an unreadable item (${describeTorn(raw)})`);
       }
     },
     /**

@@ -16,7 +16,7 @@ type RunResult = RunOutcome['result'] | RunOutcome | null;
 const REPO = 'alexisNorthcoders/WhatsappBot';
 const REPO_P = 'alexisNorthcoders/Platformer';
 const ready = (number: number, title = `Task ${number}`): OpenIssue => ({ number, title, labels: ['ready-for-agent'] });
-const noBlockers: (repo: string, issueNumber: number) => Promise<number> = async (): Promise<number> => 0;
+const noBlockers: CronDeps['github']['blockedByCount'] = async () => 0;
 
 describe('pickNextRunnableIssue', () => {
   const pick = (rows: OpenIssue[], last = new Map<string, number>(), blockedByCount = noBlockers) => pickNextRunnableIssue(rows, REPO, last, blockedByCount);

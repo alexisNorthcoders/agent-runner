@@ -42,6 +42,17 @@ describe('runQueue parsing', () => {
     await queue.push(item('ok'));
     assert.deepEqual((await queue.list()).map((i) => i.id), ['ok']);
   });
+
+  it('warns with the id and kind of each item it drops while taking the next', async () => {
+    const store = createMemoryStore();
+    const warnings: string[] = [];
+    const queue = createRunQueue({ store, logger: { warn: (m: string) => void warnings.push(m) } });
+    await store.listPushBack(QUEUE_KEY, JSON.stringify({ ...item('t'), cmd: { kind: 'freeform' } }));
+    await store.listPushBack(QUEUE_KEY, 'not json');
+    await queue.push(item('ok'));
+    assert.equal((await queue.shift())?.id, 'ok');
+    assert.deepEqual(warnings, ['queue: dropped an unreadable item (id t, kind freeform)', 'queue: dropped an unreadable item (id ?, kind ?)']);
+  });
 });
 
 describe('runQueue.update', () => {

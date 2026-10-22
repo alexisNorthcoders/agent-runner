@@ -1,7 +1,7 @@
 import { createServer } from 'http';
 import { errorText, recordOrEmpty } from './narrow.ts';
 import type { IncomingMessage, ServerResponse } from 'http';
-import type { createRunner } from './runner.js';
+import type { createRunner } from './runner.ts';
 import type { createOfficeFeed } from './officeFeed.ts';
 
 /**
