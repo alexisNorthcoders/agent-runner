@@ -1,10 +1,10 @@
 import { readFile } from 'fs/promises';
 import { basename, join } from 'path';
-import { autoMergeAllowedByReviewGate, ghMessageLooksLikePrAlreadyExists, normalizePrReviewComment, parseAutofixNoChanges, pickPrResultAfterGhFlow } from './decisionLogic.js';
+import { autoMergeAllowedByReviewGate, ghMessageLooksLikePrAlreadyExists, normalizePrReviewComment, parseAutofixNoChanges, pickPrResultAfterGhFlow } from './decisionLogic.ts';
 import { runPostReviewAutofixMergeFlow } from './reviewFollowUp.js';
 import { githubMergeMethodSummaryLabel } from './githubPr.js';
 import { truncate } from './gitWorkspace.js';
-import { buildPostCloseChangesEmail } from './mailer.js';
+import { buildPostCloseChangesEmail } from './mailer.ts';
 
 /**
  * Everything after the agent exits on an issue run: commit, push, open (or reuse) the PR, LLM
@@ -112,9 +112,9 @@ export function buildPrBody(issueNumber, workBranch, userPrompt, trigger = 'manu
  * @param {{
  *   git: ReturnType<typeof import('./gitWorkspace.js').createGitWorkspace>,
  *   prs: ReturnType<typeof import('./githubPr.js').createGithubPr>,
- *   llm: ReturnType<typeof import('./llm.js').createLlm>,
- *   sendMail: import('./mailer.js').SendMail,
- *   settings: import('./settings.js').PipelineSettings,
+ *   llm: ReturnType<typeof import('./llm.ts').createLlm>,
+ *   sendMail: import('./mailer.ts').SendMail,
+ *   settings: import('./settings.ts').PipelineSettings,
  *   log?: (message: string, detail?: unknown) => void,
  * }} deps
  */

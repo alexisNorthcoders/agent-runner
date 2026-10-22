@@ -11,7 +11,7 @@ import {
   githubMergeMethodSummaryLabel,
   classifyGithubPrMergeability,
 } from '../src/issuePipeline/githubPr.js';
-import { loadPipelineSettings } from '../src/issuePipeline/settings.js';
+import { loadPipelineSettings } from '../src/issuePipeline/settings.ts';
 import { callbackExec } from './helpers/fakeExec.ts';
 
 /** @type {(cmd: string, args: string[], opts: object, cb: Function) => void} */

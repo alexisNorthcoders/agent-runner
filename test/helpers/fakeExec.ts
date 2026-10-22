@@ -1,5 +1,5 @@
-import { createExec } from '../../src/issuePipeline/exec.js';
-import type { Exec } from '../../src/issuePipeline/exec.js';
+import { createExec } from '../../src/issuePipeline/exec.ts';
+import type { Exec } from '../../src/issuePipeline/exec.ts';
 
 /** A real exec, for tests that drive `git` over temp repos. */
 export const realExec = createExec({ timeoutMs: 30_000 });

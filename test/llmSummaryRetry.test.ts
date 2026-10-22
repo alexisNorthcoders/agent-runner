@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createLlm } from "../src/issuePipeline/llm.js";
+import { createLlm } from "../src/issuePipeline/llm.ts";
 
 const settings = /** @type {any} */ ({
   summary: { apiKey: "k", baseUrl: "http://x", model: "m", maxTokens: 100 },

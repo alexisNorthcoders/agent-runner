@@ -92,8 +92,8 @@ export function renderIssuePrompt(data, { repo, number, extraInstructions = '' }
 
 /**
  * @param {{
- *   exec: import('./exec.js').Exec,
- *   settings: import('./settings.js').PipelineSettings,
+ *   exec: import('./exec.ts').Exec,
+ *   settings: import('./settings.ts').PipelineSettings,
  *   sleep?: (ms: number) => Promise<void>,
  * }} deps
  */

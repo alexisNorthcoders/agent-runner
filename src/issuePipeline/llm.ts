@@ -1,4 +1,4 @@
-import { VERDICT_APPROVE, VERDICT_REQUEST_CHANGES } from './decisionLogic.js';
+import { VERDICT_APPROVE, VERDICT_REQUEST_CHANGES } from './decisionLogic.ts';
 import { truncate } from './gitWorkspace.js';
 
 /**
@@ -84,7 +84,7 @@ export function standardsBlock(standards) {
 }
 
 /**
- * @param {{ settings: import('./settings.js').PipelineSettings, fetchFn?: FetchLike, log?: (message: string, detail?: unknown) => void, retryDelaysMs?: number[] }} deps
+ * @param {{ settings: import('./settings.ts').PipelineSettings, fetchFn?: FetchLike, log?: (message: string, detail?: unknown) => void, retryDelaysMs?: number[] }} deps
  */
 export function createLlm({ settings, fetchFn = /** @type {FetchLike} */ (globalThis.fetch), log = () => {}, retryDelaysMs = [3000, 10000, 30000] }) {
   const { review, summary } = settings;

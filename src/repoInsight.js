@@ -7,7 +7,7 @@
 
 import { classifyReadyIssues } from './cronTracer.js';
 
-/** @typedef {import('./issuePipeline/githubIssue.js').SuggestedIssue} SuggestedIssue */
+/** @typedef {import('./issuePipeline/githubIssue.ts').SuggestedIssue} SuggestedIssue */
 
 export const REPO_INSIGHT_CURSOR_KEY = 'agent-runner:repo-insight:cursor';
 
@@ -97,7 +97,7 @@ export function createRepoInsightCursor({ store }) {
  * issue scan takes, plus `listAgentSuggestedIssues`).
  * @param {{
  *   workspaces: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
- *   github: Pick<ReturnType<typeof import('./issuePipeline/githubIssue.js').createGithubIssues>,
+ *   github: Pick<ReturnType<typeof import('./issuePipeline/githubIssue.ts').createGithubIssues>,
  *     'resolveIssueRepo' | 'listOpenIssues' | 'blockedByCount' | 'listOpenAgentPrsByIssue' | 'branchHeadSha' | 'listAgentSuggestedIssues'>,
  *   prAttempts: () => Promise<Map<string, string>>,
  * }} deps `prAttempts`: the cron's recorded PR attempts (`cronState.prAttempts`), read only.

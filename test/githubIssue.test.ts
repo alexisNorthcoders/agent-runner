@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGithubIssues, githubCliErrorLooksTransient, issueNumberFromAgentBranch, ownerRepoSlugFromGithubRemote } from '../src/issuePipeline/githubIssue.js';
-import { loadPipelineSettings } from '../src/issuePipeline/settings.js';
+import { createGithubIssues, githubCliErrorLooksTransient, issueNumberFromAgentBranch, ownerRepoSlugFromGithubRemote } from '../src/issuePipeline/githubIssue.ts';
+import { loadPipelineSettings } from '../src/issuePipeline/settings.ts';
 
 describe('githubCliErrorLooksTransient', () => {
   it('detects GraphQL gateway timeout from gh', () => {

@@ -62,7 +62,7 @@ export function buildPostCloseChangesEmail({ subjectPrefix, issueNumber, title, 
 }
 
 /**
- * @param {import('./settings.js').PipelineSettings['email']} email
+ * @param {import('./settings.ts').PipelineSettings['email']} email
  * @returns {SendMail}
  */
 export function createGmailSender({ user, pass, to }) {

@@ -625,9 +625,9 @@ are told the same rule in their prompt preamble.
 - `src/workspaces.ts`: the issue-run workspace allowlist.
 - `src/issuePipeline/`: issue runs. `index.js` is the entry point (`prepare` before the agent,
   `finish` after it, `commitInterruptedWork` for startup recovery), shared by manual runs and the
-  cron. `gitWorkspace.js` (branching, commits), `githubPr.js` (PR, merge), `githubIssue.js`,
-  `postRun.js`, `llm.js` (review and summary over `fetch`), `mailer.js`. All `git`/`gh` calls go
-  through the injectable `exec.js`.
+  cron. `gitWorkspace.js` (branching, commits), `githubPr.js` (PR, merge), `githubIssue.ts`,
+  `postRun.js`, `llm.ts` (review and summary over `fetch`), `mailer.ts`. All `git`/`gh` calls go
+  through the injectable `exec.ts`.
 - `src/activeRuns.ts`, `src/runHistory.ts`: the files under `logs/agent-runs/`.
 - `src/statusCollect.js` + `src/statusFormat.js`: the status snapshot and its terminal/WhatsApp
   rendering. `bin/agent-cli.js` is the terminal CLI.

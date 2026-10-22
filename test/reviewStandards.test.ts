@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createLlm, standardsBlock } from '../src/issuePipeline/llm.js';
+import { createLlm, standardsBlock } from '../src/issuePipeline/llm.ts';
 
 function captureReview() {
   /** @type {string[]} */

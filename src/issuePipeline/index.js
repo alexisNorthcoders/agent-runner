@@ -1,10 +1,10 @@
 import { appendFile } from 'fs/promises';
-import { createExec } from './exec.js';
-import { createGithubIssues } from './githubIssue.js';
+import { createExec } from './exec.ts';
+import { createGithubIssues } from './githubIssue.ts';
 import { createGitWorkspace } from './gitWorkspace.js';
 import { createGithubPr } from './githubPr.js';
-import { createLlm } from './llm.js';
-import { createGmailSender } from './mailer.js';
+import { createLlm } from './llm.ts';
+import { createGmailSender } from './mailer.ts';
 import { createPostRun } from './postRun.js';
 import { REQUEUED_NOTE } from '../runQueue.ts';
 
@@ -191,10 +191,10 @@ function resumeSection({ branchName, resumeNote, openPrNote }) {
 
 /**
  * @param {{
- *   settings: import('./settings.js').PipelineSettings,
- *   exec?: import('./exec.js').Exec,
- *   fetchFn?: import('./llm.js').FetchLike,
- *   sendMail?: import('./mailer.js').SendMail,
+ *   settings: import('./settings.ts').PipelineSettings,
+ *   exec?: import('./exec.ts').Exec,
+ *   fetchFn?: import('./llm.ts').FetchLike,
+ *   sendMail?: import('./mailer.ts').SendMail,
  *   sleep?: (ms: number) => Promise<void>,
  *   now?: () => number,
  *   logger?: Pick<Console, 'log'>,

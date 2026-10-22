@@ -1,8 +1,8 @@
 import { writeFile, unlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { execErrorText } from './exec.js';
-import { pollGithubIssueClosedOrTimeout } from './issueClosePoll.js';
+import { execErrorText } from './exec.ts';
+import { pollGithubIssueClosedOrTimeout } from './issueClosePoll.ts';
 
 /**
  * `gh` calls for the PR half of post-run: open or find the PR, comment the review, wait for
@@ -131,8 +131,8 @@ const isPullUrl = (u) => PULL_URL_RE.test(String(u || '').trim());
 
 /**
  * @param {{
- *   exec: import('./exec.js').Exec,
- *   settings: import('./settings.js').PipelineSettings,
+ *   exec: import('./exec.ts').Exec,
+ *   settings: import('./settings.ts').PipelineSettings,
  *   log?: (message: string, detail?: unknown) => void,
  *   sleep?: (ms: number) => Promise<void>,
  *   now?: () => number,
