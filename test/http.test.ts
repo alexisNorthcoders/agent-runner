@@ -1,13 +1,17 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHttpServer } from '../src/http.ts';
+import type { Server } from 'http';
+
+type HttpDeps = Parameters<typeof createHttpServer>[0];
+type CommandRequest = Parameters<HttpDeps['runner']['handleCommand']>[0];
+type FeedDeps = NonNullable<HttpDeps['officeFeed']>;
 
 describe('http API', () => {
-  /** @type {any[]} */
-  const commands = [];
+  const commands: CommandRequest[] = [];
   let failNext = false;
   const runner = {
-    async handleCommand(req) {
+    async handleCommand(req: CommandRequest) {
       if (failNext) {
         failNext = false;
         throw new Error('redis down');
@@ -19,13 +23,11 @@ describe('http API', () => {
       return { busy: false, activeRun: null, paused: false, queued: 0 };
     },
   };
-  /** @type {import('http').Server} */
-  let server;
-  let base;
-  /** @type {string[]} */
-  const feedCalls = [];
+  let server: Server;
+  let base = '';
+  const feedCalls: (string | undefined)[] = [];
   const officeFeed = {
-    async attach(req, res) {
+    async attach(...[req, res]: Parameters<FeedDeps['attach']>) {
       feedCalls.push(req.method);
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.end('event: snapshot\ndata: {}\n\n');
@@ -35,13 +37,14 @@ describe('http API', () => {
   before(async () => {
     server = createHttpServer({ runner, officeFeed, logger: { error() {} } });
     await new Promise((r) => server.listen(0, '127.0.0.1', () => r(undefined)));
-    const addr = /** @type {import('net').AddressInfo} */ (server.address());
+    const addr = server.address();
+    assert.ok(addr && typeof addr === 'object');
     base = `http://127.0.0.1:${addr.port}`;
   });
   after(() => new Promise((r) => server.close(() => r(undefined))));
 
-  const post = (body, raw = false) =>
-    fetch(`${base}/command`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: raw ? body : JSON.stringify(body) });
+  const post = (body: object | string, raw = false) =>
+    fetch(`${base}/command`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: raw && typeof body === 'string' ? body : JSON.stringify(body) });
 
   it('POST /command passes {text, replyTo} to the runner and returns {reply}', async () => {
     const res = await post({ text: 'claude hi', replyTo: 'jid' });

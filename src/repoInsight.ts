@@ -6,8 +6,9 @@
  */
 
 import { classifyReadyIssues } from './cronTracer.ts';
-
-/** @typedef {import('./issuePipeline/githubIssue.ts').SuggestedIssue} SuggestedIssue */
+import { errorText, recordOrEmpty } from './narrow.ts';
+import type { SuggestedIssue, createGithubIssues } from './issuePipeline/githubIssue.ts';
+import type { Store } from './redisStore.ts';
 
 export const REPO_INSIGHT_CURSOR_KEY = 'agent-runner:repo-insight:cursor';
 
@@ -30,25 +31,21 @@ export const REPO_INSIGHT_PRIORITY = [
 /**
  * The next idle workspace: walk forward from just after the cursor, wrapping around the end. A
  * cursor that isn't in the order (or is null) starts from the top. The cursor itself is the last
- * candidate, so a lone idle workspace is picked again.
- * @param {readonly string[]} order
- * @param {Readonly<Record<string, boolean>> | ReadonlyMap<string, boolean>} idle alias → idle
- * @param {string | null} cursor the alias last visited
- * @returns {string | null} null when no workspace is idle
+ * candidate, so a lone idle workspace is picked again. `idle`: alias → idle. `cursor`: the alias
+ * last visited. Null when no workspace is idle.
  */
-export function pickNextIdleWorkspace(order, idle, cursor) {
-  const isIdle = (/** @type {string} */ alias) => (idle instanceof Map ? idle.get(alias) : /** @type {any} */ (idle)[alias]) === true;
+export function pickNextIdleWorkspace(order: readonly string[], idle: Readonly<Record<string, boolean>> | ReadonlyMap<string, boolean>, cursor: string | null): string | null {
+  const isIdle = (alias: string) => (isMap(idle) ? idle.get(alias) : idle[alias]) === true;
   return rotationFrom(order, cursor).find(isIdle) ?? null;
 }
+
+const isMap = (v: object): v is ReadonlyMap<string, boolean> => v instanceof Map;
 
 /**
  * The order the picker visits workspaces in: just after the cursor, wrapping, the cursor last.
  * A cursor that isn't in the order (or is null) starts from the top.
- * @param {readonly string[]} order
- * @param {string | null} cursor
- * @returns {string[]}
  */
-export function rotationFrom(order, cursor) {
+export function rotationFrom(order: readonly string[], cursor: string | null): string[] {
   const start = cursor == null ? -1 : order.indexOf(cursor);
   return order.map((_, i) => order[(start + 1 + i) % order.length]);
 }
@@ -57,16 +54,14 @@ export function rotationFrom(order, cursor) {
  * Today's target: check workspaces in rotation order, lazily, until one is idle. The cursor is
  * persisted the moment one is found, before its past suggestions are fetched, so a later failure
  * doesn't skip it next time. Nothing idle leaves the cursor alone. Takes no agent action and
- * writes nothing to GitHub.
- * @param {{
- *   order?: readonly string[],
- *   cursor: { read: () => Promise<string | null>, write: (alias: string) => Promise<unknown> },
- *   isIdle: (alias: string) => Promise<boolean>,
- *   pastSuggestions: (alias: string) => Promise<SuggestedIssue[]>,
- * }} deps
- * @returns {Promise<{ alias: string, pastSuggestions: SuggestedIssue[] } | null>} null when nothing is idle
+ * writes nothing to GitHub. Null when nothing is idle.
  */
-export async function decideRepoInsightTarget({ order = REPO_INSIGHT_PRIORITY, cursor, isIdle, pastSuggestions }) {
+export async function decideRepoInsightTarget({ order = REPO_INSIGHT_PRIORITY, cursor, isIdle, pastSuggestions }: {
+    order?: readonly string[];
+    cursor: { read: () => Promise<string | null>; write: (alias: string) => Promise<unknown> };
+    isIdle: (alias: string) => Promise<boolean>;
+    pastSuggestions: (alias: string) => Promise<SuggestedIssue[]>;
+  }): Promise<{ alias: string; pastSuggestions: SuggestedIssue[] } | null> {
   for (const alias of rotationFrom(order, await cursor.read())) {
     if (!(await isIdle(alias))) continue;
     await cursor.write(alias);
@@ -75,17 +70,15 @@ export async function decideRepoInsightTarget({ order = REPO_INSIGHT_PRIORITY, c
   return null;
 }
 
-/** @param {{ store: import('./redisStore.ts').Store }} p */
-export function createRepoInsightCursor({ store }) {
+export function createRepoInsightCursor({ store }: { store: Store }) {
   return {
-    /** @returns {Promise<string | null>} the alias last visited */
-    async read() {
+    /** The alias last visited. */
+    async read(): Promise<string | null> {
       const v = await store.get(REPO_INSIGHT_CURSOR_KEY);
       return v ? v : null;
     },
 
-    /** @param {string} alias */
-    async write(alias) {
+    async write(alias: string) {
       if (typeof alias !== 'string' || !alias) throw new TypeError(`repo insight: invalid alias ${JSON.stringify(alias)}`);
       await store.set(REPO_INSIGHT_CURSOR_KEY, alias);
     },
@@ -94,25 +87,21 @@ export function createRepoInsightCursor({ store }) {
 
 /**
  * Read-only GitHub lookups for `repo_insight`, behind an injectable `github` (the same shape the
- * issue scan takes, plus `listAgentSuggestedIssues`).
- * @param {{
- *   workspaces: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
- *   github: Pick<ReturnType<typeof import('./issuePipeline/githubIssue.ts').createGithubIssues>,
- *     'resolveIssueRepo' | 'listOpenIssues' | 'blockedByCount' | 'listOpenAgentPrsByIssue' | 'branchHeadSha' | 'listAgentSuggestedIssues'>,
- *   prAttempts: () => Promise<Map<string, string>>,
- * }} deps `prAttempts`: the cron's recorded PR attempts (`cronState.prAttempts`), read only.
+ * issue scan takes, plus `listAgentSuggestedIssues`). `prAttempts`: the cron's recorded PR attempts
+ * (`cronState.prAttempts`), read only.
  */
-export function createRepoInsightLookups({ workspaces, github, prAttempts }) {
-  /** @param {string} alias */
-  const repoOf = async (alias) => github.resolveIssueRepo((await workspaces.resolveIssueWorkspace(alias)).root, alias);
+export function createRepoInsightLookups({ workspaces, github, prAttempts }: {
+    workspaces: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string; root: string }> };
+    github: Pick<ReturnType<typeof createGithubIssues>, 'resolveIssueRepo' | 'listOpenIssues' | 'blockedByCount' | 'listOpenAgentPrsByIssue' | 'branchHeadSha' | 'listAgentSuggestedIssues'>;
+    prAttempts: () => Promise<Map<string, string>>;
+  }) {
+  const repoOf = async (alias: string) => github.resolveIssueRepo((await workspaces.resolveIssueWorkspace(alias)).root, alias);
 
   /**
    * The issues in the cron tracer's `runnable` bucket (ready-for-agent, not blocked, not parked
    * behind an attempted open PR), ascending. Throws when GitHub can't be read.
-   * @param {string} alias
-   * @returns {Promise<number[]>}
    */
-  async function runnableIssues(alias) {
+  async function runnableIssues(alias: string): Promise<number[]> {
     const repo = await repoOf(alias);
     const rows = await github.listOpenIssues(repo);
     const { runnable } = await classifyReadyIssues(github, repo, rows, await prAttempts());
@@ -124,17 +113,15 @@ export function createRepoInsightLookups({ workspaces, github, prAttempts }) {
 
     /**
      * Idle: no runnable issue (see `runnableIssues`), whoever is or isn't working on them.
-     * @param {string} alias
      */
-    async isIdle(alias) {
+    async isIdle(alias: string) {
       return (await runnableIssues(alias)).length === 0;
     },
 
     /**
      * The repo's `agent-suggested` issues, open and closed, so a new suggestion doesn't repeat one.
-     * @param {string} alias
      */
-    async pastSuggestions(alias) {
+    async pastSuggestions(alias: string) {
       return github.listAgentSuggestedIssues(await repoOf(alias));
     },
   };
@@ -143,9 +130,8 @@ export function createRepoInsightLookups({ workspaces, github, prAttempts }) {
 /**
  * The prompt of the read-only exploration session: the past suggestions go in so it doesn't
  * repeat one, open or closed.
- * @param {{ alias: string, pastSuggestions: SuggestedIssue[] }} p
  */
-export function buildInsightPrompt({ alias, pastSuggestions }) {
+export function buildInsightPrompt({ alias, pastSuggestions }: { alias: string; pastSuggestions: SuggestedIssue[] }) {
   const past = pastSuggestions.length
     ? pastSuggestions.map((s) => `- #${s.number} [${s.state}] ${s.title}`).join('\n')
     : '_(none yet)_';
@@ -172,17 +158,15 @@ export function buildInsightPrompt({ alias, pastSuggestions }) {
 
 /**
  * Pull `{ title, body }` out of the session's final text (which may wrap the JSON in prose or a fence).
- * @param {string} text
- * @returns {{ title: string, body: string }}
  */
-export function parseInsightIdea(text) {
+export function parseInsightIdea(text: string): { title: string; body: string } {
   const s = String(text ?? '');
   for (let end = s.lastIndexOf('}'); end > 0; end = s.lastIndexOf('}', end - 1)) {
     for (let start = s.indexOf('{'); start >= 0 && start < end; start = s.indexOf('{', start + 1)) {
       try {
-        const o = JSON.parse(s.slice(start, end + 1));
-        const title = typeof o?.title === 'string' ? o.title.trim().replace(/\s+/g, ' ') : '';
-        const body = typeof o?.body === 'string' ? o.body.trim() : '';
+        const o = recordOrEmpty(JSON.parse(s.slice(start, end + 1)));
+        const title = typeof o.title === 'string' ? o.title.trim().replace(/\s+/g, ' ') : '';
+        const body = typeof o.body === 'string' ? o.body.trim() : '';
         if (title && body) return { title, body };
       } catch {
         /* not this span */
@@ -197,16 +181,14 @@ export const REPO_INSIGHT_LABELS = ['agent-suggested', 'needs-triage'];
 /**
  * Today's suggestion: given the decided target (null when nothing was idle), explore it read-only
  * and file one issue. Returns the final report line, which the Scheduled job prints.
- * @param {{
- *   target: { alias: string, pastSuggestions: SuggestedIssue[] } | null,
- *   resolveWorkspace: (alias: string) => Promise<{ root: string }>,
- *   resolveRepo: (root: string, alias: string) => Promise<string>,
- *   launchSession: (p: { cwd: string, prompt: string }) => Promise<{ text: string }>,
- *   createIssue: (repo: string, p: { title: string, body: string, labels: string[] }) => Promise<{ number: number, url: string, title: string }>,
- * }} deps
- * @returns {Promise<string>}
  */
-export async function runRepoInsight({ target, resolveWorkspace, resolveRepo, launchSession, createIssue }) {
+export async function runRepoInsight({ target, resolveWorkspace, resolveRepo, launchSession, createIssue }: {
+    target: { alias: string; pastSuggestions: SuggestedIssue[] } | null;
+    resolveWorkspace: (alias: string) => Promise<{ root: string }>;
+    resolveRepo: (root: string, alias: string) => Promise<string>;
+    launchSession: (p: { cwd: string; prompt: string }) => Promise<{ text: string }>;
+    createIssue: (repo: string, p: { title: string; body: string; labels: string[] }) => Promise<{ number: number; url: string; title: string }>;
+  }): Promise<string> {
   if (!target) return 'repo-insight: nothing idle today, no suggestion filed';
   const { root } = await resolveWorkspace(target.alias);
   const repo = await resolveRepo(root, target.alias);
@@ -221,18 +203,17 @@ export async function runRepoInsight({ target, resolveWorkspace, resolveRepo, la
  * and run `explore` on each idle one. The cursor follows the sweep (written after each visit,
  * idle or not), so it ends on the last workspace of the list for the next daily run. A workspace
  * that fails (idleness check or exploration) is reported and the sweep carries on.
- * @param {{
- *   order?: readonly string[],
- *   cursor: { write: (alias: string) => Promise<unknown> },
- *   runnableIssues: (alias: string) => Promise<number[]>,
- *   pastSuggestions: (alias: string) => Promise<SuggestedIssue[]>,
- *   explore: (target: { alias: string, pastSuggestions: SuggestedIssue[] }) => Promise<string>,
- * }} deps `runnableIssues`: none means idle, else the skip line names them. `explore`: the
- *   explore-and-file step, e.g. `runRepoInsight` with its deps bound
- * @returns {Promise<{ lines: string[], failed: number }>}
+ * `runnableIssues`: none means idle, else the skip line names them. `explore`: the
+ * explore-and-file step, e.g. `runRepoInsight` with its deps bound.
  */
-export async function sweepRepoInsight({ order = REPO_INSIGHT_PRIORITY, cursor, runnableIssues, pastSuggestions, explore }) {
-  const lines = [];
+export async function sweepRepoInsight({ order = REPO_INSIGHT_PRIORITY, cursor, runnableIssues, pastSuggestions, explore }: {
+    order?: readonly string[];
+    cursor: { write: (alias: string) => Promise<unknown> };
+    runnableIssues: (alias: string) => Promise<number[]>;
+    pastSuggestions: (alias: string) => Promise<SuggestedIssue[]>;
+    explore: (target: { alias: string; pastSuggestions: SuggestedIssue[] }) => Promise<string>;
+  }): Promise<{ lines: string[]; failed: number }> {
+  const lines: string[] = [];
   let failed = 0;
   for (const alias of order) {
     try {
@@ -241,7 +222,7 @@ export async function sweepRepoInsight({ order = REPO_INSIGHT_PRIORITY, cursor, 
       else lines.push(`repo-insight: ${alias} → not idle (runnable: ${runnable.map((n) => `#${n}`).join(', ')}), skipped`);
     } catch (err) {
       failed++;
-      lines.push(`repo-insight: ${alias} → failed (${/** @type {Error} */ (err).message})`);
+      lines.push(`repo-insight: ${alias} → failed (${errorText(err)})`);
     }
     await cursor.write(alias);
   }

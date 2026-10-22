@@ -27,8 +27,7 @@ function setup() {
   const store = createMemoryStore();
   const lock = createRunLock({ store, ttlSeconds: 60 });
   const pause = createPauseFlag({ store });
-  /** @type {string[]} */
-  const events = [];
+  const events: string[] = [];
   const deps = {
     lock,
     pause,

@@ -1,4 +1,5 @@
 import { isRecord, parseJsonObject } from './narrow.ts';
+import { parseJob } from './scheduledJobs.ts';
 import type { ScheduledJob } from './scheduledJobs.ts';
 import type { Store } from './redisStore.ts';
 
@@ -50,14 +51,61 @@ export const MAX_QUEUE_LENGTH = 20;
 /** A report's line for a request the usage limit stopped before it started, re-queued at the front. */
 export const REQUEUED_NOTE = 'It is back at the head of the queue, and runs again once the limit resets.';
 
-/**
- * Only `push` and `unshift` write the queue, so the envelope check is enough to skip a torn or
- * foreign item.
- */
+type QueuedCmd = QueuedRun['cmd'];
+
+const isString = (v: unknown): v is string => typeof v === 'string';
+/** `{ model }` when `v` is a string, else nothing. */
+const modelField = (v: unknown) => (isString(v) ? { model: v } : {});
+
+function parseParent(p: unknown): ContinuationParent | null {
+  if (!isRecord(p)) return null;
+  const { runId, kind, label, cwd } = p;
+  if (!isString(runId) || (kind !== 'freeform' && kind !== 'joplin') || !isString(label) || !isString(cwd)) return null;
+  if (p.pending === true) return { runId, kind, label, cwd, pending: true };
+  if (!isString(p.sessionId) || !isString(p.endedAt)) return null;
+  return {
+    runId,
+    kind,
+    label,
+    sessionId: p.sessionId,
+    cwd,
+    endedAt: p.endedAt,
+    ...(isString(p.outcome) ? { outcome: p.outcome } : {}),
+    ...modelField(p.model),
+    ...(isString(p.inferredWorkspace) ? { inferredWorkspace: p.inferredWorkspace } : {}),
+  };
+}
+
+function parseCmd(c: unknown): QueuedCmd | null {
+  if (!isRecord(c)) return null;
+  switch (c.kind) {
+    case 'freeform':
+      return isString(c.prompt) ? { kind: 'freeform', prompt: c.prompt, ...modelField(c.model) } : null;
+    case 'joplin':
+      return isString(c.noteQuery) ? { kind: 'joplin', noteQuery: c.noteQuery, ...modelField(c.model) } : null;
+    case 'more': {
+      const parent = parseParent(c.parent);
+      return parent && isString(c.instructions) ? { kind: 'more', instructions: c.instructions, parent, ...modelField(c.model) } : null;
+    }
+    case 'issue':
+      return typeof c.issueNumber === 'number' && (c.alias === null || isString(c.alias)) && isString(c.extraInstructions)
+        ? { kind: 'issue', issueNumber: c.issueNumber, alias: c.alias, extraInstructions: c.extraInstructions }
+        : null;
+    case 'job': {
+      const job = parseJob(c.job);
+      return typeof job === 'string' ? null : { kind: 'job', job };
+    }
+    default:
+      return null;
+  }
+}
+
+/** Only `push` and `unshift` write the queue, so an item that doesn't parse is torn or foreign, and is skipped. */
 function parse(raw: string): QueuedRun | null {
   const item = parseJsonObject(raw);
-  if (typeof item?.replyTo !== 'string' || !isRecord(item.cmd) || typeof item.cmd.kind !== 'string') return null;
-  return item as QueuedRun;
+  const cmd = parseCmd(item?.cmd);
+  if (!item || !cmd || !isString(item.id) || !isString(item.replyTo) || !isString(item.label) || !isString(item.queuedAt)) return null;
+  return { id: item.id, cmd, replyTo: item.replyTo, label: item.label, queuedAt: item.queuedAt };
 }
 
 export function createRunQueue({ store, key = QUEUE_KEY, maxLength = MAX_QUEUE_LENGTH }: { store: Store; key?: string; maxLength?: number }) {

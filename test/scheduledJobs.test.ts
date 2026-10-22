@@ -10,7 +10,7 @@ import { createMemoryStore } from './helpers/memoryStore.ts';
 const cleanup = { name: 'cleanup_agent', room: 'reddit-bot', cwd: '/home/u/reddit-bot', command: 'npm run cleanup_agent', at: '02:00', logFile: '/home/u/reddit-bot/reports/cron-cleanup.log' };
 const report = { name: 'report_agent', room: 'reddit-bot', cwd: '/home/u/reddit-bot', command: 'npm run report_agent', at: '02:30' };
 
-const at = (iso) => Date.parse(iso);
+const at = (iso: string) => Date.parse(iso);
 
 describe('scheduled jobs: config', () => {
   it('accepts valid jobs', () => {
@@ -53,7 +53,7 @@ describe('scheduled jobs: config', () => {
 });
 
 describe('scheduled jobs: when a job is due', () => {
-  const fired = (m) => new Map(Object.entries(m));
+  const fired = (m: Record<string, string>) => new Map(Object.entries(m));
 
   it('is due from its UTC time until it has fired that day', () => {
     assert.deepEqual(decideJobs([cleanup], at('2026-09-26T01:59:59Z'), fired({ cleanup_agent: '2026-09-25' })).due, []);
@@ -69,7 +69,7 @@ describe('scheduled jobs: when a job is due', () => {
 });
 
 describe('scheduled jobs: next due time', () => {
-  const t = (iso) => new Date(at(iso)).toISOString();
+  const t = (iso: string) => new Date(at(iso)).toISOString();
 
   it("is today's time until it has fired today, then tomorrow's", () => {
     assert.equal(nextDueAt(cleanup, at('2026-09-26T01:00:00Z'), '2026-09-25'), t('2026-09-26T02:00:00Z'));
@@ -96,12 +96,13 @@ describe('scheduled jobs: next due time', () => {
   });
 });
 
-function schedulerSetup({ jobs = [cleanup, report], errors = [], accept = true } = {}) {
+type LoadedJobs = Awaited<ReturnType<typeof loadJobsFile>>;
+
+function schedulerSetup({ jobs = [cleanup, report], errors = [], accept = true }: Partial<LoadedJobs> & { accept?: boolean } = {}) {
   const store = createMemoryStore();
   let clock = at('2026-09-26T01:00:00Z');
-  /** @type {any[]} */
-  const submitted = [];
-  let config = { jobs, errors };
+  const submitted: string[] = [];
+  let config: LoadedJobs = { jobs, errors };
   let accepting = accept;
   const scheduler = createJobScheduler({
     store,
@@ -120,10 +121,9 @@ function schedulerSetup({ jobs = [cleanup, report], errors = [], accept = true }
     submitted,
     outboxEntries: () => (store.streams.get(OUTBOX_KEY) ?? []).map((e) => e.fields),
     lastFired: () => store.hashGetAll(JOBS_LAST_FIRED_KEY),
-    /** @param {string} iso */
-    setClock: (iso) => void (clock = at(iso)),
-    setConfig: (c) => void (config = { jobs: [], errors: [], ...c }),
-    setAccepting: (a) => void (accepting = a),
+    setClock: (iso: string) => void (clock = at(iso)),
+    setConfig: (c: Partial<LoadedJobs>) => void (config = { jobs: [], errors: [], ...c }),
+    setAccepting: (a: boolean) => void (accepting = a),
   };
 }
 
@@ -215,7 +215,7 @@ describe('scheduled jobs: the scheduler', () => {
 describe('scheduled jobs: weekly and monthly', () => {
   const weekly = { ...report, name: 'insight_week', at: '03:00', weekday: 1 }; // Monday
   const monthly = { ...report, name: 'insight_month', at: '03:15', monthDay: 1 };
-  const t = (iso) => new Date(iso).toISOString();
+  const t = (iso: string) => new Date(iso).toISOString();
 
   it('accepts weekday or monthDay and rejects both or out-of-range values', () => {
     const { jobs, errors } = parseJobs([

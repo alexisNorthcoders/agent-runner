@@ -1,4 +1,7 @@
 import { describeRun } from './runLock.ts';
+import { errorText } from './narrow.ts';
+import type { RunRecord, createRunLock } from './runLock.ts';
+import type { PauseRecord, createPauseFlag } from './pauseFlag.ts';
 
 const CLEAR_ATTEMPTS = 3;
 
@@ -9,11 +12,7 @@ const CLEAR_ATTEMPTS = 3;
  * a run that starts between the first check and the pause still makes the restart refuse.
  */
 
-/**
- * @param {{ activeRun: import('./runLock.ts').RunRecord | null, pause: import('./pauseFlag.ts').PauseRecord | null }} s
- * @returns {{ ok: true } | { ok: false, reason: string }}
- */
-export function decideSafeRestart({ activeRun, pause }) {
+export function decideSafeRestart({ activeRun, pause }: { activeRun: RunRecord | null; pause: PauseRecord | null }): { ok: true } | { ok: false; reason: string } {
   if (activeRun) {
     return {
       ok: false,
@@ -29,17 +28,13 @@ export function decideSafeRestart({ activeRun, pause }) {
   return { ok: true };
 }
 
-/**
- * @param {{
- *   lock: Pick<ReturnType<typeof import('./runLock.ts').createRunLock>, 'current'>,
- *   pause: Pick<ReturnType<typeof import('./pauseFlag.ts').createPauseFlag>, 'get' | 'set' | 'clear'>,
- *   restartProcess: () => Promise<void>,
- *   waitForReady: () => Promise<void>,
- * }} deps
- * @returns {Promise<{ ok: boolean, message: string }>}
- */
-export async function runSafeRestart({ lock, pause, restartProcess, waitForReady }) {
-  const refused = (reason) => ({ ok: false, message: `safe-restart refused: ${reason}` });
+export async function runSafeRestart({ lock, pause, restartProcess, waitForReady }: {
+    lock: Pick<ReturnType<typeof createRunLock>, 'current'>;
+    pause: Pick<ReturnType<typeof createPauseFlag>, 'get' | 'set' | 'clear'>;
+    restartProcess: () => Promise<void>;
+    waitForReady: () => Promise<void>;
+  }): Promise<{ ok: boolean; message: string }> {
+  const refused = (reason: string) => ({ ok: false, message: `safe-restart refused: ${reason}` });
 
   const first = decideSafeRestart({ activeRun: await lock.current(), pause: await pause.get() });
   if ('reason' in first) return refused(first.reason);
@@ -47,8 +42,7 @@ export async function runSafeRestart({ lock, pause, restartProcess, waitForReady
   const token = await pause.set('safe-restart');
   if (!token) return refused('agent-runner was paused by someone else just now.');
 
-  /** @type {{ ok: boolean, message: string }} */
-  let result;
+  let result: { ok: boolean; message: string };
   try {
     const again = decideSafeRestart({ activeRun: await lock.current(), pause: null });
     if ('reason' in again) result = refused(again.reason);
@@ -58,11 +52,11 @@ export async function runSafeRestart({ lock, pause, restartProcess, waitForReady
       result = { ok: true, message: 'agent-runner restarted and is answering /status.' };
     }
   } catch (err) {
-    result = { ok: false, message: `safe-restart failed: ${err?.message || String(err)}` };
+    result = { ok: false, message: `safe-restart failed: ${errorText(err)}` };
   }
 
   // Every path above ends here, so the pause never outlives this call unless Redis itself fails
-  let clearErr;
+  let clearErr: unknown;
   for (let attempt = 0; attempt < CLEAR_ATTEMPTS; attempt++) {
     try {
       await pause.clear(token);
@@ -73,6 +67,6 @@ export async function runSafeRestart({ lock, pause, restartProcess, waitForReady
   }
   return {
     ok: false,
-    message: `${result.message} Could not clear the pause flag (${clearErr?.message || String(clearErr)}); it expires on its own.`,
+    message: `${result.message} Could not clear the pause flag (${errorText(clearErr)}); it expires on its own.`,
   };
 }

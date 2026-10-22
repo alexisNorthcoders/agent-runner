@@ -42,7 +42,7 @@ describe('job process', () => {
     // the group's other members may take a moment to be reaped
     const groupAlive = () => {
       try {
-        process.kill(-(/** @type {number} */ (run.pid)), 0);
+        process.kill(-(run.pid as number), 0);
         return true;
       } catch {
         return false;
