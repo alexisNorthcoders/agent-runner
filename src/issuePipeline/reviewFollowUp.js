@@ -1,7 +1,7 @@
 import {
   VERDICT_REQUEST_CHANGES,
   autoMergeAllowedByReviewGate,
-} from './decisionLogic.js';
+} from './decisionLogic.ts';
 
 /**
  * @typedef {(message: string, detail?: unknown) => void} LogPost

@@ -2,20 +2,17 @@
  * Issue-pipeline settings from the environment. The names are the bot's (`CLAUDE_POST_RUN*`,
  * `CLAUDE_REVIEW_*`, …) so its `.env` lines carry over unchanged. Every step defaults to on; set
  * its flag to `0` to turn it off. Pure: tests build settings from a plain object.
- *
- * @typedef {ReturnType<typeof loadPipelineSettings>} PipelineSettings
  */
+export type PipelineSettings = ReturnType<typeof loadPipelineSettings>;
 
-/** @param {string | undefined} v @param {number} fallback @param {number} [min] */
-const num = (v, fallback, min = 1) => {
+const num = (v: string | undefined, fallback: number, min: number = 1) => {
   const n = parseInt(v ?? '', 10);
   return Number.isFinite(n) && n >= min ? n : fallback;
 };
 
-/** @param {Record<string, string | undefined>} [env] */
-export function loadPipelineSettings(env = process.env) {
-  const on = (name) => env[name] !== '0';
-  const str = (name, fallback = '') => env[name]?.trim() || fallback;
+export function loadPipelineSettings(env: Record<string, string | undefined> = process.env) {
+  const on = (name: string) => env[name] !== '0';
+  const str = (name: string, fallback = '') => env[name]?.trim() || fallback;
   const useMaxCompletionTokens = env.CLAUDE_REVIEW_USE_MAX_COMPLETION_TOKENS;
   return {
     /** `CLAUDE_POST_RUN=0` skips everything after the agent (commit, PR, review, merge). */

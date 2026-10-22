@@ -78,7 +78,7 @@ describe('repo insight cursor', () => {
 
 describe('repo insight lookups', () => {
   const issue = (number, ...labels) => ({ number, title: `T${number}`, labels });
-  const suggested = /** @type {import('../src/issuePipeline/githubIssue.js').SuggestedIssue[]} */ ([{ number: 9, title: 'S', url: 'u', state: 'closed', labels: ['agent-suggested', 'wontfix'] }]);
+  const suggested = /** @type {import('../src/issuePipeline/githubIssue.ts').SuggestedIssue[]} */ ([{ number: 9, title: 'S', url: 'u', state: 'closed', labels: ['agent-suggested', 'wontfix'] }]);
   const setup = async ({ issues = [], blockers = {}, prs = new Map(), attempts = new Map() } = {}) => {
     const { createRepoInsightLookups } = await import('../src/repoInsight.js');
     return createRepoInsightLookups({
@@ -182,7 +182,7 @@ describe('decideRepoInsightTarget', () => {
 });
 
 describe('runRepoInsight', () => {
-  /** @type {import('../src/issuePipeline/githubIssue.js').SuggestedIssue[]} */
+  /** @type {import('../src/issuePipeline/githubIssue.ts').SuggestedIssue[]} */
   const past = [
     { number: 3, title: 'Cache the thing', url: 'u3', state: 'open', labels: ['agent-suggested'] },
     { number: 4, title: 'Drop the widget', url: 'u4', state: 'closed', labels: ['agent-suggested'] },

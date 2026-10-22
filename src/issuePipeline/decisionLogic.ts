@@ -1,19 +1,19 @@
 export const VERDICT_APPROVE = 'VERDICT: APPROVE';
 export const VERDICT_REQUEST_CHANGES = 'VERDICT: REQUEST_CHANGES';
 
+export type Verdict = typeof VERDICT_APPROVE | typeof VERDICT_REQUEST_CHANGES;
+
 /**
  * After `gh pr create`, pick URL including recovery when GitHub says a PR already exists.
- * @param {{
- *   listedOk: boolean,
- *   listedUrl?: string,
- *   createOk: boolean,
- *   createUrl?: string,
- *   createError?: string,
- *   recoveredUrl?: string | null,
- * }} p
- * @returns {{ ok: boolean, url?: string, error?: string, prOutcome: 'listed' | 'created' | 'recovered' | null }}
  */
-export function pickPrResultAfterGhFlow(p) {
+export function pickPrResultAfterGhFlow(p: {
+    listedOk: boolean;
+    listedUrl?: string;
+    createOk: boolean;
+    createUrl?: string;
+    createError?: string;
+    recoveredUrl?: string | null;
+  }): { ok: boolean; url?: string; error?: string; prOutcome: 'listed' | 'created' | 'recovered' | null } {
   if (p.listedOk && p.listedUrl) {
     return { ok: true, url: p.listedUrl, prOutcome: 'listed' };
   }
@@ -31,7 +31,7 @@ export function pickPrResultAfterGhFlow(p) {
   };
 }
 
-export function ghMessageLooksLikePrAlreadyExists(msg) {
+export function ghMessageLooksLikePrAlreadyExists(msg: string | null | undefined) {
   const s = String(msg || '').toLowerCase();
   return (
     s.includes('already exists') ||
@@ -43,9 +43,8 @@ export function ghMessageLooksLikePrAlreadyExists(msg) {
 /**
  * REQUEST_CHANGES passes once the autofix pass either pushed a fix or declined the feedback with
  * `AUTOFIX_NO_CHANGES` (the agent overrules the reviewer).
- * @param {{ reviewOutcome: string, reviewVerdict: string, postReviewAutofix: { ok?: boolean, noChanges?: boolean, mergeBlocked?: boolean, detail?: string } | null }} args
  */
-export function autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix }) {
+export function autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix }: { reviewOutcome: string; reviewVerdict: string; postReviewAutofix: { ok?: boolean; noChanges?: boolean; mergeBlocked?: boolean; detail?: string } | null }) {
   if (reviewOutcome !== 'success') return false;
   if (reviewVerdict === VERDICT_APPROVE) return true;
   if (reviewVerdict === VERDICT_REQUEST_CHANGES) {
@@ -57,10 +56,10 @@ export function autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, pos
 /**
  * The autofix agent ends its reply with `AUTOFIX_NO_CHANGES: <reason>` when it judges the review
  * feedback wrong or not actionable and deliberately edits nothing.
- * @param {string} stdout agent output
- * @returns {string | null} the reason (text after the last sentinel), or null
+ * @param stdout agent output
+ * @returns the reason (text after the last sentinel), or null
  */
-export function parseAutofixNoChanges(stdout) {
+export function parseAutofixNoChanges(stdout: string): string | null {
   const text = String(stdout || '');
   const marker = 'AUTOFIX_NO_CHANGES:';
   const at = text.lastIndexOf(marker);
@@ -75,13 +74,12 @@ export function parseAutofixNoChanges(stdout) {
 
 /**
  * Ensure the GitHub PR comment starts with an exact verdict line (automation-parseable).
- * @param {string} raw model output
- * @returns {{ verdict: typeof VERDICT_APPROVE | typeof VERDICT_REQUEST_CHANGES, bodyMarkdown: string, fullComment: string }}
+ * @param raw model output
  */
-export function normalizePrReviewComment(raw) {
+export function normalizePrReviewComment(raw: string): { verdict: Verdict; bodyMarkdown: string; fullComment: string } {
   const text = String(raw || '').trim();
   const lines = text.split(/\r?\n/);
-  const parseVerdict = (line) => {
+  const parseVerdict = (line: string): Verdict | null => {
     const cleaned = String(line || '')
       .trim()
       .replace(/[*`]/g, '')
@@ -96,7 +94,7 @@ export function normalizePrReviewComment(raw) {
   while (firstNonEmpty < lines.length && !lines[firstNonEmpty].trim()) firstNonEmpty++;
   const scanLimit = Math.min(lines.length, firstNonEmpty + 6);
   let verdictLineIdx = -1;
-  let verdict = null;
+  let verdict: Verdict | null = null;
   for (let j = firstNonEmpty; j < scanLimit; j++) {
     const v = parseVerdict(lines[j]);
     if (v) {

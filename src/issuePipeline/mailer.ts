@@ -1,20 +1,20 @@
 import nodemailer from 'nodemailer';
+import { errorText } from '../narrow.ts';
+import type { PipelineSettings } from './settings.ts';
 
 /**
  * Gmail SMTP for the post-close summary email (`GMAIL_EMAIL` / `GMAIL_PASSWORD`, an app password,
  * to `CLAUDE_REVIEW_EMAIL_TO`, default `GMAIL_EMAIL`).
- *
- * @typedef {(subject: string, body: { text: string, html: string }) => Promise<{ ok: boolean, to?: string, error?: string }>} SendMail
  */
+export type SendMail = (subject: string, body: { text: string; html: string }) => Promise<{ ok: boolean; to?: string; error?: string }>;
 
-/** @param {string} s */
-const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const escapeHtml = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /**
  * Plain text wrapped in a minimal HTML page, so mail clients keep the line breaks.
- * @param {string} plain @param {string} [headerHtml] trusted HTML put before the text
+ * @param headerHtml trusted HTML put before the text
  */
-export function plainTextEmailHtml(plain, headerHtml = '') {
+export function plainTextEmailHtml(plain: string, headerHtml: string = '') {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -38,10 +38,8 @@ const POST_CLOSE_SUBJECT_TITLE_MAX_CHARS = 80;
  * The post-close changes-summary email. The subject and a header name the issue (number, title,
  * issue and PR links), so the email identifies itself even when the LLM summary doesn't. The
  * summary follows the header unchanged.
- * @param {{ subjectPrefix: string, issueNumber: number, title?: string | null, issueUrl?: string | null, prUrl?: string | null, summary: string }} p
- * @returns {{ subject: string, text: string, html: string }}
  */
-export function buildPostCloseChangesEmail({ subjectPrefix, issueNumber, title, issueUrl, prUrl, summary }) {
+export function buildPostCloseChangesEmail({ subjectPrefix, issueNumber, title, issueUrl, prUrl, summary }: { subjectPrefix: string; issueNumber: number; title?: string | null; issueUrl?: string | null; prUrl?: string | null; summary: string }): { subject: string; text: string; html: string } {
   const cleanTitle = String(title ?? '').replace(/\s+/g, ' ').trim();
   const subjectTitle =
     cleanTitle.length > POST_CLOSE_SUBJECT_TITLE_MAX_CHARS ? `${cleanTitle.slice(0, POST_CLOSE_SUBJECT_TITLE_MAX_CHARS - 1).trimEnd()}…` : cleanTitle;
@@ -50,8 +48,7 @@ export function buildPostCloseChangesEmail({ subjectPrefix, issueNumber, title, 
     : `[${subjectPrefix}] Issue #${issueNumber} closed — changes summary`;
 
   const heading = cleanTitle ? `Issue #${issueNumber}: ${cleanTitle}` : `Issue #${issueNumber}`;
-  /** @type {Array<[string, string]>} */
-  const links = [];
+  const links: Array<[string, string]> = [];
   if (issueUrl) links.push(['Issue', String(issueUrl)]);
   if (prUrl) links.push(['Pull request', String(prUrl)]);
 
@@ -61,11 +58,7 @@ export function buildPostCloseChangesEmail({ subjectPrefix, issueNumber, title, 
   return { subject, text, html: plainTextEmailHtml(summary, headerHtml) };
 }
 
-/**
- * @param {import('./settings.js').PipelineSettings['email']} email
- * @returns {SendMail}
- */
-export function createGmailSender({ user, pass, to }) {
+export function createGmailSender({ user, pass, to }: PipelineSettings['email']): SendMail {
   return async (subject, { text, html }) => {
     if (!user || !pass || !to) {
       return { ok: false, error: 'Gmail is not configured (GMAIL_EMAIL / GMAIL_PASSWORD) or CLAUDE_REVIEW_EMAIL_TO is missing.' };
@@ -74,7 +67,7 @@ export function createGmailSender({ user, pass, to }) {
       await nodemailer.createTransport({ service: 'gmail', auth: { user, pass } }).sendMail({ from: user, to, subject, text, html });
       return { ok: true, to };
     } catch (e) {
-      return { ok: false, error: e?.message || String(e) };
+      return { ok: false, error: errorText(e) };
     }
   };
 }

@@ -53,7 +53,7 @@ const NEEDS_INFO_LABEL = 'needs-info';
  *     aliases: () => Promise<string[]>,
  *     resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }>,
  *   },
- *   github: Pick<ReturnType<typeof import('./issuePipeline/githubIssue.js').createGithubIssues>,
+ *   github: Pick<ReturnType<typeof import('./issuePipeline/githubIssue.ts').createGithubIssues>,
  *     'resolveIssueRepo' | 'listOpenIssues' | 'blockedByCount' | 'listOpenAgentPrsByIssue' | 'branchHeadSha'>,
  *   prAttempts: () => Promise<Map<string, string>>,
  *   intervalMs?: number,
@@ -82,7 +82,7 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
     const repo = await github.resolveIssueRepo(ws.root, alias);
     const rows = await github.listOpenIssues(repo);
     const ready = await classifyReadyIssues(github, repo, rows, await prAttempts());
-    /** @param {import('./issuePipeline/githubIssue.js').OpenIssue} r @returns {OfficeIssue} */
+    /** @param {import('./issuePipeline/githubIssue.ts').OpenIssue} r @returns {OfficeIssue} */
     const item = (r) => ({ number: r.number, title: r.title, url: `https://github.com/${repo}/issues/${r.number}` });
     const titles = new Map(rows.map((r) => [r.number, r.title]));
     const labelled = (/** @type {string} */ label) => rows.filter((r) => hasLabel(r, label)).sort(byNumber);

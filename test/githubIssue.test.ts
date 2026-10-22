@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGithubIssues, githubCliErrorLooksTransient, issueNumberFromAgentBranch, ownerRepoSlugFromGithubRemote } from '../src/issuePipeline/githubIssue.js';
-import { loadPipelineSettings } from '../src/issuePipeline/settings.js';
+import { createGithubIssues, githubCliErrorLooksTransient, issueNumberFromAgentBranch, ownerRepoSlugFromGithubRemote } from '../src/issuePipeline/githubIssue.ts';
+import { loadPipelineSettings } from '../src/issuePipeline/settings.ts';
 
 describe('githubCliErrorLooksTransient', () => {
   it('detects GraphQL gateway timeout from gh', () => {
@@ -30,11 +30,9 @@ describe('ownerRepoSlugFromGithubRemote', () => {
 
 const ISSUE = { number: 7, title: 'Fix it', body: 'Steps', state: 'OPEN', url: 'https://github.com/o/r/issues/7', labels: [{ name: 'bug' }] };
 
-/** @param {(cmd: string, args: string[]) => string} answer */
-function issues(answer, env = {}) {
-  /** @type {Array<[string, string[]]>} */
-  const calls = [];
-  const sleeps = [];
+function issues(answer: (cmd: string, args: string[]) => string, env = {}) {
+  const calls: Array<[string, string[]]> = [];
+  const sleeps: number[] = [];
   const api = createGithubIssues({
     settings: loadPipelineSettings(env),
     exec: async (cmd, args) => {
@@ -67,6 +65,13 @@ describe('fetchIssuePrompt', () => {
   it('refuses a workspace whose repo it cannot tell', async () => {
     const { api } = issues(() => 'https://gitlab.com/o/r\n');
     await assert.rejects(api.fetchIssuePrompt({ issueNumber: 7, workspaceRoot: '/w', alias: 'a' }), /CLAUDE_ISSUE_REPO_MAP/);
+  });
+
+  it('refuses gh output that is not an issue object', async () => {
+    for (const out of ['not json', 'null', '[]']) {
+      const { api } = issues(() => out, { CLAUDE_ISSUE_REPO_MAP: 'a=o/r' });
+      await assert.rejects(api.fetchIssuePrompt({ issueNumber: 7, workspaceRoot: '/w', alias: 'a' }), /gh returned invalid JSON/);
+    }
   });
 
   it('retries a transient GitHub error, but not a permanent one', async () => {
@@ -160,8 +165,8 @@ describe('issueNumberFromAgentBranch', () => {
 });
 
 describe('createIssue', () => {
-  /** @param {string[]} existing labels the repo already has */
-  const repoWithLabels = (existing) =>
+  /** @param existing labels the repo already has */
+  const repoWithLabels = (existing: string[]) =>
     issues((_cmd, args) => {
       if (args[0] === 'label' && args[1] === 'list') return JSON.stringify(existing.map((name) => ({ name })));
       if (args[0] === 'label' && args[1] === 'create') return '';

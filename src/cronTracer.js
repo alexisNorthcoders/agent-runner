@@ -28,8 +28,8 @@ import { errorMessageFromUnknown } from './issuePipeline/index.js';
  * - Each tick first deletes stale active-run files (owner and agent both gone), so status doesn't
  *   show a dead run forever.
  *
- * @typedef {import('./issuePipeline/githubIssue.js').OpenIssue} OpenIssue
- * @typedef {import('./issuePipeline/githubIssue.js').OpenAgentPr} OpenAgentPr
+ * @typedef {import('./issuePipeline/githubIssue.ts').OpenIssue} OpenIssue
+ * @typedef {import('./issuePipeline/githubIssue.ts').OpenAgentPr} OpenAgentPr
  * @typedef {import('./cronState.ts').CronTickOutcome} CronTickOutcome
  */
 
@@ -65,7 +65,7 @@ export const isBlocked = async (blockedByCount, repo, issueNumber) => (await blo
 
 /**
  * Open agent PRs of `repo`, with the tip of each base branch they target.
- * @param {Pick<ReturnType<typeof import('./issuePipeline/githubIssue.js').createGithubIssues>, 'listOpenAgentPrsByIssue' | 'branchHeadSha'>} github
+ * @param {Pick<ReturnType<typeof import('./issuePipeline/githubIssue.ts').createGithubIssues>, 'listOpenAgentPrsByIssue' | 'branchHeadSha'>} github
  * @param {string} repo
  */
 export async function loadOpenAgentPrs(github, repo) {
@@ -128,7 +128,7 @@ export function partitionIssuesWithOpenPr(rows, repo, openPrs, baseShaByBranch, 
  * A repo's `ready-for-agent` issues as the cron sees them: **parked** (open agent PR whose state
  * was already attempted), **blocked** (open native dependency, or a failed lookup), else
  * **runnable**. Each list is in ascending issue number.
- * @param {Pick<ReturnType<typeof import('./issuePipeline/githubIssue.js').createGithubIssues>, 'listOpenAgentPrsByIssue' | 'branchHeadSha' | 'blockedByCount'>} github
+ * @param {Pick<ReturnType<typeof import('./issuePipeline/githubIssue.ts').createGithubIssues>, 'listOpenAgentPrsByIssue' | 'branchHeadSha' | 'blockedByCount'>} github
  * @param {string} repo
  * @param {OpenIssue[]} rows the repo's open issues
  * @param {Map<string, string>} attempted `repo#n` → last attempted state (`cronState.prAttempts`)
@@ -162,7 +162,7 @@ function truncate(s, max = 1500) {
  *   sweepStale?: () => Promise<unknown>,
  *   state: import('./cronState.ts').CronStateStore,
  *   workspaces: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
- *   github: Pick<ReturnType<typeof import('./issuePipeline/githubIssue.js').createGithubIssues>,
+ *   github: Pick<ReturnType<typeof import('./issuePipeline/githubIssue.ts').createGithubIssues>,
  *     'resolveIssueRepo' | 'listOpenIssues' | 'blockedByCount' | 'listOpenAgentPrsByIssue' | 'branchHeadSha'>,
  *   outbox: Pick<ReturnType<typeof import('./outbox.ts').createOutbox>, 'send'>,
  *   aliases: string[],

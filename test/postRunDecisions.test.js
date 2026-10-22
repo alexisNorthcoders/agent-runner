@@ -7,8 +7,8 @@ import {
   pickPrResultAfterGhFlow,
   normalizePrReviewComment,
   parseAutofixNoChanges,
-} from '../src/issuePipeline/decisionLogic.js';
-import { pollGithubIssueClosedOrTimeout } from '../src/issuePipeline/issueClosePoll.js';
+} from '../src/issuePipeline/decisionLogic.ts';
+import { pollGithubIssueClosedOrTimeout } from '../src/issuePipeline/issueClosePoll.ts';
 import { runPostReviewAutofixMergeFlow } from '../src/issuePipeline/reviewFollowUp.js';
 
 describe('post-run decision logic', () => {
@@ -293,7 +293,7 @@ describe('parseAutofixNoChanges', () => {
 
 describe('post-close changes email', () => {
   it('names the issue in the subject and a header, then the summary unchanged', async () => {
-    const { buildPostCloseChangesEmail } = await import('../src/issuePipeline/mailer.js');
+    const { buildPostCloseChangesEmail } = await import('../src/issuePipeline/mailer.ts');
     const e = buildPostCloseChangesEmail({
       subjectPrefix: 'bot',
       issueNumber: 12,
@@ -309,7 +309,7 @@ describe('post-close changes email', () => {
   });
 
   it('falls back to the old subject without a title, and clips a long one', async () => {
-    const { buildPostCloseChangesEmail } = await import('../src/issuePipeline/mailer.js');
+    const { buildPostCloseChangesEmail } = await import('../src/issuePipeline/mailer.ts');
     assert.equal(buildPostCloseChangesEmail({ subjectPrefix: 'bot', issueNumber: 1, summary: 's' }).subject, '[bot] Issue #1 closed — changes summary');
     const long = buildPostCloseChangesEmail({ subjectPrefix: 'bot', issueNumber: 1, title: 'x'.repeat(100), summary: 's' }).subject;
     assert.ok(long.endsWith('…') && long.length === '[bot] Issue #1 closed: '.length + 80, long);

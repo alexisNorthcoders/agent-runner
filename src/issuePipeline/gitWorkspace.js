@@ -1,4 +1,4 @@
-import { git, execErrorText } from './exec.js';
+import { git, execErrorText } from './exec.ts';
 
 /**
  * Git work in the target repo for an issue run. Issue runs branch **in place** in the live
@@ -130,8 +130,8 @@ export const wipCommitMessage = (issueNumber) => `chore: WIP snapshot (issue #${
 
 /**
  * @param {{
- *   exec: import('./exec.js').Exec,
- *   settings: import('./settings.js').PipelineSettings,
+ *   exec: import('./exec.ts').Exec,
+ *   settings: import('./settings.ts').PipelineSettings,
  *   log?: (message: string, detail?: unknown) => void,
  *   sleep?: (ms: number) => Promise<void>,
  *   now?: () => number,

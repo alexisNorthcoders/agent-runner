@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { loadPipelineSettings } from './issuePipeline/settings.js';
+import { loadPipelineSettings } from './issuePipeline/settings.ts';
 
 export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
