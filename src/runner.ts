@@ -14,6 +14,23 @@ import { formatDuration, renderHistoryText, renderStatusText } from './statusFor
 import { REQUEUED_NOTE } from './runQueue.ts';
 import { modelFromLabels } from './modelLabel.ts';
 import { sumJobUsage, USAGE_FILE_ENV } from './jobUsage.ts';
+import { errorText, isRecord } from './narrow.ts';
+import type { AgentModelChoice, AgentResult, AgentProgress, AgentBackend, AgentTouch, AgentStartOptions } from './agentBackend/index.ts';
+import type { RunRecord, createRunLock } from './runLock.ts';
+import type { JobResult, JobLauncher } from './jobProcess.ts';
+import type { createActiveRuns } from './activeRuns.ts';
+import type { IssueRunResult, IssuePipeline } from './issuePipeline/index.ts';
+import type { createPauseFlag } from './pauseFlag.ts';
+import type { createManualPause } from './manualPause.ts';
+import type { createUsageLimitPause } from './usageLimitPause.ts';
+import type { createRunQueue, QueuedRun, ContinuationParent } from './runQueue.ts';
+import type { createOutbox } from './outbox.ts';
+import type { createRunHistory, HistoryEntry } from './runHistory.ts';
+import type { StatusSnapshot } from './statusCollect.ts';
+import type { NotifyChange } from './stateChanges.ts';
+import type { RunAgent, PostRunResult } from './issuePipeline/postRun.ts';
+import type { ScheduledJob } from './scheduledJobs.ts';
+import type { ActiveLog } from './logTail.ts';
 
 /**
  * The runner: turns a `claude…` command into at most one agent run at a time and reports every
@@ -30,32 +47,26 @@ const MAX_UNSTARTED_TURNS = 1;
 /** Timestamp-based run id, safe in file names. */
 export const timestampRunId = () => new Date().toISOString().replace(/[:.]/g, '-');
 
-const oneLine = (s, n) => {
+const oneLine = (s: string, n: number) => {
   const t = s.replace(/\s+/g, ' ').trim();
   return t.length <= n ? t : `${t.slice(0, n - 1)}…`;
 };
 
-const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-const cap = (s, n) => (s.length <= n ? s : `${s.slice(0, n)}\n…(truncated, see the log)`);
+const cap = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n)}\n…(truncated, see the log)`);
 
 /**
  * `opus (workspace)` for a model that didn't come from the runner default, else ''.
- * @param {import('./agentBackend/index.ts').AgentModelChoice | undefined} m
  */
-export const modelNote = (m) => (m && m.source !== 'default' ? `${m.name} (${m.source})` : '');
+export const modelNote = (m: AgentModelChoice | undefined) => (m && m.source !== 'default' ? `${m.name} (${m.source})` : '');
 
-/** @param {import('./agentBackend/index.ts').AgentModelChoice | undefined} m */
 /** A Parent run that ended one of these ways gets the lead line in its Continuation's instructions. */
 const EARLY_END_OUTCOMES = new Set(['stopped', 'limited', 'timeout', 'failed']);
 
-const modelSuffix = (m) => (modelNote(m) ? `, model ${modelNote(m)}` : '');
+const modelSuffix = (m: AgentModelChoice | undefined) => (modelNote(m) ? `, model ${modelNote(m)}` : '');
 
-/**
- * @param {import('./runLock.ts').RunRecord} rec
- * @param {import('./agentBackend/index.ts').AgentResult} r
- */
-export function formatRunResult(rec, r) {
+export function formatRunResult(rec: RunRecord, r: AgentResult) {
   const name = capitalize(describeRun(rec));
   const cost = r.usage.costUsd != null ? `, $${r.usage.costUsd.toFixed(2)}` : '';
   const logLine = `Log: ${r.logPath}`;
@@ -79,11 +90,8 @@ export function formatRunResult(rec, r) {
 
 /**
  * A failed scheduled job's one-line report. Null for a success, which stays quiet.
- * @param {import('./runLock.ts').RunRecord} rec
- * @param {import('./jobProcess.ts').JobResult} r
- * @param {number} durationMs
  */
-export function formatJobResult(rec, r, durationMs) {
+export function formatJobResult(rec: RunRecord, r: JobResult, durationMs: number) {
   const name = `Scheduled job ${rec.jobName}`;
   const log = rec.logPath ? ` Log: ${rec.logPath}` : '';
   const took = formatDuration(durationMs);
@@ -102,70 +110,84 @@ export function formatJobResult(rec, r, durationMs) {
 }
 
 /**
- * @typedef {import('./agentBackend/index.ts').AgentRun} AgentRun
- * @typedef {{
- *   record: import('./runLock.ts').RunRecord,
- *   run: { pid: number | null, stop: () => void },
- *   progress: import('./agentBackend/index.ts').AgentProgress | null,
- *   phase: 'agent' | 'post-run' | 'job',
- *   stopRequested: boolean,
- *   tracker: ReturnType<ReturnType<typeof import('./activeRuns.ts').createActiveRuns>['track']>,
- *   followUps?: Array<{ label: string, outcome: string, logPath: string, costUsd: number | null, turns: number }>,
- *   passLogPath?: string,
- *   logFrom?: number,
- *   limitNotice?: string,
- *   requeued?: boolean,
- * }} ActiveRun
- *   `passLogPath` is the log the latest follow-up (autofix) pass writes; the run's own log is
- *   `record.logPath`. `logFrom` is where this run's output starts in a log other runs append to
- *   (a scheduled job's `logFile`). `limitNotice` is `owner`'s message about a usage limit the run
- *   hit, sent with its report. `requeued` says the usage limit stopped it before it started, so its
- *   request is back at the head of the queue.
+ * `passLogPath` is the log the latest follow-up (autofix) pass writes; the run's own log is
+ * `record.logPath`. `logFrom` is where this run's output starts in a log other runs append to
+ * (a scheduled job's `logFile`). `limitNotice` is `owner`'s message about a usage limit the run
+ * hit, sent with its report. `requeued` says the usage limit stopped it before it started, so its
+ * request is back at the head of the queue.
  */
+export type ActiveRun = {
+  record: StartedRecord;
+  run: { pid: number | null; stop: () => void };
+  progress: AgentProgress | null;
+  phase: 'agent' | 'post-run' | 'job';
+  stopRequested: boolean;
+  tracker: ReturnType<ReturnType<typeof createActiveRuns>['track']>;
+  followUps?: Array<{ label: string; outcome: string; logPath: string; costUsd: number | null; turns: number }>;
+  passLogPath?: string;
+  logFrom?: number;
+  limitNotice?: string;
+  requeued?: boolean;
+};
 
 /**
  * How an issue run ended, for the cron: its result, and whether an approved PR's merge failed only
  * on a network error (so the cron works the PR again instead of setting it aside).
- * @typedef {{ result: import('./issuePipeline/index.ts').IssueRunResult, mergeNetworkError: boolean }} IssueRunOutcome
  */
+export type IssueRunOutcome = { result: IssueRunResult; mergeNetworkError: boolean };
 
-/**
- * @param {{
- *   lock: ReturnType<typeof import('./runLock.ts').createRunLock>,
- *   pause: ReturnType<typeof import('./pauseFlag.ts').createPauseFlag>,
- *   manualPause: ReturnType<typeof import('./manualPause.ts').createManualPause>,
- *   usageLimit: ReturnType<typeof import('./usageLimitPause.ts').createUsageLimitPause>,
- *   queue: ReturnType<typeof import('./runQueue.ts').createRunQueue>,
- *   outbox: ReturnType<typeof import('./outbox.ts').createOutbox>,
- *   backend: import('./agentBackend/index.ts').AgentBackend,
- *   history: Pick<ReturnType<typeof import('./runHistory.ts').createRunHistory>, 'append' | 'read'>,
- *   activeRuns: Pick<ReturnType<typeof import('./activeRuns.ts').createActiveRuns>, 'track'>,
- *   statusSnapshot: () => Promise<import('./statusCollect.ts').StatusSnapshot>,
- *   joplin: { getNote: (query: string) => Promise<{ id: string, title: string, body: string }> },
- *   launchSafeRestart: (replyTo: string) => void,
- *   workspaces?: {
- *     resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }>,
- *     list?: () => Promise<Array<{ alias: string, root: string }>>,
- *   },
- *   issues?: Pick<import('./issuePipeline/index.ts').IssuePipeline, 'prepare' | 'finish' | 'commitInterruptedWork'>,
- *   jobs?: Pick<import('./jobProcess.ts').JobLauncher, 'start'>,
- *   jobTimeoutMs?: number,
- *   readUsageFile?: (path: string) => Promise<string>,
- *   workspaceRoot: string,
- *   logsDir: string,
- *   preamble: string,
- *   freeformPreamble?: string,
- *   newRunId?: () => string,
- *   now?: () => number,
- *   isAlive?: (pid: number) => boolean,
- *   stopOrphanAgent?: (pid: number) => Promise<boolean>,
- *   logSize?: (path: string) => Promise<number>,
- *   logger?: Pick<Console, 'error' | 'warn' | 'info'>,
- *   onChange?: import('./stateChanges.ts').NotifyChange,
- * }} deps
- *   `onChange` is told about state that lives only here or in files (progress, phase, the run
- *   starting and finishing); Redis state tells it through its store (src/stateChanges.ts).
- */
+/** The record of a run this runner started: `newRecord` always sets these fields. */
+type StartedRecord = RunRecord & Required<Pick<RunRecord, 'kind' | 'label' | 'replyTo' | 'workspaceRoot' | 'logPath' | 'startedAt'>>;
+
+/** A finished run's outbox text (null sends nothing) and the fields it adds to its history row. */
+type RunReport = { text: string | null; history?: Record<string, unknown> };
+
+/** A Continuation's Parent once its session is known. */
+type ResolvedParent = Exclude<ContinuationParent, { pending: true }>;
+
+/** A freeform, Joplin or `claude:more` request about to start, its Parent resolved. */
+type AgentRequest = Extract<QueuedRun['cmd'], { kind: 'freeform' | 'joplin' }> | { kind: 'more'; instructions: string; parent: ResolvedParent; model?: string };
+
+type StartReply = { reply: string; started: boolean; refused?: 'busy' | 'paused' };
+
+export type RunnerDeps = {
+  lock: ReturnType<typeof createRunLock>;
+  pause: ReturnType<typeof createPauseFlag>;
+  manualPause: ReturnType<typeof createManualPause>;
+  usageLimit: ReturnType<typeof createUsageLimitPause>;
+  queue: ReturnType<typeof createRunQueue>;
+  outbox: ReturnType<typeof createOutbox>;
+  backend: AgentBackend;
+  history: Pick<ReturnType<typeof createRunHistory>, 'append' | 'read'>;
+  activeRuns: Pick<ReturnType<typeof createActiveRuns>, 'track'>;
+  statusSnapshot: () => Promise<StatusSnapshot>;
+  joplin: { getNote: (query: string) => Promise<{ id: string; title: string; body: string }> };
+  launchSafeRestart: (replyTo: string) => void;
+  workspaces?: {
+    resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string; root: string }>;
+    list?: () => Promise<Array<{ alias: string; root: string }>>;
+  };
+  issues?: Pick<IssuePipeline, 'prepare' | 'finish' | 'commitInterruptedWork'>;
+  jobs?: Pick<JobLauncher, 'start'>;
+  jobTimeoutMs?: number;
+  readUsageFile?: (path: string) => Promise<string>;
+  workspaceRoot: string;
+  logsDir: string;
+  preamble: string;
+  freeformPreamble?: string;
+  newRunId?: () => string;
+  now?: () => number;
+  isAlive?: (pid: number) => boolean;
+  stopOrphanAgent?: (pid: number) => Promise<boolean>;
+  logSize?: (path: string) => Promise<number>;
+  logger?: Pick<Console, 'error' | 'warn' | 'info'>;
+  /**
+   * Told about state that lives only here or in files (progress, phase, the run starting and
+   * finishing); Redis state tells it through its store (src/stateChanges.ts).
+   */
+  onChange?: NotifyChange;
+};
+
 export function createRunner({
   lock,
   pause,
@@ -195,17 +217,16 @@ export function createRunner({
   readUsageFile = (path) => readFile(path, 'utf8'),
   logger = console,
   onChange = () => {},
-}) {
-  /** The run this process is executing, if any. @type {ActiveRun | null} */
-  let active = null;
+}: RunnerDeps) {
+  /** The run this process is executing, if any. */
+  let active: ActiveRun | null = null;
   /** Settles when the active run has been reported and its lock released. */
   let settled = Promise.resolve();
   /** The latest queue drain; one runs at a time. */
-  let draining = /** @type {Promise<void> | null} */ (null);
+  let draining: Promise<void> | null = null;
   let lastDrain = Promise.resolve();
 
-  /** @param {string} runId */
-  const trackProgress = (runId) => (p) => {
+  const trackProgress = (runId: string) => (p: AgentProgress) => {
     if (active?.record.runId !== runId) return;
     active.progress = p;
     active.tracker.update(p);
@@ -216,10 +237,8 @@ export function createRunner({
    * The inferred workspace of freeform run `runId`, from its first edit or command in an allowlisted
    * workspace: set once on the active run, its lock record and active-run file, and later its
    * history row. Null when there's no allowlist to infer from.
-   * @param {string} runId
-   * @returns {((t: import('./agentBackend/index.ts').AgentTouch) => void) | undefined}
    */
-  function inferWorkspace(runId) {
+  function inferWorkspace(runId: string): ((t: AgentTouch) => void) | undefined {
     const list = workspaces?.list;
     if (!list) return undefined;
     const inference = createWorkspaceInference({
@@ -237,8 +256,7 @@ export function createRunner({
     return (t) => void inference.touch(t);
   }
 
-  /** @param {ActiveRun} a @param {ActiveRun['phase']} phase */
-  const setPhase = (a, phase) => {
+  const setPhase = (a: ActiveRun, phase: ActiveRun['phase']) => {
     a.phase = phase;
     onChange('phase');
   };
@@ -246,9 +264,8 @@ export function createRunner({
   /**
    * Why no run may start now: the safe-restart pause, the owner's general pause or the usage-limit
    * pause. Null when none is set.
-   * @returns {Promise<string | null>}
    */
-  async function pausedReason() {
+  async function pausedReason(): Promise<string | null> {
     const restarting = await pause.get();
     if (restarting) return restarting.reason;
     const byHand = await manualPause.general();
@@ -263,11 +280,8 @@ export function createRunner({
    * hitting it again only rewrites the notice if it pushed the pause further, so it stays one message
    * naming the pause in force. `retry` (a manual request's first pass) goes back to the head of the
    * queue if the limit stopped it before it did any real work, so it runs by itself after the pause.
-   * @param {ActiveRun} a
-   * @param {import('./agentBackend/index.ts').AgentResult} result
-   * @param {import('./runQueue.ts').QueuedRun} [retry]
    */
-  async function hitUsageLimit(a, result, retry) {
+  async function hitUsageLimit(a: ActiveRun, result: AgentResult, retry?: QueuedRun) {
     if (result.outcome !== 'limited' || !result.limit) return;
     try {
       const { pause: p, extended } = await usageLimit.extend(result.limit);
@@ -278,7 +292,7 @@ export function createRunner({
           await queue.unshift({ ...retry, queuedAt: new Date(now()).toISOString() });
           a.requeued = true;
         } catch (err) {
-          logger.error(`run ${a.record.runId}: could not re-queue the request:`, err?.message || err);
+          logger.error(`run ${a.record.runId}: could not re-queue the request:`, errorText(err));
         }
       }
       if (a.limitNotice && !extended) return;
@@ -286,17 +300,15 @@ export function createRunner({
       const again = retry && a.requeued ? ` Re-queued "${retry.label}" at the head of the queue.` : '';
       a.limitNotice = `⏸ Usage limit hit: pausing agent runs ${describeUsageLimitPause(p, now())}.${again} ${n} request${n === 1 ? '' : 's'} queued.`;
     } catch (err) {
-      logger.error(`run ${a.record.runId}: could not set the usage-limit pause:`, err?.message || err);
+      logger.error(`run ${a.record.runId}: could not set the usage-limit pause:`, errorText(err));
     }
   }
 
   /**
    * Take the single-flight lock for `record`. Returns why it wasn't taken (with the reply), or null
    * once it's held.
-   * @param {import('./runLock.ts').RunRecord} record
-   * @returns {Promise<{ why: 'busy' | 'paused', reply: string } | null>}
    */
-  async function acquire(record) {
+  async function acquire(record: RunRecord): Promise<{ why: 'busy' | 'paused'; reply: string } | null> {
     const paused = await pausedReason();
     if (paused) return { why: 'paused', reply: `agent-runner is paused (${paused}).` };
     if (!(await lock.tryAcquire(record))) {
@@ -314,11 +326,7 @@ export function createRunner({
     return null;
   }
 
-  /**
-   * @param {{ kind: string, label: string, replyTo: string, workspaceRoot: string } & Partial<import('./runLock.ts').RunRecord>} p
-   * @returns {import('./runLock.ts').RunRecord}
-   */
-  function newRecord(p) {
+  function newRecord(p: { kind: string; label: string; replyTo: string; workspaceRoot: string } & Partial<RunRecord>): StartedRecord {
     const runId = newRunId();
     return {
       runId,
@@ -335,19 +343,18 @@ export function createRunner({
    * append its history row, release the lock and start the next queued request. `report` turns the
    * result into the outbox text (or null to send nothing) and the history fields; if it throws,
    * `fallback` is used.
-   * @template R
-   * @param {import('./runLock.ts').RunRecord} record
-   * @param {{ pid: number | null, done: Promise<R & { outcome: string, exitCode: number | null }>, stop: () => void }} run
-   * @param {'agent' | 'job'} phase
-   * @param {(result: R & { outcome: string, exitCode: number | null }, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
-   * @param {(result: R & { outcome: string, exitCode: number | null }) => { text: string | null, history?: object }} fallback
-   * @param {Pick<ActiveRun, 'logFrom'>} [extra]
    */
-  async function supervise(record, run, phase, report, fallback, extra = {}) {
+  async function supervise<R extends { outcome: string; exitCode: number | null }>(
+    record: StartedRecord,
+    run: { pid: number | null; done: Promise<R>; stop: () => void },
+    phase: 'agent' | 'job',
+    report: (result: R, a: ActiveRun) => Promise<RunReport>,
+    fallback: (result: R) => RunReport,
+    extra: Pick<ActiveRun, 'logFrom'> = {}
+  ) {
     const { runId } = record;
     const running = { ...record, agentPid: run.pid };
-    /** @type {ActiveRun} */
-    const a = { record: running, run, progress: null, phase, stopRequested: false, tracker: activeRuns.track(running), ...extra };
+    const a: ActiveRun = { record: running, run, progress: null, phase, stopRequested: false, tracker: activeRuns.track(running), ...extra };
     active = a;
     onChange('run-started');
     await lock.update(a.record).catch(() => {});
@@ -363,9 +370,9 @@ export function createRunner({
       }
       if (out.text) {
         try {
-          await outbox.send({ replyTo: /** @type {string} */ (record.replyTo), runId, text: out.text });
+          await outbox.send({ replyTo: record.replyTo, runId, text: out.text });
         } catch (err) {
-          logger.error(`run ${runId}: outbox write failed:`, err?.message || err);
+          logger.error(`run ${runId}: outbox write failed:`, errorText(err));
         }
       }
       const endedAt = now();
@@ -380,14 +387,14 @@ export function createRunner({
           startedAt: record.startedAt,
           endedAt: new Date(endedAt).toISOString(),
           ...(record.parentRunId ? { parentRunId: record.parentRunId } : {}),
-          durationMs: endedAt - Date.parse(/** @type {string} */ (record.startedAt)),
+          durationMs: endedAt - Date.parse(record.startedAt),
           outcome: result.outcome,
           exitCode: result.exitCode,
           ...(a.record.inferredWorkspace ? { inferredWorkspace: a.record.inferredWorkspace } : {}),
           ...out.history,
         });
       } catch (err) {
-        logger.warn(`run ${runId}: history write failed:`, err?.message || err);
+        logger.warn(`run ${runId}: history write failed:`, errorText(err));
       }
     })();
     settled = done
@@ -400,7 +407,7 @@ export function createRunner({
         try {
           await lock.release(runId);
         } catch (err) {
-          logger.error(`run ${runId}: lock release failed (expires on its own):`, err?.message || err);
+          logger.error(`run ${runId}: lock release failed (expires on its own):`, errorText(err));
         }
         drainQueue();
       });
@@ -410,27 +417,20 @@ export function createRunner({
   /**
    * Start the agent for a run that holds the lock, then report in the background (`supervise`):
    * `report` turns the agent's result into the outbox text and extra history fields. Releases the
-   * lock if the agent can't start.
-   * @param {import('./runLock.ts').RunRecord} record
-   * @param {Omit<import('./agentBackend/index.ts').AgentStartOptions, 'logPath' | 'onProgress'>} opts
-   *   `preamble` defaults to the issue-run preamble.
-   * @param {(result: import('./agentBackend/index.ts').AgentResult, a: ActiveRun) => Promise<{ text: string | null, history?: object }>} report
-   * @param {import('./runQueue.ts').QueuedRun} [retry] the request to re-queue if the usage limit
-   *   stops it before it starts (manual requests only)
+   * lock if the agent can't start. `opts.preamble` defaults to the issue-run preamble. `retry` is the
+   * request to re-queue if the usage limit stops it before it starts (manual requests only).
    */
-  async function launch(record, opts, report, retry) {
+  async function launch(record: StartedRecord, opts: Omit<AgentStartOptions, 'logPath' | 'onProgress'>, report: (result: AgentResult, a: ActiveRun) => Promise<RunReport>, retry?: QueuedRun) {
     let run;
     try {
-      run = await backend.start({ preamble, ...opts, logPath: /** @type {string} */ (record.logPath), onProgress: trackProgress(record.runId) });
+      run = await backend.start({ preamble, ...opts, logPath: record.logPath, onProgress: trackProgress(record.runId) });
     } catch (err) {
       await lock.release(record.runId).catch(() => {});
       throw err;
     }
-    /** @param {import('./agentBackend/index.ts').AgentResult} result */
-    const agentHistory = (result) => ({ backend: backend.name, logPath: result.logPath, ...result.usage, ...(result.limit ? { limit: result.limit } : {}) });
-    /** @param {string} text */
-    const toOwner = (text) =>
-      outbox.send({ replyTo: OWNER, runId: record.runId, text }).catch((err) => logger.error(`run ${record.runId}: outbox write failed:`, err?.message || err));
+    const agentHistory = (result: AgentResult) => ({ backend: backend.name, logPath: result.logPath, ...result.usage, ...(result.limit ? { limit: result.limit } : {}) });
+    const toOwner = (text: string) =>
+      outbox.send({ replyTo: OWNER, runId: record.runId, text }).catch((err) => logger.error(`run ${record.runId}: outbox write failed:`, errorText(err)));
     await supervise(
       record,
       run,
@@ -462,11 +462,9 @@ export function createRunner({
   /**
    * A follow-up agent pass inside an issue run's post-run (the autofix). It becomes the active
    * agent, so `claude:stop` and status see it; after a stop, no new pass starts.
-   * @param {ActiveRun} a
-   * @returns {import('./issuePipeline/postRun.ts').RunAgent}
    */
   const followUpAgent =
-    (a, model) =>
+    (a: ActiveRun, model: string | null): RunAgent =>
     async ({ prompt, label }) => {
       const logPath = join(logsDir, `${a.record.runId}-${label}.log`);
       if (a.stopRequested) return { outcome: 'stopped', exitCode: null, text: '', stderr: '' };
@@ -490,7 +488,7 @@ export function createRunner({
         return result;
       } catch (err) {
         setPhase(a, 'post-run');
-        return { outcome: 'spawn_error', exitCode: null, text: '', stderr: err?.message || String(err) };
+        return { outcome: 'spawn_error', exitCode: null, text: '', stderr: errorText(err) };
       }
     };
 
@@ -518,30 +516,30 @@ export function createRunner({
       }
       return `The owner is working by hand in these workspaces, which are paused. Don't change files, branches or commits in them, even if asked; say so in your summary instead:\n${lines.join('\n')}`;
     } catch (err) {
-      logger.warn(`could not read workspace pauses: ${err?.message || err}`);
+      logger.warn(`could not read workspace pauses: ${errorText(err)}`);
       return '';
     }
   }
 
-  /**
-   * @param {{ kind: 'freeform', prompt: string, model?: string } | { kind: 'joplin', noteQuery: string, model?: string } | { kind: 'more', instructions: string, parent: import('./runQueue.ts').ContinuationParent, model?: string }} cmd
-   * @param {string} replyTo
-   * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
-   */
-  async function startRun(cmd, replyTo) {
-    let parent = null;
-    if (cmd.kind === 'more') {
-      parent = cmd.parent;
-      if ('pending' in parent) {
+  async function startRun(cmd: Extract<QueuedRun['cmd'], { kind: 'freeform' | 'joplin' | 'more' }>, replyTo: string): Promise<StartReply> {
+    let req: AgentRequest;
+    if (cmd.kind !== 'more') {
+      req = cmd;
+    } else {
+      const queued = cmd.parent;
+      if ('pending' in queued) {
         // the Parent was running when this was queued: wait for it to end (it writes its history
         // row before releasing the lock), then read its session from that row
         const cur = await lock.current();
         if (cur) return { reply: `Agent is busy. ${capitalize(describeRun(cur))} is in progress. Try again later.`, started: false, refused: 'busy' };
-        const resolved = await parentFromRow((await history.read()).find((r) => r.runId === cmd.parent.runId), cmd.parent.runId);
+        const resolved = await parentFromRow((await history.read()).find((r) => r.runId === queued.runId), queued.runId);
         if (typeof resolved === 'string') return { reply: resolved, started: false };
-        parent = resolved;
+        req = { ...cmd, parent: resolved };
+      } else {
+        req = { ...cmd, parent: queued };
       }
     }
+    const parent = req.kind === 'more' ? req.parent : null;
     const record = newRecord({
       kind: parent ? parent.kind : cmd.kind,
       label: labelFor(cmd),
@@ -555,17 +553,17 @@ export function createRunner({
     try {
       let prompt;
       let source = '';
-      if (cmd.kind === 'more') {
-        const early = EARLY_END_OUTCOMES.has(parent.outcome ?? '') ? `Your previous run ended early (${parent.outcome}).\n\n` : '';
-        prompt = `${early}${cmd.instructions}`;
-        source = `, continuing "${parent.label}" (${formatDuration(now() - Date.parse(parent.endedAt))} ago)`;
-      } else if (cmd.kind === 'joplin') {
+      if (req.kind === 'more') {
+        const early = EARLY_END_OUTCOMES.has(req.parent.outcome ?? '') ? `Your previous run ended early (${req.parent.outcome}).\n\n` : '';
+        prompt = `${early}${req.instructions}`;
+        source = `, continuing "${req.parent.label}" (${formatDuration(now() - Date.parse(req.parent.endedAt))} ago)`;
+      } else if (req.kind === 'joplin') {
         let note;
         try {
-          note = await joplin.getNote(cmd.noteQuery);
+          note = await joplin.getNote(req.noteQuery);
         } catch (err) {
           await lock.release(record.runId);
-          return { reply: `Failed to read Joplin note: ${err?.message || err}`, started: false };
+          return { reply: `Failed to read Joplin note: ${errorText(err)}`, started: false };
         }
         if (!note.body.trim()) {
           await lock.release(record.runId);
@@ -575,7 +573,7 @@ export function createRunner({
         record.label = `Joplin note "${note.title}"`;
         source = ` from Joplin note "${note.title}"`;
       } else {
-        prompt = cmd.prompt;
+        prompt = req.prompt;
       }
       const onTouch = record.kind === 'freeform' ? inferWorkspace(record.runId) : undefined;
       // a Continuation's conversation already holds the static preamble: only the pause note is new
@@ -589,7 +587,7 @@ export function createRunner({
           ...('model' in cmd && cmd.model
             ? { model: cmd.model }
             : parent?.model
-              ? { model: parent.model, modelSource: /** @type {const} */ ('parent') }
+              ? { model: parent.model, modelSource: 'parent' }
               : {}),
           ...(parent ? { resume: { sessionId: parent.sessionId } } : {}),
           ...(onTouch ? { onTouch } : {}),
@@ -600,7 +598,7 @@ export function createRunner({
       return { reply: `Started run ${record.runId}${source} in ${record.workspaceRoot}${modelSuffix(started.model)}.\nLog: ${record.logPath}`, started: true };
     } catch (err) {
       await lock.release(record.runId).catch(() => {});
-      return { reply: `Could not start the agent: ${err?.message || err}`, started: false };
+      return { reply: `Could not start the agent: ${errorText(err)}`, started: false };
     }
   }
 
@@ -608,10 +606,8 @@ export function createRunner({
    * Run a scheduled job's command under the lock: no preamble, no post-run. Its output goes to the
    * job's log file (else a run log). History gets `trigger: schedule`; `owner` hears only about a
    * failure, including one to start, since nobody is waiting for the reply.
-   * @param {import('./scheduledJobs.ts').ScheduledJob} job
-   * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
    */
-  async function startJobRun(job) {
+  async function startJobRun(job: ScheduledJob): Promise<StartReply> {
     if (!jobs) return { reply: 'Scheduled jobs are not configured on this runner.', started: false };
     const record = newRecord({ kind: 'job', label: `scheduled job ${job.name}`, replyTo: OWNER, workspaceRoot: job.cwd, trigger: 'schedule', jobName: job.name, room: job.room });
     if (job.logFile) record.logPath = job.logFile;
@@ -625,15 +621,15 @@ export function createRunner({
       run = await jobs.start({
         command: job.command,
         cwd: job.cwd,
-        logPath: /** @type {string} */ (record.logPath),
+        logPath: record.logPath,
         // the job's own env can't override the usage file
         env: { ...job.env, [USAGE_FILE_ENV]: usagePath },
         timeoutMs: job.timeoutMinutes ? job.timeoutMinutes * 60_000 : jobTimeoutMs,
       });
     } catch (err) {
       await lock.release(record.runId).catch(() => {});
-      const reply = `Scheduled job ${job.name} could not start: ${err?.message || err}`;
-      await outbox.send({ replyTo: OWNER, runId: record.runId, text: reply }).catch((e) => logger.error('job: outbox write failed:', e?.message || e));
+      const reply = `Scheduled job ${job.name} could not start: ${errorText(err)}`;
+      await outbox.send({ replyTo: OWNER, runId: record.runId, text: reply }).catch((e) => logger.error('job: outbox write failed:', errorText(e)));
       return { reply, started: false };
     }
     /** The usage the job reported, whatever its outcome; {} for no file, an empty one or a read error. */
@@ -642,14 +638,13 @@ export function createRunner({
       try {
         text = await readUsageFile(usagePath);
       } catch (err) {
-        if (err?.code !== 'ENOENT') logger.warn(`job ${job.name}: cannot read usage file ${usagePath}:`, err?.message || err);
+        if (!(isRecord(err) && err.code === 'ENOENT')) logger.warn(`job ${job.name}: cannot read usage file ${usagePath}:`, errorText(err));
         return {};
       }
       const usage = sumJobUsage(text, (line, why) => logger.warn(`job ${job.name}: skipped usage line (${why}): ${oneLine(line, 80)}`));
       return usage ?? {};
     };
-    /** @param {import('./jobProcess.ts').JobResult} result */
-    const jobHistory = async (result) => ({
+    const jobHistory = async (result: JobResult) => ({
       trigger: 'schedule',
       jobName: job.name,
       room: job.room,
@@ -661,7 +656,7 @@ export function createRunner({
       record,
       run,
       'job',
-      async (result) => ({ text: formatJobResult(record, result, now() - Date.parse(/** @type {string} */ (record.startedAt))), history: await jobHistory(result) }),
+      async (result) => ({ text: formatJobResult(record, result, now() - Date.parse(record.startedAt)), history: await jobHistory(result) }),
       // can't throw, so the schedule history row and a failure notice are always written
       (result) => ({
         text: result.outcome === 'success' ? null : `Scheduled job ${job.name} ended: ${result.outcome}.`,
@@ -675,15 +670,12 @@ export function createRunner({
   /**
    * The one entry point for issue runs, manual (`claude issue:…`) and cron: resolve the allowlisted
    * workspace, take the lock, fetch the issue and branch in place, run the agent with the
-   * implement workflow, then post-run, then one outbox message.
-   * @param {{ issueNumber: number, alias: string | null, extraInstructions?: string, replyTo: string, trigger?: 'manual' | 'cron' }} p
-   * @returns {Promise<{ reply: string, done: Promise<IssueRunOutcome | null> | null, refused?: 'busy' | 'paused' }>}
-   *   `done` (null when nothing started) settles once the run has been reported and unlocked, with
-   *   the run's result, or null when post-run never reported one.
-   *   `refused` says the lock was held, the runner paused or (for the cron) requests are queued, so
-   *   nothing was tried.
+   * implement workflow, then post-run, then one outbox message. `done` (null when nothing started)
+   * settles once the run has been reported and unlocked, with the run's result, or null when post-run
+   * never reported one. `refused` says the lock was held, the runner paused or (for the cron)
+   * requests are queued, so nothing was tried.
    */
-  async function startIssueRun({ issueNumber, alias, extraInstructions = '', replyTo, trigger = 'manual' }) {
+  async function startIssueRun({ issueNumber, alias, extraInstructions = '', replyTo, trigger = 'manual' }: { issueNumber: number; alias: string | null; extraInstructions?: string; replyTo: string; trigger?: 'manual' | 'cron' }): Promise<{ reply: string; done: Promise<IssueRunOutcome | null> | null; refused?: 'busy' | 'paused' }> {
     if (!workspaces || !issues) return { reply: 'claude issue:<n> is not configured on this runner.', done: null };
     // queued requests go first; the cron tries again on a later tick
     if (trigger === 'cron' && (await queue.length()) > 0) return { reply: 'Requests are queued.', done: null, refused: 'busy' };
@@ -691,7 +683,7 @@ export function createRunner({
     try {
       ws = await workspaces.resolveIssueWorkspace(alias);
     } catch (err) {
-      return { reply: `Agent workspace: ${err?.message || err}`, done: null };
+      return { reply: `Agent workspace: ${errorText(err)}`, done: null };
     }
     // not `refused`: a request for a paused workspace isn't queued, so it can't hold up the queue
     const wsPause = await manualPause.forWorkspace(ws.alias);
@@ -715,15 +707,14 @@ export function createRunner({
       prep = await issues.prepare({ issueNumber, alias: ws.alias, workspaceRoot: ws.root, extraInstructions });
     } catch (err) {
       await lock.release(record.runId).catch(() => {});
-      return { reply: err?.message || String(err), done: null };
+      return { reply: errorText(err), done: null };
     }
     record.label = `issue ${ws.alias}#${issueNumber}${prep.issue.title ? ` "${oneLine(prep.issue.title, 50)}"` : ''}`;
 
     const { model: labelModel, warnings: modelWarnings } = modelFromLabels(prep.labels);
     const warned = modelWarnings.length ? `\n${modelWarnings.join('\n')}` : '';
 
-    /** @type {IssueRunOutcome | null} */
-    let outcome = null;
+    let outcome: IssueRunOutcome | null = null;
     let started;
     // the cron retries on its own after the reset
     const retry = trigger === 'manual' ? queuedRun({ kind: 'issue', issueNumber, alias, extraInstructions }, replyTo) : undefined;
@@ -769,7 +760,7 @@ export function createRunner({
         };
       }, retry);
     } catch (err) {
-      return { reply: `Could not start the agent: ${err?.message || err}`, done: null };
+      return { reply: `Could not start the agent: ${errorText(err)}`, done: null };
     }
     const title = prep.issue.title ? ` (${prep.issue.title})` : '';
     return {
@@ -778,14 +769,13 @@ export function createRunner({
     };
   }
 
-  /** The PR a post-run opened or found, if any. @param {import('./issuePipeline/postRun.ts').PostRunResult | null | undefined} post */
-  const prUrlOf = (post) => (post?.prResult?.ok ? (post.prResult.url ?? null) : null);
+  /** The PR a post-run opened or found, if any. */
+  const prUrlOf = (post: PostRunResult | null | undefined) => (post?.prResult?.ok ? (post.prResult.url ?? null) : null);
 
   /**
    * WIP-commit an interrupted issue run's leftover work. Returns the sentence for the report.
-   * @param {import('./runLock.ts').RunRecord} rec
    */
-  async function recoverIssueWork(rec) {
+  async function recoverIssueWork(rec: RunRecord) {
     if (!issues || !rec.workspaceRoot || !rec.issueNumber) return '';
     const again = `claude issue:${rec.workspaceAlias ? `${rec.workspaceAlias}:` : ''}${rec.issueNumber}`;
     try {
@@ -797,26 +787,22 @@ export function createRunner({
       }
       return `\nCommitting its leftover work failed (${r.error}). Check ${rec.workspaceRoot} by hand.`;
     } catch (err) {
-      logger.error(`recovery of ${rec.runId}: WIP commit failed:`, err?.message || err);
-      return `\nCommitting its leftover work failed (${err?.message || err}). Check ${rec.workspaceRoot} by hand.`;
+      logger.error(`recovery of ${rec.runId}: WIP commit failed:`, errorText(err));
+      return `\nCommitting its leftover work failed (${errorText(err)}). Check ${rec.workspaceRoot} by hand.`;
     }
   }
 
   /**
    * Start a run request now. `refused` means it couldn't take the lock (busy or paused).
-   * @param {import('./runQueue.ts').QueuedRun['cmd']} cmd
-   * @param {string} replyTo
-   * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
    */
-  async function startCommand(cmd, replyTo) {
+  async function startCommand(cmd: QueuedRun['cmd'], replyTo: string): Promise<StartReply> {
     if (cmd.kind === 'job') return startJobRun(cmd.job);
     if (cmd.kind !== 'issue') return startRun(cmd, replyTo);
     const r = await startIssueRun({ ...cmd, replyTo });
     return { reply: r.reply, started: r.done != null, ...(r.refused ? { refused: r.refused } : {}) };
   }
 
-  /** @param {import('./runQueue.ts').QueuedRun['cmd']} cmd */
-  const labelFor = (cmd) =>
+  const labelFor = (cmd: QueuedRun['cmd']) =>
     cmd.kind === 'freeform'
       ? oneLine(cmd.prompt, 60)
       : cmd.kind === 'more'
@@ -827,21 +813,13 @@ export function createRunner({
           ? `scheduled job ${cmd.job.name}`
           : `issue ${cmd.alias ? `${cmd.alias}#` : '#'}${cmd.issueNumber}`;
 
-  /**
-   * @param {import('./runQueue.ts').QueuedRun['cmd']} cmd
-   * @param {string} replyTo
-   * @returns {import('./runQueue.ts').QueuedRun}
-   */
-  const queuedRun = (cmd, replyTo) => ({ id: randomUUID(), cmd, replyTo, label: labelFor(cmd), queuedAt: new Date(now()).toISOString() });
+  const queuedRun = (cmd: QueuedRun['cmd'], replyTo: string): QueuedRun => ({ id: randomUUID(), cmd, replyTo, label: labelFor(cmd), queuedAt: new Date(now()).toISOString() });
 
   /**
    * A run request (from a user, or a due scheduled job): start it now if nothing is ahead of it,
    * else queue it. `accepted` is false only when the queue was full.
-   * @param {import('./runQueue.ts').QueuedRun['cmd']} cmd
-   * @param {string} replyTo
-   * @returns {Promise<{ reply: string, accepted: boolean }>}
    */
-  async function submit(cmd, replyTo) {
+  async function submit(cmd: QueuedRun['cmd'], replyTo: string): Promise<{ reply: string; accepted: boolean }> {
     if ((await queue.length()) === 0) {
       const r = await startCommand(cmd, replyTo);
       if (!r.refused) return { reply: r.reply, accepted: true };
@@ -887,11 +865,11 @@ export function createRunner({
             continue;
           }
           const text = r.started ? `Queued request "${item.label}": ${r.reply}` : `Queued request "${item.label}" did not start: ${r.reply}`;
-          await outbox.send({ replyTo: item.replyTo, text }).catch((err) => logger.error('queue: outbox write failed:', err?.message || err));
+          await outbox.send({ replyTo: item.replyTo, text }).catch((err) => logger.error('queue: outbox write failed:', errorText(err)));
           if (r.started) return;
         }
       } catch (err) {
-        logger.error('queue: drain failed:', err?.message || err);
+        logger.error('queue: drain failed:', errorText(err));
       } finally {
         draining = null;
       }
@@ -904,10 +882,8 @@ export function createRunner({
    * The active freeform or Joplin run as a pending Parent, when `claude:more` (with no run prefix,
    * or one that matches it) should continue it rather than a row from history. Null for an issue
    * run or job, or when nothing is active: the history picks apply then.
-   * @param {string} [runRef]
-   * @returns {Promise<import('./runQueue.ts').ContinuationParent | null>}
    */
-  async function runningParent(runRef) {
+  async function runningParent(runRef?: string): Promise<ContinuationParent | null> {
     const cur = await lock.current();
     if (!cur || (cur.kind !== 'freeform' && cur.kind !== 'joplin')) return null;
     if (runRef && !cur.runId.startsWith(runRef)) return null;
@@ -917,10 +893,9 @@ export function createRunner({
   /**
    * The Parent run for a `claude:more`: the newest freeform or Joplin run in history, whatever its
    * outcome. A refusal's one line when there is none or it can't be resumed.
-   * @param {string} [runRef] a run-id prefix: continue that run instead
-   * @returns {Promise<import('./runQueue.ts').ContinuationParent | string>}
+   * @param runRef a run-id prefix: continue that run instead
    */
-  async function pickParent(runRef) {
+  async function pickParent(runRef?: string): Promise<ContinuationParent | string> {
     const rows = await history.read();
     let row;
     if (runRef) {
@@ -935,24 +910,20 @@ export function createRunner({
         return `Run ${row.runId} is an issue run: use claude ${target} <extra instructions> to continue it.`;
       }
       if (row.kind === 'job') return `Cannot continue run ${row.runId}: it is a scheduled job.`;
-      if (row.kind !== 'freeform' && row.kind !== 'joplin') return `Cannot continue run ${row.runId}: only freeform and Joplin runs can be continued.`;
     } else {
       row = rows.find((r) => r.kind === 'freeform' || r.kind === 'joplin');
     }
     return parentFromRow(row);
   }
 
-  /**
-   * @param {import('./runHistory.ts').HistoryEntry | undefined} row
-   * @param {string} [pendingRunId] set when the row is a still-running Parent's: it may be missing
-   * @returns {import('./runQueue.ts').ContinuationParent | string}
-   */
-  function parentFromRow(row, pendingRunId) {
+  /** `pendingRunId` is set when the row is a still-running Parent's, which may be missing. */
+  function parentFromRow(row: HistoryEntry | undefined, pendingRunId?: string): ResolvedParent | string {
     if (!row) return pendingRunId ? `Cannot continue run ${pendingRunId}: it left no history row, so there is no session to resume.` : 'Nothing to continue: no freeform or Joplin run in history.';
+    if (row.kind !== 'freeform' && row.kind !== 'joplin') return `Cannot continue run ${row.runId}: only freeform and Joplin runs can be continued.`;
     if (typeof row.sessionId !== 'string' || !row.sessionId) return `Cannot continue "${row.label ?? row.runId}": that run has no recorded session.`;
     return {
       runId: row.runId,
-      kind: /** @type {'freeform' | 'joplin'} */ (row.kind),
+      kind: row.kind,
       label: row.label ?? row.runId,
       sessionId: row.sessionId,
       cwd: typeof row.workspaceRoot === 'string' ? row.workspaceRoot : workspaceRoot,
@@ -966,13 +937,11 @@ export function createRunner({
   /**
    * Add a `claude:more` message to a Continuation of the same Parent already waiting in the queue,
    * so one agent gets both texts in order. Null when none is waiting.
-   * @param {string} parentRunId
-   * @param {string} instructions
-   * @param {string} replyTo only the same sender's waiting request is added to: its report goes to them
-   * @param {string} [model] a model prefix on this message replaces the queued request's model
-   * @returns {Promise<string | null>} the reply
+   * @param replyTo only the same sender's waiting request is added to: its report goes to them
+   * @param model a model prefix on this message replaces the queued request's model
+   * @returns the reply
    */
-  async function addToQueuedContinuation(parentRunId, instructions, replyTo, model) {
+  async function addToQueuedContinuation(parentRunId: string, instructions: string, replyTo: string, model?: string): Promise<string | null> {
     const waiting = (await queue.list()).find((it) => it.cmd.kind === 'more' && it.cmd.parent.runId === parentRunId && it.replyTo === replyTo);
     if (!waiting) return null;
     const updated = await queue.update(waiting.id, (it) =>
@@ -982,8 +951,7 @@ export function createRunner({
     return `Added to the queued Continuation of run ${parentRunId} (position ${updated.position}): ${waiting.label}. It will start when the runs ahead of it finish.`;
   }
 
-  /** @param {boolean} clear */
-  async function queueCommand(clear) {
+  async function queueCommand(clear: boolean) {
     const items = await queue.list();
     if (clear) {
       await queue.clear();
@@ -1008,8 +976,7 @@ export function createRunner({
     return 'Nothing is running.';
   }
 
-  /** @param {string} replyTo */
-  async function restart(replyTo) {
+  async function restart(replyTo: string) {
     const d = decideSafeRestart({ activeRun: await lock.current(), pause: await pause.get() });
     if ('reason' in d) return `safe-restart refused: ${d.reason}`;
     launchSafeRestart(replyTo);
@@ -1017,11 +984,7 @@ export function createRunner({
   }
 
   return {
-    /**
-     * @param {{ text: string, replyTo: string }} req
-     * @returns {Promise<{ reply: string }>}
-     */
-    async handleCommand({ text, replyTo }) {
+    async handleCommand({ text, replyTo }: { text: string; replyTo: string }): Promise<{ reply: string }> {
       const cmd = parseCommand(text);
       switch (cmd.kind) {
         case 'error':
@@ -1057,8 +1020,7 @@ export function createRunner({
       }
     },
 
-    /** @returns {Promise<{ busy: boolean, activeRun: (import('./runLock.ts').RunRecord & Partial<import('./agentBackend/index.ts').AgentProgress> & { phase?: ActiveRun['phase'] }) | null, paused: boolean, queued: number }>} */
-    async status() {
+    async status(): Promise<{ busy: boolean; activeRun: (RunRecord & Partial<AgentProgress> & { phase?: ActiveRun['phase'] }) | null; paused: boolean; queued: number }> {
       const [held, paused, queued] = await Promise.all([lock.current(), pausedReason(), queue.length()]);
       const live = active && held?.runId === active.record.runId ? { ...active.progress, phase: active.phase } : null;
       return {
@@ -1072,9 +1034,8 @@ export function createRunner({
     /**
      * The run this process is executing and the log it is writing now (an autofix pass's own log
      * once that starts), for the office feed's live tail. Null when idle.
-     * @returns {import('./logTail.ts').ActiveLog | null}
      */
-    activeLog() {
+    activeLog(): ActiveLog | null {
       if (!active?.record.logPath) return null;
       const log = { runId: active.record.runId, logPath: active.passLogPath ?? active.record.logPath };
       return active.logFrom == null ? log : { ...log, fromByte: active.logFrom };
@@ -1089,17 +1050,21 @@ export function createRunner({
       if (!rec) return null;
       const isJob = rec.kind === 'job';
       const name = isJob ? capitalize(describeRun(rec)) : `Agent ${describeRun(rec)}`;
-      let agentAlive = Boolean(rec.agentPid && isAlive(rec.agentPid));
+      const pid = rec.agentPid || null;
+      let agentAlive = false;
       let orphan = '';
-      if (agentAlive && isJob) {
-        // not an agent, so the agent's orphan check doesn't apply; left alone, but said
-        orphan = `\nIts process (pid ${rec.agentPid}) is still running, but nobody will report its result.`;
-      } else if (agentAlive) {
-        // nobody will report it, and a re-run must not share the repo with it
-        agentAlive = !(await stopOrphanAgent(rec.agentPid).catch(() => false));
-        orphan = agentAlive
-          ? `\nIts agent process (pid ${rec.agentPid}) is still running, but nobody will report its result.`
-          : `\nIts agent process (pid ${rec.agentPid}) outlived the runner and has been stopped.`;
+      if (pid != null && isAlive(pid)) {
+        agentAlive = true;
+        if (isJob) {
+          // not an agent, so the agent's orphan check doesn't apply; left alone, but said
+          orphan = `\nIts process (pid ${pid}) is still running, but nobody will report its result.`;
+        } else {
+          // nobody will report it, and a re-run must not share the repo with it
+          agentAlive = !(await stopOrphanAgent(pid).catch(() => false));
+          orphan = agentAlive
+            ? `\nIts agent process (pid ${pid}) is still running, but nobody will report its result.`
+            : `\nIts agent process (pid ${pid}) outlived the runner and has been stopped.`;
+        }
       }
       // an issue run's leftover work is WIP-committed so a re-run resumes it (never while its agent
       // may still be writing)
@@ -1134,7 +1099,7 @@ export function createRunner({
             ...(Number.isFinite(startedMs) ? { durationMs: endedAt - startedMs } : {}),
             outcome: 'interrupted',
           })
-          .catch((err) => logger.warn(`recovery of ${rec.runId}: history write failed:`, err?.message || err));
+          .catch((err) => logger.warn(`recovery of ${rec.runId}: history write failed:`, errorText(err)));
       }
       if (rec.runId === UNKNOWN_RUN_ID) await lock.forceClear();
       else await lock.release(rec.runId);
@@ -1146,9 +1111,8 @@ export function createRunner({
 
     /**
      * A due scheduled job joins the run queue (or starts, if nothing is ahead of it).
-     * @param {import('./scheduledJobs.ts').ScheduledJob} job
      */
-    submitJob: (job) => submit({ kind: 'job', job }, OWNER),
+    submitJob: (job: ScheduledJob) => submit({ kind: 'job', job }, OWNER),
 
     /** Resolves once the current run (if any) has been reported and unlocked, and the queue drain it kicked off is done. */
     idle: async () => {
