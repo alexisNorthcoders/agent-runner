@@ -2,16 +2,15 @@ import {
   VERDICT_REQUEST_CHANGES,
   autoMergeAllowedByReviewGate,
 } from './decisionLogic.ts';
+import type { MergeResult, PrResult } from './githubPr.ts';
+import type { AutofixResult, IssueCloseWait } from './postRun.ts';
 
-/**
- * @typedef {(message: string, detail?: unknown) => void} LogPost
- */
+export type LogPost = (message: string, detail?: unknown) => void;
 
 /**
  * Post-LLM-review steps: optional single autofix pass, merge-gate PR comment, auto-merge + issue poll.
  * Inject `tryGhPrQueueAutoMerge` (from ./githubPr.ts) so `node:test` can mock `gh` and related helpers.
  */
-/** @param {Record<string, any> & { logPost?: LogPost }} p */
 export async function runPostReviewAutofixMergeFlow({
   repo,
   issueNum,
@@ -30,15 +29,32 @@ export async function runPostReviewAutofixMergeFlow({
   tryGhPrQueueAutoMerge,
   waitForGithubIssueClosed,
   logPost = () => {},
+}: {
+  repo: string;
+  issueNum: number;
+  userPrompt: string;
+  prResult: PrResult | null;
+  reviewOutcome: string;
+  reviewVerdict: string;
+  reviewBodyMarkdown: string;
+  postReviewAutofixEnabled: () => boolean;
+  prAutoMergeAfterReviewEnabled: () => boolean;
+  prAfterPushEnabled: () => boolean;
+  commitOk: boolean;
+  pushResultOk: boolean;
+  runSinglePostReviewAutofix: (p: { repo: string; issueNum: number; prUrl: string; bodyMarkdown: string; originalUserPrompt: string }) => Promise<AutofixResult>;
+  tryGhPrReviewComment: (repo: string, prUrl: string, body: string) => Promise<{ ok: boolean; error?: string }>;
+  tryGhPrQueueAutoMerge: (repo: string, prUrl: string) => Promise<MergeResult>;
+  waitForGithubIssueClosed: (repo: string, issueNumber: number) => Promise<IssueCloseWait>;
+  logPost?: LogPost;
 }) {
-  let postReviewAutofix = null;
+  let postReviewAutofix: AutofixResult | null = null;
   if (
     postReviewAutofixEnabled() &&
     reviewVerdict === VERDICT_REQUEST_CHANGES &&
     reviewOutcome === 'success'
   ) {
-    const shouldAutofix = commitOk && Boolean(pushResultOk) && Boolean(prResult?.ok);
-    if (shouldAutofix) {
+    if (commitOk && pushResultOk && prResult?.ok) {
       postReviewAutofix = await runSinglePostReviewAutofix({
         repo,
         issueNum,
@@ -76,8 +92,8 @@ export async function runPostReviewAutofixMergeFlow({
     }
   }
 
-  let prAutoMergeResult = null;
-  let issueCloseWait = null;
+  let prAutoMergeResult: MergeResult | null = null;
+  let issueCloseWait: IssueCloseWait | null = null;
   if (
     prAutoMergeAfterReviewEnabled() &&
     prAfterPushEnabled() &&

@@ -9,7 +9,13 @@ export const realExec = createExec({ timeoutMs: 30_000 });
  * tests keep their original shape. Records every call. `getHandler` is read on every call, so a test
  * can swap the handler mid-way.
  */
-export function callbackExec(getHandler: () => (cmd: string, args: string[], opts: object, cb: (err: (Error & { stderr?: string }) | null, stdout?: string, stderr?: string) => void) => void) {
+export type ExecError = Error & { stderr?: string };
+
+export type ExecCallback = (err: ExecError | null, stdout?: string, stderr?: string) => void;
+
+export type CallbackHandler = (cmd: string, args: string[], opts: object, cb: ExecCallback) => void;
+
+export function callbackExec(getHandler: () => CallbackHandler) {
   const calls: { cmd: string; args: string[] }[] = [];
   const exec: Exec = (cmd, args, opts = {}) =>
     new Promise((resolve, reject) => {

@@ -7,13 +7,22 @@ import { join } from 'path';
 import { promisify } from 'util';
 import { buildIssueRunMessage, createIssuePipeline } from '../src/issuePipeline/index.ts';
 import { loadPipelineSettings } from '../src/issuePipeline/settings.ts';
+import type { PostRunResult } from '../src/issuePipeline/postRun.ts';
+import type { SendMail } from '../src/issuePipeline/mailer.ts';
 import { realExec, realGitFakeGh } from './helpers/fakeExec.ts';
 
 const execFileAsync = promisify(execFile);
 
+/** A message that must be there (`buildIssueRunMessage` returns null for silent runs). */
+function messageFor(p: Parameters<typeof buildIssueRunMessage>[0]) {
+  const msg = buildIssueRunMessage(p);
+  assert.ok(msg !== null, 'expected a message');
+  return msg;
+}
+
 describe('buildIssueRunMessage', () => {
   const issue = { number: 114, title: 'Fix the thing' };
-  const okPost = {
+  const okPost: PostRunResult = {
     ran: true,
     note: 'long narrative with review and changes summary',
     commit: { ok: true },
@@ -40,7 +49,7 @@ describe('buildIssueRunMessage', () => {
   });
 
   it('flags agent timeout', () => {
-    const msg = buildIssueRunMessage({
+    const msg = messageFor({
       issue,
       agentOk: false,
       agent: { outcome: 'timeout', exitCode: null, stderr: '' },
@@ -51,7 +60,7 @@ describe('buildIssueRunMessage', () => {
   });
 
   it('mentions the WIP commit left by an unfinished agent', () => {
-    const msg = buildIssueRunMessage({
+    const msg = messageFor({
       issue,
       agentOk: false,
       agent: { outcome: 'stopped', exitCode: null, stderr: '' },
@@ -63,18 +72,18 @@ describe('buildIssueRunMessage', () => {
 
   it('flags a merge blocked by autofix and a failed post-close email', () => {
     assert.match(
-      buildIssueRunMessage({ issue, agentOk: true, post: { ...okPost, postReviewAutofix: { ok: false, mergeBlocked: true, detail: 'x' } } }),
+      messageFor({ issue, agentOk: true, post: { ...okPost, postReviewAutofix: { ok: false, mergeBlocked: true, detail: 'x' } } }),
       /merge blocked/
     );
-    assert.match(buildIssueRunMessage({ issue, agentOk: true, post: { ...okPost, postCloseChangesEmail: { ok: false, step: 'smtp' } } }), /email failed/);
+    assert.match(messageFor({ issue, agentOk: true, post: { ...okPost, postCloseChangesEmail: { ok: false, step: 'smtp' } } }), /email failed/);
   });
 
   it('flags a post-run exception and PR creation failure', () => {
     assert.match(
-      buildIssueRunMessage({ issue, agentOk: true, post: { ran: false, note: '', skipReason: 'post_run_threw' }, postErrMessage: 'boom' }),
+      messageFor({ issue, agentOk: true, post: { ran: false, note: '', skipReason: 'post_run_threw' }, postErrMessage: 'boom' }),
       /post-run pipeline failed \(boom\)/
     );
-    assert.match(buildIssueRunMessage({ issue, agentOk: true, post: { ...okPost, prResult: { ok: false, error: 'gh auth' } } }), /PR creation failed/);
+    assert.match(messageFor({ issue, agentOk: true, post: { ...okPost, prResult: { ok: false, error: 'gh auth' } } }), /PR creation failed/);
   });
 
   it('stays silent when the agent changed nothing', () => {
@@ -82,8 +91,7 @@ describe('buildIssueRunMessage', () => {
   });
 });
 
-/** @param {string} repo @param {string[]} args */
-async function git(repo, args) {
+async function git(repo: string, args: string[]) {
   const { stdout } = await execFileAsync('git', ['-C', repo, ...args], { encoding: 'utf8' });
   return stdout.trim();
 }
@@ -107,12 +115,7 @@ async function cloneWithOrigin() {
 
 const ISSUE_JSON = JSON.stringify({ number: 7, title: 'Fix it', body: 'Make it work', state: 'OPEN', url: 'https://github.com/o/r/issues/7', labels: [{ name: 'bug' }] });
 
-/**
- * @param {(args: string[]) => string | Promise<string>} gh
- * @param {Record<string, string>} [env]
- * @param {Partial<Parameters<typeof createIssuePipeline>[0]>} [deps]
- */
-function pipeline(gh, env = {}, deps = {}) {
+function pipeline(gh: (args: string[]) => string | Promise<string>, env: Record<string, string> = {}, deps: Partial<Parameters<typeof createIssuePipeline>[0]> = {}) {
   const exec = realGitFakeGh(gh);
   const p = createIssuePipeline({
     settings: loadPipelineSettings({
@@ -132,7 +135,7 @@ function pipeline(gh, env = {}, deps = {}) {
   return Object.assign(p, { ghCalls: exec.ghCalls });
 }
 
-const issueOnly = (args) => {
+const issueOnly = (args: string[]) => {
   if (args[0] === 'issue' && args[1] === 'view') return ISSUE_JSON;
   if (args[0] === 'pr' && args[1] === 'list') return '[]';
   throw new Error(`unexpected gh ${args.join(' ')}`);
@@ -266,9 +269,8 @@ describe('issue pipeline: finish', () => {
     const { origin, repo } = await cloneWithOrigin();
     const PR = 'https://github.com/o/r/pull/5';
     let merged = false;
-    /** @type {string[]} */
-    const comments = [];
-    const gh = async (args) => {
+    const comments: string[] = [];
+    const gh = async (args: string[]) => {
       const [a, b] = args;
       if (a === 'issue' && b === 'view') {
         const fields = args[args.indexOf('--json') + 1];
@@ -301,18 +303,16 @@ describe('issue pipeline: finish', () => {
       }
       throw new Error(`unexpected gh ${args.join(' ')}`);
     };
-    /** @type {string[]} */
-    const llmUrls = [];
-    const fetchFn = async (url, init) => {
+    const llmUrls: string[] = [];
+    const fetchFn = async (url: string, init: { body: string }) => {
       llmUrls.push(url);
-      const body = JSON.parse(init.body);
+      const body: { messages: { content: string }[] } = JSON.parse(init.body);
       const content = url.includes('deepinfra')
         ? 'We shipped the fix.'
         : (assert.match(body.messages[1].content, /\+fixed/), 'VERDICT: REQUEST_CHANGES\n\n- `fix.txt`: also handle the edge case');
       return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 10 } }) };
     };
-    /** @type {any[]} */
-    const mails = [];
+    const mails: { subject: string; body: Parameters<SendMail>[1] }[] = [];
     const p = pipeline(gh, { OPENAI_API_KEY: 'k', DEEPINFRA_API_KEY: 'd' }, {
       fetchFn,
       sendMail: async (subject, body) => {
@@ -323,8 +323,7 @@ describe('issue pipeline: finish', () => {
 
     const prep = await p.prepare({ issueNumber: 7, alias: 'a', workspaceRoot: repo });
     await writeFile(join(repo, 'fix.txt'), 'fixed\n'); // the agent's work
-    /** @type {string[]} */
-    const autofixPrompts = [];
+    const autofixPrompts: string[] = [];
     const fin = await p.finish({
       repo,
       prompt: prep.prompt,
@@ -364,7 +363,7 @@ describe('issue pipeline: finish', () => {
     const { repo } = await cloneWithOrigin();
     const PR = 'https://github.com/o/r/pull/5';
     const TIMEOUT = 'Post "https://api.github.com/graphql": dial tcp 20.26.156.210:443: i/o timeout';
-    const gh = async (args) => {
+    const gh = async (args: string[]) => {
       const [a, b] = args;
       if (a === 'issue' && b === 'view') return args.includes('state') ? JSON.stringify({ state: 'OPEN' }) : ISSUE_JSON;
       if (a === 'pr' && b === 'list') return '[]';
@@ -465,9 +464,8 @@ describe('issue pipeline: the usage limit', () => {
   it('an autofix that hit the limit: WIP-commits its leftovers unpushed, no merge, and the run is limited', async () => {
     const { origin, repo } = await cloneWithOrigin();
     const PR = 'https://github.com/o/r/pull/5';
-    /** @type {string[]} */
-    const comments = [];
-    const gh = async (args) => {
+    const comments: string[] = [];
+    const gh = async (args: string[]) => {
       const [a, b] = args;
       if (a === 'issue' && b === 'view') return ISSUE_JSON;
       if (a === 'pr' && b === 'list') return '[]';

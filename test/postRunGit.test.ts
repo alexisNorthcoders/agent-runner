@@ -14,10 +14,9 @@ const execFileAsync = promisify(execFile);
 
 /**
  * Post-run with push/PR off, no review key and fast polls; `gh` is answered by `gh(args)`.
- * @param {(args: string[]) => string} [gh]
  */
 function pipeline(
-  gh = () => {
+  gh: (args: string[]) => string = () => {
     throw new Error('unexpected gh call');
   }
 ) {
@@ -41,13 +40,15 @@ const noAgent = async () => {
 };
 
 /** The original `maybeCommitReviewEmail` call shape, over `runPostRun`. */
-const maybeCommitReviewEmail = ({ repo, userPrompt, agentRunOk, issueMode, preAgentHeadSha }, p = pipeline()) =>
+const maybeCommitReviewEmail = (
+  { repo, userPrompt, agentRunOk, issueMode, preAgentHeadSha }: { repo: string; userPrompt: string; agentRunOk: boolean; issueMode: { number: number }; preAgentHeadSha?: string | null },
+  p = pipeline()
+) =>
   p.postRun.runPostRun({ repo, userPrompt, agentOk: agentRunOk, issueNumber: issueMode.number, preAgentHeadSha, runAgent: noAgent });
 
-const getRepoHeadShaFull = (repo) => pipeline().git.headSha(repo);
+const getRepoHeadShaFull = (repo: string) => pipeline().git.headSha(repo);
 
-/** @param {string} repo */
-async function git(repo, args) {
+async function git(repo: string, args: string[]) {
   const { stdout } = await execFileAsync('git', ['-C', repo, ...args], { encoding: 'utf8' });
   return stdout.trim();
 }
@@ -238,9 +239,8 @@ describe('prepareForIssue resume', () => {
 /**
  * Bare origin whose default branch is `defaultBranch`, cloned locally (so `origin/HEAD` is set like a
  * real clone), with the local clone sitting on a finished issue branch that was merged on origin.
- * @param {string} defaultBranch
  */
-async function cloneOnMergedIssueBranch(defaultBranch) {
+async function cloneOnMergedIssueBranch(defaultBranch: string) {
   const seed = await initBareRepoWithMain();
   if (defaultBranch !== 'main') await git(seed, ['branch', '-M', defaultBranch]);
   const origin = await mkdtemp(join(tmpdir(), 'wa-origin-'));

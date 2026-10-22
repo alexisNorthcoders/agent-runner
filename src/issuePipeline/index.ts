@@ -6,23 +6,30 @@ import { createGithubPr } from './githubPr.ts';
 import { createLlm } from './llm.ts';
 import { createGmailSender } from './mailer.ts';
 import { createPostRun } from './postRun.ts';
-import { errorText } from '../narrow.ts';
+import { errorText, recordOrEmpty } from '../narrow.ts';
 import { REQUEUED_NOTE } from '../runQueue.ts';
+import type { AgentResult } from '../agentBackend/index.ts';
+import type { PostRunResult, RunAgent } from './postRun.ts';
+import type { PipelineSettings } from './settings.ts';
+import type { Exec } from './exec.ts';
+import type { FetchLike } from './llm.ts';
+import type { SendMail } from './mailer.ts';
 
 /**
  * The GitHub issue pipeline behind `claude issue:<alias>:<n>` and the cron tracer: the two
  * share `prepare` (fetch the issue, branch in place, build the prompt, with resume context) and
  * `finish` (post-run, then one short outbox message). The runner owns the lock and the agent
  * process in between.
- *
- * @typedef {{ number: number, repo: string, title: string }} IssueRef
- * @typedef {'merged' | 'pr_open' | 'pushed' | 'no_changes' | 'timeout' | 'limited' | 'failed'} IssueRunResult
- *   `limited`: the agent (the first pass or the autofix) hit its usage limit, so the run stopped short.
- * @typedef {Pick<import('../agentBackend/index.ts').AgentResult, 'outcome' | 'exitCode' | 'stderr'>} AgentOutcomeLike
  */
+export type IssueRef = { number: number; repo: string; title: string };
 
-/** One-line reason the agent itself didn't succeed. @param {AgentOutcomeLike | undefined} r */
-function agentFailureReason(r) {
+/** `limited`: the agent (the first pass or the autofix) hit its usage limit, so the run stopped short. */
+export type IssueRunResult = 'merged' | 'pr_open' | 'pushed' | 'no_changes' | 'timeout' | 'limited' | 'failed';
+
+export type AgentOutcomeLike = Pick<AgentResult, 'outcome' | 'exitCode' | 'stderr'>;
+
+/** One-line reason the agent itself didn't succeed. */
+function agentFailureReason(r: AgentOutcomeLike | undefined) {
   switch (r?.outcome) {
     case 'spawn_error':
       return `could not start (${String(r.stderr || '').trim().slice(0, 200)})`;
@@ -37,10 +44,8 @@ function agentFailureReason(r) {
 
 /**
  * Which pass of an issue run hit the usage limit: the agent's own, or the autofix. Null if neither.
- * @param {AgentOutcomeLike | undefined} agent @param {import('./postRun.ts').PostRunResult | null} post
- * @returns {'agent' | 'autofix' | null}
  */
-function limitedPass(agent, post) {
+function limitedPass(agent: AgentOutcomeLike | undefined, post: PostRunResult | null): 'agent' | 'autofix' | null {
   if (agent?.outcome === 'limited') return 'agent';
   return post?.postReviewAutofix?.agentOutcome === 'limited' ? 'autofix' : null;
 }
@@ -50,20 +55,18 @@ function limitedPass(agent, post) {
  * problem, a `⏸` for a run the usage limit cut short, or null when there is nothing to report
  * (post-run off, or the agent changed nothing). The full narrative (`post.note`) goes to the run
  * log instead. `requeued` says the runner put the request back at the head of the queue.
- * @param {{
- *   issue: { number: number, title?: string },
- *   agentOk: boolean,
- *   agent?: AgentOutcomeLike,
- *   post: import('./postRun.ts').PostRunResult | null,
- *   postErrMessage?: string,
- *   trigger?: 'cron' | 'manual',
- *   requeued?: boolean,
- * }} p
- * @returns {string | null}
  */
-export function buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessage = '', trigger = 'manual', requeued = false }) {
+export function buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessage = '', trigger = 'manual', requeued = false }: {
+    issue: { number: number; title?: string };
+    agentOk: boolean;
+    agent?: AgentOutcomeLike;
+    post: PostRunResult | null;
+    postErrMessage?: string;
+    trigger?: 'cron' | 'manual';
+    requeued?: boolean;
+  }): string | null {
   const label = `#${issue.number}${issue.title ? ` — ${issue.title}` : ''}`;
-  const attention = (problem) => `⚠️ ${label}: ${problem} — needs a look.`;
+  const attention = (problem: string) => `⚠️ ${label}: ${problem} — needs a look.`;
 
   const limited = limitedPass(agent, post);
   if (limited) {
@@ -117,10 +120,8 @@ export function buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessa
 
 /**
  * Final result of an issue run, for history and the cron's "did this count as progress".
- * @param {{ agentOk: boolean, agent?: AgentOutcomeLike, post: import('./postRun.ts').PostRunResult | null, postErrMessage?: string }} p
- * @returns {IssueRunResult}
  */
-export function classifyIssueRunResult({ agentOk, agent, post, postErrMessage = '' }) {
+export function classifyIssueRunResult({ agentOk, agent, post, postErrMessage = '' }: { agentOk: boolean; agent?: AgentOutcomeLike; post: PostRunResult | null; postErrMessage?: string }): IssueRunResult {
   if (limitedPass(agent, post)) return 'limited';
   if (agent?.outcome === 'timeout') return 'timeout';
   if (!agentOk || postErrMessage || !post) return 'failed';
@@ -136,9 +137,8 @@ export function classifyIssueRunResult({ agentOk, agent, post, postErrMessage = 
 /**
  * The review gate let the PR merge, but the merge failed only because GitHub could not be reached.
  * Nothing is wrong with the PR, so the cron works it again rather than setting it aside.
- * @param {import('./postRun.ts').PostRunResult | null} post
  */
-export function mergeFailedOnNetwork(post) {
+export function mergeFailedOnNetwork(post: PostRunResult | null) {
   const merge = post?.prAutoMergeResult;
   return Boolean(merge && !merge.ok && merge.transientNetwork);
 }
@@ -146,10 +146,8 @@ export function mergeFailedOnNetwork(post) {
 /**
  * Resume-prompt section for a branch whose PR is open but never merged. A conflict is resolved by
  * merging (not rebasing) the default branch in, so the fix pushes as a fast-forward.
- * @param {{ url: string, state: string }} pr
- * @param {string} defaultBranch
  */
-export function buildOpenPrResumeNote(pr, defaultBranch) {
+export function buildOpenPrResumeNote(pr: { url: string; state: string }, defaultBranch: string) {
   const lines = [
     '## Open pull request',
     '',
@@ -164,10 +162,7 @@ export function buildOpenPrResumeNote(pr, defaultBranch) {
   return lines.join('\n');
 }
 
-/**
- * @param {{ branchName: string, resumeNote: string, openPrNote: string }} p
- */
-function resumeSection({ branchName, resumeNote, openPrNote }) {
+function resumeSection({ branchName, resumeNote, openPrNote }: { branchName: string; resumeNote: string; openPrNote: string }) {
   return [
     '## Resuming an interrupted run',
     '',
@@ -179,21 +174,17 @@ function resumeSection({ branchName, resumeNote, openPrNote }) {
     .join('\n');
 }
 
-/**
- * @param {{
- *   settings: import('./settings.ts').PipelineSettings,
- *   exec?: import('./exec.ts').Exec,
- *   fetchFn?: import('./llm.ts').FetchLike,
- *   sendMail?: import('./mailer.ts').SendMail,
- *   sleep?: (ms: number) => Promise<void>,
- *   now?: () => number,
- *   logger?: Pick<Console, 'log'>,
- * }} deps
- */
-export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, now, logger = console }) {
+export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, now, logger = console }: {
+    settings: PipelineSettings;
+    exec?: Exec;
+    fetchFn?: FetchLike;
+    sendMail?: SendMail;
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+    logger?: Pick<Console, 'log'>;
+  }) {
   const ex = exec ?? createExec({ timeoutMs: settings.execTimeoutMs, ghBin: settings.ghBin });
-  /** @param {string} message @param {unknown} [detail] */
-  const log = (message, detail) => {
+  const log = (message: string, detail?: unknown) => {
     if (!settings.log) return;
     if (detail === undefined || detail === '') logger.log('[issuePipeline]', message);
     else logger.log('[issuePipeline]', message, typeof detail === 'string' ? detail : JSON.stringify(detail));
@@ -220,10 +211,8 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
     /**
      * Fetch the issue and branch in place in `workspaceRoot` (resuming an unfinished branch), and
      * build the agent prompt. Throws an Error whose message is fit to send to the user.
-     * @param {{ issueNumber: number, alias: string | null, workspaceRoot: string, extraInstructions?: string }} p
-     * @returns {Promise<{ prompt: string, issue: IssueRef, branchName: string, defaultBranch: string, resumed: boolean, preAgentHeadSha: string | null, labels: string[] }>}
      */
-    async prepare({ issueNumber, alias, workspaceRoot, extraInstructions = '' }) {
+    async prepare({ issueNumber, alias, workspaceRoot, extraInstructions = '' }: { issueNumber: number; alias: string | null; workspaceRoot: string; extraInstructions?: string }): Promise<{ prompt: string; issue: IssueRef; branchName: string; defaultBranch: string; resumed: boolean; preAgentHeadSha: string | null; labels: string[] }> {
       let fetched;
       try {
         fetched = await issues.fetchIssuePrompt({ issueNumber, workspaceRoot, alias, extraInstructions });
@@ -251,47 +240,43 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
 
     /**
      * After the agent exits: post-run, then the one message to send. The long narrative is
-     * appended to the run log. Never throws.
-     * @param {{
-     *   repo: string,
-     *   prompt: string,
-     *   issue: IssueRef,
-     *   agent: AgentOutcomeLike,
-     *   preAgentHeadSha: string | null,
-     *   logPath: string,
-     *   runAgent: import('./postRun.ts').RunAgent,
-     *   trigger?: 'cron' | 'manual',
-     *   requeued?: boolean,
-     * }} p
-     *   `requeued`: the usage limit stopped the agent before it started, and the runner re-queued the request.
-     * @returns {Promise<{ result: IssueRunResult, message: string, silent: boolean, mergeNetworkError: boolean, post: import('./postRun.ts').PostRunResult }>}
-     *   `silent` marks a run with nothing to report (the agent changed nothing), which cron can skip.
+     * appended to the run log. Never throws. `requeued`: the usage limit stopped the agent before it
+     * started, and the runner re-queued the request.
+     * @returns `silent` marks a run with nothing to report (the agent changed nothing), which cron can skip.
      *   `mergeNetworkError` marks an approved PR whose merge failed only on a network error.
      */
-    async finish({ repo, prompt, issue, agent, preAgentHeadSha, logPath, runAgent, trigger = 'manual', requeued = false }) {
+    async finish({ repo, prompt, issue, agent, preAgentHeadSha, logPath, runAgent, trigger = 'manual', requeued = false }: {
+        repo: string;
+        prompt: string;
+        issue: IssueRef;
+        agent: AgentOutcomeLike;
+        preAgentHeadSha: string | null;
+        logPath: string;
+        runAgent: RunAgent;
+        trigger?: 'cron' | 'manual';
+        requeued?: boolean;
+      }): Promise<{ result: IssueRunResult; message: string; silent: boolean; mergeNetworkError: boolean; post: PostRunResult }> {
       const agentOk = agent.outcome === 'success';
-      /** @type {import('./postRun.ts').PostRunResult} */
-      let post;
+      let post: PostRunResult;
       let postErrMessage = '';
       try {
         post = await postRun.runPostRun({ repo, userPrompt: prompt, agentOk, issueNumber: issue.number, preAgentHeadSha, runAgent, trigger });
       } catch (err) {
         postErrMessage = errorText(err);
         post = { ran: false, note: '', skipReason: 'post_run_threw' };
-        log('post-run threw', err?.stack || postErrMessage);
+        log('post-run threw', recordOrEmpty(err).stack || postErrMessage);
       }
       const result = classifyIssueRunResult({ agentOk, agent, post, postErrMessage });
       const report = [post.note, postErrMessage && `Post-run pipeline failed: ${postErrMessage}`].filter(Boolean).join('\n\n');
       if (report) await appendFile(logPath, `\n\n--- post-run report ---\n${report}\n`).catch(() => {});
 
-      let message = buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessage, trigger, requeued });
-      const silent = message == null;
-      if (silent) {
-        message =
-          post.skipReason === 'disabled'
-            ? `ℹ️ #${issue.number}: the agent finished; post-run is off (CLAUDE_POST_RUN=0), so nothing was committed.`
-            : `ℹ️ #${issue.number}${issue.title ? ` — ${issue.title}` : ''}: the agent made no changes.`;
-      }
+      const built = buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessage, trigger, requeued });
+      const silent = built == null;
+      let message =
+        built ??
+        (post.skipReason === 'disabled'
+          ? `ℹ️ #${issue.number}: the agent finished; post-run is off (CLAUDE_POST_RUN=0), so nothing was committed.`
+          : `ℹ️ #${issue.number}${issue.title ? ` — ${issue.title}` : ''}: the agent made no changes.`);
       if (result === 'failed' || result === 'timeout' || result === 'limited') message += `\nLog: ${logPath}`;
       return { result, message, silent, mergeNetworkError: mergeFailedOnNetwork(post), post };
     },
@@ -299,10 +284,8 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
     /**
      * Startup recovery for an issue run that died with the runner: WIP-commit its leftover work so
      * a re-run resumes on the branch. Only on that issue's own branch, never the default branch.
-     * @param {{ repo: string, issueNumber: number }} p
-     * @returns {Promise<{ ok: boolean, sha?: string, branch?: string, reason?: 'clean' | 'not_issue_branch' | 'git_error', error?: string }>}
      */
-    async commitInterruptedWork({ repo, issueNumber }) {
+    async commitInterruptedWork({ repo, issueNumber }: { repo: string; issueNumber: number }): Promise<{ ok: boolean; sha?: string; branch?: string; reason?: 'clean' | 'not_issue_branch' | 'git_error'; error?: string }> {
       try {
         const branch = await git.currentBranch(repo);
         if (!(await git.statusPorcelain(repo))) return { ok: false, reason: 'clean', branch };
@@ -316,4 +299,4 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
   };
 }
 
-/** @typedef {ReturnType<typeof createIssuePipeline>} IssuePipeline */
+export type IssuePipeline = ReturnType<typeof createIssuePipeline>;

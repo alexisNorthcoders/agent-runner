@@ -59,7 +59,7 @@ export function autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, pos
  * @param stdout agent output
  * @returns the reason (text after the last sentinel), or null
  */
-export function parseAutofixNoChanges(stdout: string): string | null {
+export function parseAutofixNoChanges(stdout: string | undefined): string | null {
   const text = String(stdout || '');
   const marker = 'AUTOFIX_NO_CHANGES:';
   const at = text.lastIndexOf(marker);
