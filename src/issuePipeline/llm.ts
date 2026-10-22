@@ -1,5 +1,5 @@
 import { VERDICT_APPROVE, VERDICT_REQUEST_CHANGES } from './decisionLogic.ts';
-import { truncate } from './gitWorkspace.js';
+import { truncate } from './gitWorkspace.ts';
 import { errorText, isRecord, numberOrNull, recordOrEmpty, stringOrNull } from '../narrow.ts';
 import type { PipelineSettings } from './settings.ts';
 

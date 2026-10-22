@@ -9,7 +9,7 @@ import {
 
 /**
  * Post-LLM-review steps: optional single autofix pass, merge-gate PR comment, auto-merge + issue poll.
- * Inject `tryGhPrQueueAutoMerge` (from ./githubPr.js) so `node:test` can mock `gh` and related helpers.
+ * Inject `tryGhPrQueueAutoMerge` (from ./githubPr.ts) so `node:test` can mock `gh` and related helpers.
  */
 /** @param {Record<string, any> & { logPost?: LogPost }} p */
 export async function runPostReviewAutofixMergeFlow({

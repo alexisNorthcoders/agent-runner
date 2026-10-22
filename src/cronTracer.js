@@ -1,6 +1,6 @@
 import { OWNER } from './outbox.ts';
 import { issueKey, prAttemptStateKey } from './cronState.ts';
-import { classifyGithubPrMergeability } from './issuePipeline/githubPr.js';
+import { classifyGithubPrMergeability } from './issuePipeline/githubPr.ts';
 import { errorText } from './narrow.ts';
 
 /**

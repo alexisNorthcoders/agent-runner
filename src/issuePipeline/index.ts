@@ -1,11 +1,11 @@
 import { appendFile } from 'fs/promises';
 import { createExec } from './exec.ts';
 import { createGithubIssues } from './githubIssue.ts';
-import { createGitWorkspace } from './gitWorkspace.js';
-import { createGithubPr } from './githubPr.js';
+import { createGitWorkspace } from './gitWorkspace.ts';
+import { createGithubPr } from './githubPr.ts';
 import { createLlm } from './llm.ts';
 import { createGmailSender } from './mailer.ts';
-import { createPostRun } from './postRun.js';
+import { createPostRun } from './postRun.ts';
 import { errorText } from '../narrow.ts';
 import { REQUEUED_NOTE } from '../runQueue.ts';
 
@@ -37,7 +37,7 @@ function agentFailureReason(r) {
 
 /**
  * Which pass of an issue run hit the usage limit: the agent's own, or the autofix. Null if neither.
- * @param {AgentOutcomeLike | undefined} agent @param {import('./postRun.js').PostRunResult | null} post
+ * @param {AgentOutcomeLike | undefined} agent @param {import('./postRun.ts').PostRunResult | null} post
  * @returns {'agent' | 'autofix' | null}
  */
 function limitedPass(agent, post) {
@@ -54,7 +54,7 @@ function limitedPass(agent, post) {
  *   issue: { number: number, title?: string },
  *   agentOk: boolean,
  *   agent?: AgentOutcomeLike,
- *   post: import('./postRun.js').PostRunResult | null,
+ *   post: import('./postRun.ts').PostRunResult | null,
  *   postErrMessage?: string,
  *   trigger?: 'cron' | 'manual',
  *   requeued?: boolean,
@@ -117,7 +117,7 @@ export function buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessa
 
 /**
  * Final result of an issue run, for history and the cron's "did this count as progress".
- * @param {{ agentOk: boolean, agent?: AgentOutcomeLike, post: import('./postRun.js').PostRunResult | null, postErrMessage?: string }} p
+ * @param {{ agentOk: boolean, agent?: AgentOutcomeLike, post: import('./postRun.ts').PostRunResult | null, postErrMessage?: string }} p
  * @returns {IssueRunResult}
  */
 export function classifyIssueRunResult({ agentOk, agent, post, postErrMessage = '' }) {
@@ -136,7 +136,7 @@ export function classifyIssueRunResult({ agentOk, agent, post, postErrMessage = 
 /**
  * The review gate let the PR merge, but the merge failed only because GitHub could not be reached.
  * Nothing is wrong with the PR, so the cron works it again rather than setting it aside.
- * @param {import('./postRun.js').PostRunResult | null} post
+ * @param {import('./postRun.ts').PostRunResult | null} post
  */
 export function mergeFailedOnNetwork(post) {
   const merge = post?.prAutoMergeResult;
@@ -259,18 +259,18 @@ export function createIssuePipeline({ settings, exec, fetchFn, sendMail, sleep, 
      *   agent: AgentOutcomeLike,
      *   preAgentHeadSha: string | null,
      *   logPath: string,
-     *   runAgent: import('./postRun.js').RunAgent,
+     *   runAgent: import('./postRun.ts').RunAgent,
      *   trigger?: 'cron' | 'manual',
      *   requeued?: boolean,
      * }} p
      *   `requeued`: the usage limit stopped the agent before it started, and the runner re-queued the request.
-     * @returns {Promise<{ result: IssueRunResult, message: string, silent: boolean, mergeNetworkError: boolean, post: import('./postRun.js').PostRunResult }>}
+     * @returns {Promise<{ result: IssueRunResult, message: string, silent: boolean, mergeNetworkError: boolean, post: import('./postRun.ts').PostRunResult }>}
      *   `silent` marks a run with nothing to report (the agent changed nothing), which cron can skip.
      *   `mergeNetworkError` marks an approved PR whose merge failed only on a network error.
      */
     async finish({ repo, prompt, issue, agent, preAgentHeadSha, logPath, runAgent, trigger = 'manual', requeued = false }) {
       const agentOk = agent.outcome === 'success';
-      /** @type {import('./postRun.js').PostRunResult} */
+      /** @type {import('./postRun.ts').PostRunResult} */
       let post;
       let postErrMessage = '';
       try {

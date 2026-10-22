@@ -1,9 +1,9 @@
 import { readFile } from 'fs/promises';
 import { basename, join } from 'path';
 import { autoMergeAllowedByReviewGate, ghMessageLooksLikePrAlreadyExists, normalizePrReviewComment, parseAutofixNoChanges, pickPrResultAfterGhFlow } from './decisionLogic.ts';
-import { runPostReviewAutofixMergeFlow } from './reviewFollowUp.js';
-import { githubMergeMethodSummaryLabel } from './githubPr.js';
-import { truncate } from './gitWorkspace.js';
+import { runPostReviewAutofixMergeFlow } from './reviewFollowUp.ts';
+import { githubMergeMethodSummaryLabel } from './githubPr.ts';
+import { truncate } from './gitWorkspace.ts';
 import { buildPostCloseChangesEmail } from './mailer.ts';
 
 /**
@@ -16,7 +16,7 @@ import { buildPostCloseChangesEmail } from './mailer.ts';
  *   ran: boolean,
  *   note: string,
  *   skipReason?: string,
- *   commit?: import('./gitWorkspace.js').CommitResult,
+ *   commit?: import('./gitWorkspace.ts').CommitResult,
  *   workBranch?: { didCheckoutNew: boolean, branchName: string, prBase: string },
  *   pushResult?: { ok: boolean, error?: string } | null,
  *   prResult?: { ok: boolean, url?: string, error?: string } | null,
@@ -26,11 +26,11 @@ import { buildPostCloseChangesEmail } from './mailer.ts';
  *   review?: string,
  *   reviewVerdict?: string,
  *   postReviewAutofix?: AutofixResult | null,
- *   prAutoMergeResult?: import('./githubPr.js').MergeResult | null,
+ *   prAutoMergeResult?: import('./githubPr.ts').MergeResult | null,
  *   issueCloseWait?: { closed?: boolean, timedOut?: boolean } | null,
  *   postCloseChangesEmail?: { ok: boolean, to?: string, error?: string, step?: string } | null,
  *   returnToDefaultBranch?: { ok: boolean, defaultBranch?: string, reason?: string, error?: string } | null,
- *   wip?: import('./gitWorkspace.js').CommitResult,
+ *   wip?: import('./gitWorkspace.ts').CommitResult,
  * }} PostRunResult
  *
  * @typedef {{
@@ -39,10 +39,10 @@ import { buildPostCloseChangesEmail } from './mailer.ts';
  *   noChanges?: boolean,
  *   noChangesReason?: string,
  *   detail: string,
- *   commit?: import('./gitWorkspace.js').CommitResult,
+ *   commit?: import('./gitWorkspace.ts').CommitResult,
  *   pushResult?: { ok: boolean, error?: string },
  *   agentOutcome?: string,
- *   wip?: import('./gitWorkspace.js').CommitResult,
+ *   wip?: import('./gitWorkspace.ts').CommitResult,
  * }} AutofixResult
  *   `wip` is the leftover work of an autofix the usage limit cut short, committed but not pushed.
  *
@@ -110,8 +110,8 @@ export function buildPrBody(issueNumber, workBranch, userPrompt, trigger = 'manu
 
 /**
  * @param {{
- *   git: ReturnType<typeof import('./gitWorkspace.js').createGitWorkspace>,
- *   prs: ReturnType<typeof import('./githubPr.js').createGithubPr>,
+ *   git: ReturnType<typeof import('./gitWorkspace.ts').createGitWorkspace>,
+ *   prs: ReturnType<typeof import('./githubPr.ts').createGithubPr>,
  *   llm: ReturnType<typeof import('./llm.ts').createLlm>,
  *   sendMail: import('./mailer.ts').SendMail,
  *   settings: import('./settings.ts').PipelineSettings,
@@ -184,7 +184,7 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
       };
     }
 
-    /** @type {import('./gitWorkspace.js').CommitResult} */
+    /** @type {import('./gitWorkspace.ts').CommitResult} */
     let commit;
     if (wait.dirty) {
       commit = await git.commitWork(repo, `# GitHub issue #${issueNumber}\n\n**Title:** address automated PR review feedback`);
@@ -294,7 +294,7 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
       return { ran: true, note: `Could not prepare a feature branch: ${err}. No commit was made.`, skipReason: 'branch_prep_failed' };
     }
 
-    /** @type {import('./gitWorkspace.js').CommitResult} */
+    /** @type {import('./gitWorkspace.ts').CommitResult} */
     const commit = wait.dirty
       ? await git.commitWork(repo, userPrompt)
       : { ok: true, sha: await git.headShaShort(repo), message: await git.lastCommitSubject(repo) };

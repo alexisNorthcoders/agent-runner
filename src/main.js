@@ -21,7 +21,7 @@ import { buildFreeformPreamble, buildPreamble } from './preamble.ts';
 import { createRunner } from './runner.js';
 import { createHttpServer } from './http.js';
 import { createWorkspaceAllowlist } from './workspaces.ts';
-import { createIssuePipeline } from './issuePipeline/index.js';
+import { createIssuePipeline } from './issuePipeline/index.ts';
 import { createStateChanges, notifyingStore } from './stateChanges.ts';
 import { collectOfficeSnapshot } from './officeSnapshot.js';
 import { createOfficeFeed } from './officeFeed.js';

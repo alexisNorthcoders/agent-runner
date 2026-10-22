@@ -5,8 +5,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
 import { describe, it } from 'node:test';
-import { createIssuePipeline } from '../src/issuePipeline/index.js';
-import { postRunPrLanded } from '../src/issuePipeline/postRun.js';
+import { createIssuePipeline } from '../src/issuePipeline/index.ts';
+import { postRunPrLanded } from '../src/issuePipeline/postRun.ts';
 import { loadPipelineSettings } from '../src/issuePipeline/settings.ts';
 import { realGitFakeGh } from './helpers/fakeExec.ts';
 

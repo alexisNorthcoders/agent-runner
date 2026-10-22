@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
-import { buildIssueRunMessage, createIssuePipeline } from '../src/issuePipeline/index.js';
+import { buildIssueRunMessage, createIssuePipeline } from '../src/issuePipeline/index.ts';
 import { loadPipelineSettings } from '../src/issuePipeline/settings.ts';
 import { realExec, realGitFakeGh } from './helpers/fakeExec.ts';
 

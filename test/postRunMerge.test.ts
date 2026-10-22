@@ -10,7 +10,7 @@ import {
   pickGithubMergeStrategy,
   githubMergeMethodSummaryLabel,
   classifyGithubPrMergeability,
-} from '../src/issuePipeline/githubPr.js';
+} from '../src/issuePipeline/githubPr.ts';
 import { loadPipelineSettings } from '../src/issuePipeline/settings.ts';
 import { callbackExec } from './helpers/fakeExec.ts';
 
