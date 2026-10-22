@@ -4,21 +4,21 @@
   "private": true,
   "description": "Standalone PM2 service that runs headless coding-agent sessions and reports through a Redis outbox",
   "type": "module",
-  "main": "src/main.js",
+  "main": "src/main.ts",
   "scripts": {
-    "start": "node --no-deprecation src/main.js",
+    "start": "node --no-deprecation src/main.ts",
     "test": "npm run typecheck && node --test 'test/**/*.test.js' 'test/**/*.test.ts'",
     "typecheck": "tsc -p . && tsc -p tsconfig.dashboard.json && node scripts/typecheckJs.ts",
-    "safe-restart": "node bin/safe-restart.js",
-    "agent:status": "node bin/agent-cli.js status",
-    "agent:watch": "node bin/agent-cli.js watch",
-    "agent:history": "node bin/agent-cli.js history",
-    "agent:logs": "node bin/agent-cli.js logs",
-    "agent:pause": "node bin/agent-cli.js pause",
-    "agent:resume": "node bin/agent-cli.js resume",
-    "repo-insight": "node bin/repo-insight.js",
-    "repo-insight:decide": "node bin/repo-insight-dry-run.js",
-    "repo-insight:bootstrap": "node bin/repo-insight-bootstrap.js"
+    "safe-restart": "node bin/safe-restart.ts",
+    "agent:status": "node bin/agent-cli.ts status",
+    "agent:watch": "node bin/agent-cli.ts watch",
+    "agent:history": "node bin/agent-cli.ts history",
+    "agent:logs": "node bin/agent-cli.ts logs",
+    "agent:pause": "node bin/agent-cli.ts pause",
+    "agent:resume": "node bin/agent-cli.ts resume",
+    "repo-insight": "node bin/repo-insight.ts",
+    "repo-insight:decide": "node bin/repo-insight-dry-run.ts",
+    "repo-insight:bootstrap": "node bin/repo-insight-bootstrap.ts"
   },
   "engines": {
     "node": ">=24.2"

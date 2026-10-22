@@ -36,7 +36,7 @@ async function main() {
   const QUEUE_POLL_MS = 15_000;
 
   /**
-   * Run `bin/safe-restart.js` fully detached. The `sh … &` double fork re-parents it away from this
+   * Run `bin/safe-restart.ts` fully detached. The `sh … &` double fork re-parents it away from this
    * process, so the `pm2 restart` it issues (which kills this process tree) doesn't kill it too.
    * @param {string} replyTo
    */
@@ -45,7 +45,7 @@ async function main() {
     mkdirSync(join(config.repoRoot, 'logs'), { recursive: true });
     spawn(
       'sh',
-      ['-c', 'setsid "$0" bin/safe-restart.js --reply-to "$1" >> "$2" 2>&1 < /dev/null &', process.execPath, replyTo, logFile],
+      ['-c', 'setsid "$0" bin/safe-restart.ts --reply-to "$1" >> "$2" 2>&1 < /dev/null &', process.execPath, replyTo, logFile],
       { cwd: config.repoRoot, detached: true, stdio: 'ignore' }
     ).unref();
   }

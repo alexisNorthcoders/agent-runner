@@ -36,11 +36,11 @@ are in `GLOSSARY.md`.
   (`tsconfig.dashboard.json`; nginx serves it raw, so it stays JS and reads its wire types from
   `src/officeWire.ts` only), and a loose checkJs pass over the remaining `.js` (`jsconfig.json`).
   `npm test` runs the typecheck, then the `node:test` tests with injected fakes.
-- Entry modules (`src/main.js`, `bin/*`) start work only inside `if (import.meta.main)`;
-  `test/entryGuards.test.ts` checks that importing one does nothing. PM2 loads `src/main.js` with
+- Entry modules (`src/main.ts`, `bin/*`) start work only inside `if (import.meta.main)`;
+  `test/entryGuards.test.ts` checks that importing one does nothing. PM2 loads `src/main.ts` with
   `import()`, where `import.meta.main` is false, so its guard also accepts an exact `pm_exec_path`.
   Agent runs inherit `pm_exec_path` from PM2, so inside a run in the live checkout, importing
-  `src/main.js` starts a second runner. Never import or run an entry module to check that it loads.
+  `src/main.ts` starts a second runner. Never import or run an entry module to check that it loads.
 - Modules say "agent", not "claude". Claude-specific code stays in `src/agentBackend/claude.ts`
   (and its stream parser). User-facing commands stay `claude*`.
 - Redis access goes through the `Store` interface (`src/redisStore.ts`). Tests use

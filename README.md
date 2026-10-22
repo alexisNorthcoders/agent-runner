@@ -609,7 +609,7 @@ are told the same rule in their prompt preamble.
 
 ## Layout
 
-- `src/main.js`: wiring (Redis, HTTP on 127.0.0.1, startup recovery).
+- `src/main.ts`: wiring (Redis, HTTP on 127.0.0.1, startup recovery).
 - `src/runner.ts`: command handling, the run lifecycle and status.
 - `src/commands.ts`: parses `claude…` text.
 - `src/preamble.ts`: the rules prepended to every agent prompt. Freeform and Joplin runs add the git rules, and issue runs don't, since their post-run commits and merges.
@@ -620,7 +620,7 @@ are told the same rule in their prompt preamble.
 - `src/cronTracer.ts`: the cron issue tracer (picking, parking, progress), over `runner.startIssueRun`.
 - `src/scheduledJobs.ts`: scheduled jobs' config and once-a-day scheduler, over `runner.submitJob`.
   `src/jobProcess.ts` runs a job's command with its output appended to the log file.
-- `src/safeRestart.ts` + `bin/safe-restart.js`: restart decision logic and the CLI.
+- `src/safeRestart.ts` + `bin/safe-restart.ts`: restart decision logic and the CLI.
 - `src/joplin.ts`: Joplin Data API client.
 - `src/workspaces.ts`: the issue-run workspace allowlist.
 - `src/issuePipeline/`: issue runs. `index.ts` is the entry point (`prepare` before the agent,
@@ -630,7 +630,7 @@ are told the same rule in their prompt preamble.
   through the injectable `exec.ts`.
 - `src/activeRuns.ts`, `src/runHistory.ts`: the files under `logs/agent-runs/`.
 - `src/statusCollect.ts` + `src/statusFormat.ts`: the status snapshot and its terminal/WhatsApp
-  rendering. `bin/agent-cli.js` is the terminal CLI.
+  rendering. `bin/agent-cli.ts` is the terminal CLI.
 - `src/stateChanges.ts`: the runner's "state changed" notification, and the Redis store that raises it.
 - `src/officeWire.ts`, `src/officeSnapshot.ts` + `src/officeFeed.ts`: the office snapshot's types, how it is built, and the SSE feed that pushes it.
 - `src/logTail.ts` + `src/maskSecrets.ts`: the feed's live log of the active run, masked.

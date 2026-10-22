@@ -27,14 +27,14 @@ import { ansi, plain, renderHistoryLines, renderStatus } from '../src/statusForm
 const USAGE = `agent-cli: observability for agent-runner
 
 Usage:
-  node bin/agent-cli.js [status] [--json]          snapshot: cron, active runs, pause, spend, recent runs
-  node bin/agent-cli.js watch [seconds]            live view, refreshed every N seconds (default 2)
-  node bin/agent-cli.js history [-n 20] [--json]   finished runs with model, tokens and cost
-  node bin/agent-cli.js logs [runId|latest] [-f]   print (or follow) a run's log
-  node bin/agent-cli.js pause [<alias>] [2h] [reason...]
+  node bin/agent-cli.ts [status] [--json]          snapshot: cron, active runs, pause, spend, recent runs
+  node bin/agent-cli.ts watch [seconds]            live view, refreshed every N seconds (default 2)
+  node bin/agent-cli.ts history [-n 20] [--json]   finished runs with model, tokens and cost
+  node bin/agent-cli.ts logs [runId|latest] [-f]   print (or follow) a run's log
+  node bin/agent-cli.ts pause [<alias>] [2h] [reason...]
                                                    stop new runs: everything, or only issue runs in
                                                    <alias> (default 2h; 30m, 2h, 1d up to 7d)
-  node bin/agent-cli.js resume [<alias>]           end a pause (no alias: every pause, and the
+  node bin/agent-cli.ts resume [<alias>]           end a pause (no alias: every pause, and the
                                                    usage-limit pause)
 
 Also available as: npm run agent:status | agent:watch | agent:history | agent:logs | agent:pause | agent:resume
