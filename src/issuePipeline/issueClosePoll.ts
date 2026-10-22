@@ -1,17 +1,15 @@
 /**
  * Poll until `fetchState()` reports CLOSED or wall-clock budget is exhausted.
  * Never throws from poll failures; surfaces last error when the final check fails.
- *
- * @param {{
- *   maxWaitMs: number,
- *   pollMs: number,
- *   fetchState: () => Promise<{ ok: boolean, state?: string, error?: string }>,
- *   sleep?: (ms: number) => Promise<void>,
- *   now?: () => number,
- *   onPollError?: (detail: { polls: number, error: string }) => void,
- * }} opts
  */
-export async function pollGithubIssueClosedOrTimeout(opts) {
+export async function pollGithubIssueClosedOrTimeout(opts: {
+    maxWaitMs: number;
+    pollMs: number;
+    fetchState: () => Promise<{ ok: boolean; state?: string; error?: string }>;
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+    onPollError?: (detail: { polls: number; error: string }) => void;
+  }) {
   const maxWaitMs = Number.isFinite(opts.maxWaitMs) ? opts.maxWaitMs : 0;
   const pollMs = Number.isFinite(opts.pollMs) ? opts.pollMs : 0;
   const sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));

@@ -1,15 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createLlm, standardsBlock } from '../src/issuePipeline/llm.ts';
+import type { FetchLike } from '../src/issuePipeline/llm.ts';
+import { loadPipelineSettings } from '../src/issuePipeline/settings.ts';
 
 function captureReview() {
-  /** @type {string[]} */
-  const userMessages = [];
-  const settings = /** @type {any} */ ({
-    review: { apiKey: 'k', baseUrl: 'https://example.test/v1', model: 'm', maxTokens: 400, diffMaxChars: 10_000 },
-    summary: {},
+  const userMessages: string[] = [];
+  const settings = loadPipelineSettings({
+    OPENAI_API_KEY: 'k',
+    OPENAI_BASE_URL: 'https://example.test/v1',
+    CLAUDE_REVIEW_MODEL: 'm',
+    CLAUDE_REVIEW_MAX_TOKENS: '400',
+    CLAUDE_REVIEW_DIFF_MAX_CHARS: '10000',
   });
-  const fetchFn = async (_url, init) => {
+  const fetchFn: FetchLike = async (_url, init) => {
     userMessages.push(JSON.parse(init.body).messages[1].content);
     return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: 'VERDICT: APPROVE' } }] }) };
   };

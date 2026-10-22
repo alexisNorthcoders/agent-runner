@@ -1,36 +1,73 @@
 import { parseCompactMap } from '../workspaces.ts';
+import { errorText, isRecord, numberOrNull, recordOrEmpty, stringOrNull } from '../narrow.ts';
+import type { Exec } from './exec.ts';
+import type { PipelineSettings } from './settings.ts';
 
 /**
  * Reads a GitHub issue with `gh` and renders it as the agent's prompt. Which repo the issue lives
  * in comes from `CLAUDE_ISSUE_REPO_MAP` for the alias, else the workspace's GitHub `origin`. Also
  * the cron's repo-wide lookups: open issues, their `blocked_by` count, and open agent PRs.
- *
- * @typedef {{ number: number, title: string, labels: string[] }} OpenIssue
- * @typedef {{ number: number, title: string, url: string, state: 'open' | 'closed', labels: string[] }} SuggestedIssue
- * @typedef {{ url: string, headSha: string, baseRefName: string, mergeable: string, mergeStateStatus: string }} OpenAgentPr
  */
+
+export type OpenIssue = { number: number; title: string; labels: string[] };
+
+export type SuggestedIssue = { number: number; title: string; url: string; state: 'open' | 'closed'; labels: string[] };
+
+export type OpenAgentPr = { url: string; headSha: string; baseRefName: string; mergeable: string; mergeStateStatus: string };
+
+/** The fields of `gh issue view --json title,body,number,state,url,labels` that the prompt uses. */
+type IssueView = { number: number | null; title: string | null; body: string | null; state: string | null; url: string | null; labels: string[] };
 
 const REPO_SLUG_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const RETRY_BACKOFF_MS = [0, 2500, 8000];
 const ISSUE_LIST_LIMIT = 500;
 export const AGENT_SUGGESTED_LABEL = 'agent-suggested';
 
-/** @param {string} repo @returns {string} */
-function assertRepoSlug(repo) {
+function assertRepoSlug(repo: string): string {
   if (!REPO_SLUG_RE.test(String(repo))) throw new Error(`GitHub repo must look like owner/repo (got ${JSON.stringify(repo)})`);
   return repo;
 }
 
-/** @param {any[] | undefined} labels @returns {string[]} */
-const labelNames = (labels) => (Array.isArray(labels) ? labels.map((l) => (typeof l === 'string' ? l : l?.name)).filter(Boolean) : []);
+const labelNames = (labels: unknown): string[] =>
+  Array.isArray(labels)
+    ? labels.map((l) => (typeof l === 'string' ? l : recordOrEmpty(l).name)).filter((name): name is string => typeof name === 'string' && name !== '')
+    : [];
+
+/** A failed `gh` call's trimmed stderr, else its message. */
+function ghErrorText(e: unknown): string {
+  const { stderr } = recordOrEmpty(e);
+  return (typeof stderr === 'string' && stderr.trim()) || errorText(e);
+}
+
+/** `gh … --json` list output as rows. Empty output is an empty list; invalid JSON throws. */
+function ghJsonRows(out: string): unknown[] {
+  const data: unknown = JSON.parse(out || '[]');
+  return Array.isArray(data) ? data : [];
+}
+
+function parseIssueView(raw: string): IssueView {
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`gh returned invalid JSON: ${errorText(err)}`);
+  }
+  if (!isRecord(data)) throw new Error('gh returned invalid JSON: not an object');
+  return {
+    number: numberOrNull(data.number),
+    title: stringOrNull(data.title),
+    body: stringOrNull(data.body),
+    state: stringOrNull(data.state),
+    url: stringOrNull(data.url),
+    labels: labelNames(data.labels),
+  };
+}
 
 /**
  * Issue number in an agent issue branch name (`<prefix>-<n>-<slug>`), or null for other branches.
- * @param {string} headRefName
- * @param {string} prefix `CLAUDE_ISSUE_BRANCH_PREFIX`
- * @returns {number | null}
+ * @param prefix `CLAUDE_ISSUE_BRANCH_PREFIX`
  */
-export function issueNumberFromAgentBranch(headRefName, prefix) {
+export function issueNumberFromAgentBranch(headRefName: string, prefix: string): number | null {
   const head = String(headRefName || '');
   if (!head.startsWith(`${prefix}-`)) return null;
   const m = /^(\d+)(?:-|$)/.exec(head.slice(prefix.length + 1));
@@ -40,9 +77,9 @@ export function issueNumberFromAgentBranch(headRefName, prefix) {
 
 /**
  * True for gateway / rate-limit / network errors from `gh`, which are worth retrying.
- * @param {string} combinedMessage stderr + message from a failed `gh` invocation
+ * @param combinedMessage stderr + message from a failed `gh` invocation
  */
-export function githubCliErrorLooksTransient(combinedMessage) {
+export function githubCliErrorLooksTransient(combinedMessage: string) {
   const m = String(combinedMessage || '').toLowerCase();
   return (
     /\b50[234]\b/.test(m) ||
@@ -59,10 +96,10 @@ export function githubCliErrorLooksTransient(combinedMessage) {
 }
 
 /**
- * @param {string} remoteUrl output of `git remote get-url origin`
- * @returns {string | null} `owner/repo`
+ * @param remoteUrl output of `git remote get-url origin`
+ * @returns `owner/repo`
  */
-export function ownerRepoSlugFromGithubRemote(remoteUrl) {
+export function ownerRepoSlugFromGithubRemote(remoteUrl: string): string | null {
   const u = String(remoteUrl || '').trim();
   const m = u.match(/^git@github\.com:([^/]+)\/([^/]+)$/i) || u.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/?$/i);
   return m ? `${m[1]}/${m[2].replace(/\.git$/i, '')}` : null;
@@ -71,11 +108,9 @@ export function ownerRepoSlugFromGithubRemote(remoteUrl) {
 /**
  * Render a `gh issue view --json` payload as the prompt markdown. Post-run reads `# GitHub issue #n`,
  * `**Title:**` and `**Labels:**` back out of it for the commit message.
- * @param {{ number?: number, title?: string, body?: string, state?: string, url?: string, labels?: any[] }} data
- * @param {{ repo: string, number: number, extraInstructions?: string }} p
  */
-export function renderIssuePrompt(data, { repo, number, extraInstructions = '' }) {
-  const labels = labelNames(data.labels);
+function renderIssuePrompt(data: IssueView, { repo, number, extraInstructions = '' }: { repo: string; number: number; extraInstructions?: string }) {
+  const { labels } = data;
   const lines = [
     `# GitHub issue #${data.number ?? number}`,
     '',
@@ -90,35 +125,31 @@ export function renderIssuePrompt(data, { repo, number, extraInstructions = '' }
   return lines.join('\n');
 }
 
-/**
- * @param {{
- *   exec: import('./exec.ts').Exec,
- *   settings: import('./settings.ts').PipelineSettings,
- *   sleep?: (ms: number) => Promise<void>,
- * }} deps
- */
-export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
-  /** `gh` with a couple of retries on transient GitHub errors. @param {string[]} args */
-  async function ghWithRetry(args) {
-    let lastErr;
+export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }: {
+    exec: Exec;
+    settings: PipelineSettings;
+    sleep?: (ms: number) => Promise<void>;
+  }) {
+  /** `gh` with a couple of retries on transient GitHub errors. */
+  async function ghWithRetry(args: string[]) {
+    let lastErr: unknown;
     for (const wait of RETRY_BACKOFF_MS) {
       if (wait) await sleep(wait);
       try {
         return await exec('gh', args, { maxBuffer: 4 * 1024 * 1024 });
       } catch (e) {
         lastErr = e;
-        if (e?.code === 'ENOENT' || !githubCliErrorLooksTransient(`${e?.stderr || ''} ${e?.message || e}`)) break;
+        const { code, stderr } = recordOrEmpty(e);
+        if (code === 'ENOENT' || !githubCliErrorLooksTransient(`${typeof stderr === 'string' ? stderr : ''} ${errorText(e)}`)) break;
       }
     }
     throw lastErr;
   }
 
   /**
-   * @param {string} workspaceRoot
-   * @param {string | null} alias
-   * @returns {Promise<string>} `owner/repo`
+   * @returns `owner/repo`
    */
-  async function resolveIssueRepo(workspaceRoot, alias) {
+  async function resolveIssueRepo(workspaceRoot: string, alias: string | null): Promise<string> {
     const mapped = alias ? parseCompactMap(settings.issueRepoMap).get(alias) : undefined;
     if (mapped) {
       if (!REPO_SLUG_RE.test(mapped)) throw new Error(`CLAUDE_ISSUE_REPO_MAP entry for "${alias}" must look like owner/repo (got "${mapped}")`);
@@ -137,70 +168,57 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
     );
   }
 
-  /** @param {string[]} args @returns {Promise<string>} stdout */
-  async function gh(args) {
+  async function gh(args: string[]): Promise<string> {
     try {
       return (await ghWithRetry(args)).stdout;
     } catch (e) {
-      throw new Error(
-        e?.code === 'ENOENT'
-          ? 'GitHub CLI not found. Install gh or set GH_BIN to its full path.'
-          : (typeof e?.stderr === 'string' && e.stderr.trim()) || e?.message || String(e)
-      );
+      throw new Error(recordOrEmpty(e).code === 'ENOENT' ? 'GitHub CLI not found. Install gh or set GH_BIN to its full path.' : ghErrorText(e));
     }
   }
 
   return {
     resolveIssueRepo,
 
-    /** @param {string} repo @returns {Promise<OpenIssue[]>} */
-    async listOpenIssues(repo) {
+    async listOpenIssues(repo: string): Promise<OpenIssue[]> {
       const out = await gh(['issue', 'list', '--repo', assertRepoSlug(repo), '--state', 'open', '--json', 'number,title,labels', '--limit', String(ISSUE_LIST_LIMIT)]);
-      const data = JSON.parse(out || '[]');
-      if (!Array.isArray(data)) return [];
-      return data
-        .map((row) => ({ number: Number(row?.number), title: String(row?.title ?? ''), labels: labelNames(row?.labels) }))
+      return ghJsonRows(out)
+        .map(recordOrEmpty)
+        .map((row): OpenIssue => ({ number: Number(row.number), title: String(row.title ?? ''), labels: labelNames(row.labels) }))
         .filter((row) => Number.isInteger(row.number) && row.number > 0);
     },
 
     /**
      * Issues labelled `agent-suggested`, open and closed (whatever their outcome).
-     * @param {string} repo
-     * @returns {Promise<SuggestedIssue[]>}
      */
-    async listAgentSuggestedIssues(repo) {
+    async listAgentSuggestedIssues(repo: string): Promise<SuggestedIssue[]> {
       const out = await gh(['issue', 'list', '--repo', assertRepoSlug(repo), '--label', AGENT_SUGGESTED_LABEL, '--state', 'all', '--json', 'number,title,url,state,labels', '--limit', String(ISSUE_LIST_LIMIT)]);
-      const data = JSON.parse(out || '[]');
-      if (!Array.isArray(data)) return [];
-      return data
-        .map((row) => ({
-          number: Number(row?.number),
-          title: String(row?.title ?? ''),
-          url: String(row?.url ?? ''),
-          state: /** @type {'open' | 'closed'} */ (String(row?.state ?? '').toLowerCase() === 'open' ? 'open' : 'closed'),
-          labels: labelNames(row?.labels),
+      return ghJsonRows(out)
+        .map(recordOrEmpty)
+        .map((row): SuggestedIssue => ({
+          number: Number(row.number),
+          title: String(row.title ?? ''),
+          url: String(row.url ?? ''),
+          state: String(row.state ?? '').toLowerCase() === 'open' ? 'open' : 'closed',
+          labels: labelNames(row.labels),
         }))
         .filter((row) => Number.isInteger(row.number) && row.number > 0);
     },
 
     /**
      * File a new issue.
-     * @param {string} repo
-     * @param {{ title: string, body: string, labels: string[] }} p
-     * @returns {Promise<{ number: number, url: string, title: string }>}
      */
-    async createIssue(repo, { title, body, labels }) {
+    async createIssue(repo: string, { title, body, labels }: { title: string; body: string; labels: string[] }): Promise<{ number: number; url: string; title: string }> {
       assertRepoSlug(repo);
       // `gh issue create --label` refuses a label the repo doesn't have, so create any missing ones first
       if (labels.length) {
         const out = await gh(['label', 'list', '--repo', repo, '--json', 'name', '--limit', '1000']);
-        const have = new Set(labelNames(JSON.parse(out || '[]')).map((name) => name.toLowerCase()));
+        const have = new Set(labelNames(ghJsonRows(out)).map((name) => name.toLowerCase()));
         for (const label of labels) {
           if (have.has(label.toLowerCase())) continue;
           try {
             await gh(['label', 'create', label, '--repo', repo]);
           } catch (e) {
-            if (!/already exists/i.test(/** @type {Error} */ (e).message)) throw new Error(`could not create label ${label}: ${/** @type {Error} */ (e).message}`);
+            if (!/already exists/i.test(errorText(e))) throw new Error(`could not create label ${label}: ${errorText(e)}`);
           }
         }
       }
@@ -211,7 +229,7 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
       try {
         stdout = (await exec('gh', args, { maxBuffer: 4 * 1024 * 1024 })).stdout;
       } catch (e) {
-        throw new Error((typeof e?.stderr === 'string' && e.stderr.trim()) || e?.message || String(e));
+        throw new Error(ghErrorText(e));
       }
       const url = stdout.trim().split('\n').pop() ?? '';
       const m = /\/issues\/(\d+)$/.exec(url);
@@ -222,10 +240,8 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
     /**
      * Open blockers of an issue, from GitHub's native issue dependencies (GitHub recomputes it as
      * blockers close).
-     * @param {string} repo
-     * @param {number} issueNumber
      */
-    async blockedByCount(repo, issueNumber) {
+    async blockedByCount(repo: string, issueNumber: number) {
       const out = await gh(['api', `repos/${assertRepoSlug(repo)}/issues/${issueNumber}`, '--jq', '.issue_dependencies_summary.blocked_by // 0']);
       const n = parseInt(out.trim(), 10);
       return Number.isFinite(n) && n >= 0 ? n : 0;
@@ -233,17 +249,12 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
 
     /**
      * Open PRs whose head is an agent issue branch, keyed by issue number.
-     * @param {string} repo
-     * @returns {Promise<Map<number, OpenAgentPr>>}
      */
-    async listOpenAgentPrsByIssue(repo) {
+    async listOpenAgentPrsByIssue(repo: string): Promise<Map<number, OpenAgentPr>> {
       const out = await gh(['pr', 'list', '--repo', assertRepoSlug(repo), '--state', 'open', '--json', 'url,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus', '--limit', '100']);
-      const data = JSON.parse(out || '[]');
-      /** @type {Map<number, OpenAgentPr>} */
-      const byIssue = new Map();
-      if (!Array.isArray(data)) return byIssue;
-      for (const row of data) {
-        const n = issueNumberFromAgentBranch(row?.headRefName, settings.issueBranchPrefix);
+      const byIssue: Map<number, OpenAgentPr> = new Map();
+      for (const row of ghJsonRows(out).map(recordOrEmpty)) {
+        const n = issueNumberFromAgentBranch(String(row.headRefName || ''), settings.issueBranchPrefix);
         if (n == null || byIssue.has(n)) continue;
         byIssue.set(n, {
           url: String(row.url || ''),
@@ -256,30 +267,21 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
       return byIssue;
     },
 
-    /** Current tip commit of `branch` on GitHub. @param {string} repo @param {string} branch */
-    async branchHeadSha(repo, branch) {
+    /** Current tip commit of `branch` on GitHub. */
+    async branchHeadSha(repo: string, branch: string) {
       return (await gh(['api', `repos/${assertRepoSlug(repo)}/branches/${encodeURIComponent(branch)}`, '--jq', '.commit.sha'])).trim();
     },
 
-    /**
-     * @param {{ issueNumber: number, workspaceRoot: string, alias: string | null, extraInstructions?: string }} p
-     * @returns {Promise<{ markdown: string, repo: string, number: number, title: string, labels: string[] }>}
-     */
-    async fetchIssuePrompt({ issueNumber, workspaceRoot, alias, extraInstructions = '' }) {
+    async fetchIssuePrompt({ issueNumber, workspaceRoot, alias, extraInstructions = '' }: { issueNumber: number; workspaceRoot: string; alias: string | null; extraInstructions?: string }): Promise<{ markdown: string; repo: string; number: number; title: string; labels: string[] }> {
       const repo = await resolveIssueRepo(workspaceRoot, alias);
       const stdout = await gh(['issue', 'view', String(issueNumber), '--repo', repo, '--json', 'title,body,number,state,url,labels']);
-      let data;
-      try {
-        data = JSON.parse(stdout);
-      } catch (err) {
-        throw new Error(`gh returned invalid JSON: ${err.message}`);
-      }
+      const view = parseIssueView(stdout);
       return {
-        markdown: renderIssuePrompt(data, { repo, number: issueNumber, extraInstructions }),
+        markdown: renderIssuePrompt(view, { repo, number: issueNumber, extraInstructions }),
         repo,
-        number: typeof data.number === 'number' ? data.number : issueNumber,
-        title: data.title ?? '',
-        labels: labelNames(data.labels),
+        number: view.number ?? issueNumber,
+        title: view.title ?? '',
+        labels: view.labels,
       };
     },
   };

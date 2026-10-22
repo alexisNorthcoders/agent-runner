@@ -3,18 +3,19 @@ import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { augmentedPathEnv } from '../processPath.ts';
+import { errorText, recordOrEmpty } from '../narrow.ts';
+
+export type ExecOptions = { cwd?: string; maxBuffer?: number; timeout?: number };
 
 /**
  * The seam for every `git` and `gh` call the issue pipeline makes. Tests inject a fake with the
- * same shape (often delegating `git` to a real exec over a temp repo).
- *
- * @typedef {{ cwd?: string, maxBuffer?: number, timeout?: number }} ExecOptions
- * @typedef {(cmd: 'git' | 'gh', args: string[], opts?: ExecOptions) => Promise<{ stdout: string, stderr: string }>} Exec
- *   Rejects with an Error carrying `stdout`, `stderr` and `code` (`ENOENT` when the binary is missing).
+ * same shape (often delegating `git` to a real exec over a temp repo). Rejects with an Error
+ * carrying `stdout`, `stderr` and `code` (`ENOENT` when the binary is missing).
  */
+export type Exec = (cmd: 'git' | 'gh', args: string[], opts?: ExecOptions) => Promise<{ stdout: string; stderr: string }>;
 
-/** GH_BIN, then common install locations, then `gh` on PATH. @param {string} [fromEnv] */
-export function resolveGhBin(fromEnv) {
+/** GH_BIN, then common install locations, then `gh` on PATH. */
+export function resolveGhBin(fromEnv?: string) {
   if (fromEnv) return fromEnv;
   for (const p of [join(homedir(), '.local', 'bin', 'gh'), '/usr/bin/gh', '/usr/local/bin/gh']) {
     if (existsSync(p)) return p;
@@ -23,10 +24,9 @@ export function resolveGhBin(fromEnv) {
 }
 
 /**
- * @param {{ timeoutMs: number, ghBin?: string }} p `timeoutMs` applies unless a call sets its own
- * @returns {Exec}
+ * @param p `timeoutMs` applies unless a call sets its own
  */
-export function createExec({ timeoutMs, ghBin }) {
+export function createExec({ timeoutMs, ghBin }: { timeoutMs: number; ghBin?: string }): Exec {
   const gh = resolveGhBin(ghBin);
   const env = { ...process.env, PATH: augmentedPathEnv() };
   return (cmd, args, opts = {}) =>
@@ -45,14 +45,14 @@ export function createExec({ timeoutMs, ghBin }) {
     });
 }
 
-/** stderr, else the message, of a failed exec. @param {any} e */
-export const execErrorText = (e) => e?.stderr || e?.message || String(e);
+/** stderr, else the message, of a failed exec. */
+export function execErrorText(e: unknown): string {
+  const { stderr } = recordOrEmpty(e);
+  return (typeof stderr === 'string' && stderr) || errorText(e);
+}
 
-/**
- * `git <args>` in `cwd`.
- * @param {Exec} exec @param {string[]} args @param {string} cwd
- */
-export async function git(exec, args, cwd) {
+/** `git <args>` in `cwd`. */
+export async function git(exec: Exec, args: string[], cwd: string) {
   const { stdout, stderr } = await exec('git', args, { cwd });
   return { stdout: stdout || '', stderr: stderr || '' };
 }
