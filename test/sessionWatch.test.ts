@@ -4,32 +4,33 @@ import { MAX_READ_BYTES, TAIL_BYTES, createSessionWatch } from '../src/sessionWa
 
 const T0 = Date.parse('2026-10-06T10:00:00Z');
 const MIN = 60_000;
-const iso = (ms) => new Date(T0 + ms).toISOString();
+const iso = (ms: number) => new Date(T0 + ms).toISOString();
 
-const entry = (ms, sessionId, cwd, extra) => JSON.stringify({ sessionId, cwd, gitBranch: 'main', entrypoint: 'cli', isSidechain: false, timestamp: iso(ms), ...extra });
-const prompt = (ms, id, cwd, extra) => entry(ms, id, cwd, { type: 'user', message: { content: 'hi' }, ...extra });
-const tool = (ms, id, cwd, command) => entry(ms, id, cwd, { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command } }] } });
-const reply = (ms, id, cwd) => entry(ms, id, cwd, { type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } });
+const entry = (ms: number, sessionId: string, cwd: string, extra: object = {}) => JSON.stringify({ sessionId, cwd, gitBranch: 'main', entrypoint: 'cli', isSidechain: false, timestamp: iso(ms), ...extra });
+const prompt = (ms: number, id: string, cwd: string, extra: object = {}) => entry(ms, id, cwd, { type: 'user', message: { content: 'hi' }, ...extra });
+const tool = (ms: number, id: string, cwd: string, command: string) => entry(ms, id, cwd, { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command } }] } });
+const reply = (ms: number, id: string, cwd: string) => entry(ms, id, cwd, { type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } });
 
 /** A fake filesystem of transcripts: path → { text, mtimeMs }, counting the bytes read. */
 function fakeFs() {
-  /** @type {Map<string, { buf: Buffer, mtimeMs: number }>} */
-  const files = new Map();
-  const reads = [];
+  const files: Map<string, { buf: Buffer; mtimeMs: number }> = new Map();
+  const reads: Array<[string, number, number]> = [];
   return {
     files,
     reads,
-    write(path, text, mtimeMs) {
+    write(path: string, text: string, mtimeMs: number) {
       files.set(path, { buf: Buffer.from(text), mtimeMs });
     },
-    append(path, text, mtimeMs) {
+    append(path: string, text: string, mtimeMs: number) {
       const f = files.get(path);
       files.set(path, { buf: Buffer.concat([f?.buf ?? Buffer.alloc(0), Buffer.from(text)]), mtimeMs });
     },
     list: async () => [...files].map(([path, f]) => ({ path, size: f.buf.length, mtimeMs: f.mtimeMs })),
-    read: async (path, start, end) => {
+    read: async (path: string, start: number, end: number) => {
       reads.push([path, start, end]);
-      return files.get(path).buf.subarray(start, end);
+      const f = files.get(path);
+      if (!f) throw new Error(`no such transcript: ${path}`);
+      return f.buf.subarray(start, end);
     },
   };
 }
@@ -39,10 +40,10 @@ const WS = [
   { alias: 'chess', root: '/p/chess' },
 ];
 
-function setup({ cwds = ['/p/bot'], workspaces = WS } = {}) {
+function setup({ cwds = ['/p/bot'], workspaces = WS }: { cwds?: string[]; workspaces?: typeof WS } = {}) {
   const fs = fakeFs();
   let t = T0;
-  const state = { cwds, changes: [] };
+  const state = { cwds, changes: [] as string[] };
   const watch = createSessionWatch({
     root: '/projects',
     workspaces: { list: async () => workspaces },
@@ -53,7 +54,7 @@ function setup({ cwds = ['/p/bot'], workspaces = WS } = {}) {
     onChange: (r) => state.changes.push(r),
     logger: { info() {}, warn() {} },
   });
-  return { fs, watch, state, at: (ms) => (t = T0 + ms) };
+  return { fs, watch, state, at: (ms: number) => (t = T0 + ms) };
 }
 
 describe('session watch', () => {
@@ -169,7 +170,9 @@ describe('session watch', () => {
     fs.append('/projects/a/s1.jsonl', `${big}${reply(5000, 's1', '/p/bot')}\n`, T0 + 5000);
     at(6000);
     await watch.poll();
-    const [, start, end] = fs.reads.at(-1);
+    const last = fs.reads.at(-1);
+    assert.ok(last);
+    const [, start, end] = last;
     assert.equal(end - start, TAIL_BYTES);
     assert.equal(watch.current()[0].state, 'waiting');
   });

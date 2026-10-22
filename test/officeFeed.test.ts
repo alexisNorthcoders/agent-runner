@@ -3,15 +3,18 @@ import assert from 'node:assert/strict';
 import { createServer } from 'http';
 import { createOfficeFeed } from '../src/officeFeed.ts';
 import { createStateChanges } from '../src/stateChanges.ts';
+import { recordOrEmpty } from '../src/narrow.ts';
+import type { LogLines } from '../src/logTail.ts';
+import type { AddressInfo } from 'net';
 
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** A feed behind a real HTTP server, and a reader that collects the SSE events it receives. */
 async function setup(opts = {}) {
   const changes = createStateChanges();
   let n = 0;
   const feed = createOfficeFeed({
-    snapshot: async () => /** @type {any} */ ({ version: 1, n: ++n }),
+    snapshot: async () => ({ version: 1, n: ++n }),
     subscribe: changes.subscribe,
     coalesceMs: 20,
     minIntervalMs: 60,
@@ -21,21 +24,20 @@ async function setup(opts = {}) {
   });
   const server = createServer((req, res) => feed.attach(req, res));
   await new Promise((r) => server.listen(0, '127.0.0.1', () => r(undefined)));
-  const port = /** @type {import('net').AddressInfo} */ (server.address()).port;
-  /** @type {AbortController[]} */
-  const readers = [];
+  const port = (server.address() as AddressInfo).port;
+  const readers: AbortController[] = [];
 
   async function connect() {
     const ac = new AbortController();
     readers.push(ac);
     const res = await fetch(`http://127.0.0.1:${port}/`, { signal: ac.signal });
-    /** @type {{ event: string, data: any }[]} */
-    const events = [];
+    const events: { event: string; data: Record<string, unknown> }[] = [];
     const decoder = new TextDecoder();
     let buf = '';
     (async () => {
       try {
-        for await (const chunk of /** @type {any} */ (res.body)) {
+        if (!res.body) return;
+        for await (const chunk of res.body) {
           buf += decoder.decode(chunk, { stream: true });
           let i;
           while ((i = buf.indexOf('\n\n')) >= 0) {
@@ -43,7 +45,7 @@ async function setup(opts = {}) {
             buf = buf.slice(i + 2);
             const event = /^event: (.*)$/m.exec(block)?.[1] ?? 'message';
             const data = /^data: (.*)$/m.exec(block)?.[1];
-            if (data != null) events.push({ event, data: JSON.parse(data) });
+            if (data != null) events.push({ event, data: recordOrEmpty(JSON.parse(data)) });
           }
         }
       } catch {
@@ -65,8 +67,7 @@ async function setup(opts = {}) {
   };
 }
 
-/** @param {() => boolean} ok */
-async function until(ok, ms = 1000) {
+async function until(ok: () => boolean, ms = 1000) {
   const end = Date.now() + ms;
   while (!ok()) {
     if (Date.now() > end) throw new Error('timed out');
@@ -75,8 +76,7 @@ async function until(ok, ms = 1000) {
 }
 
 describe('office feed', () => {
-  /** @type {Awaited<ReturnType<typeof setup>> | null} */
-  let t = null;
+  let t: Awaited<ReturnType<typeof setup>> | null = null;
   afterEach(async () => {
     await t?.stop();
     t = null;
@@ -120,8 +120,7 @@ describe('office feed', () => {
   });
 
   it('builds nothing while nobody is connected, and forgets a client that disconnects', async () => {
-    /** @type {number} */
-    let builds = 0;
+    let builds: number = 0;
     t = await setup({ snapshot: async () => ({ n: ++builds }) });
     t.changes.notify('queue');
     await wait(50);
@@ -158,8 +157,7 @@ describe('office feed', () => {
   });
 
   it('never sends a client an older snapshot after a newer one', async () => {
-    /** @type {{ n: number, release: () => void }[]} */
-    const builds = [];
+    const builds: { n: number; release: () => void }[] = [];
     let n = 0;
     t = await setup({
       snapshot: () => {
@@ -223,10 +221,8 @@ describe('office feed', () => {
   });
 });
 
-/** @param {{ runId: string | null, lines: string[] }} tail */
-function fakeLogTail(tail) {
-  /** @type {Set<(e: any) => void>} */
-  const listeners = new Set();
+function fakeLogTail(tail: { runId: string | null; lines: string[] }) {
+  const listeners: Set<(e: LogLines) => void> = new Set();
   const lt = {
     starts: 0,
     stops: 0,
@@ -237,13 +233,11 @@ function fakeLogTail(tail) {
       lt.stops++;
     },
     tail: () => tail,
-    /** @param {(e: any) => void} fn */
-    onLines(fn) {
+    onLines(fn: (e: LogLines) => void) {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
-    /** @param {any} e */
-    emit: (e) => listeners.forEach((fn) => fn(e)),
+    emit: (e: LogLines) => listeners.forEach((fn) => fn(e)),
   };
   return lt;
 }

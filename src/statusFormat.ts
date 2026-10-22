@@ -7,33 +7,33 @@
 
 import { describeManualPause } from './manualPause.ts';
 import { describeUsageLimitPause } from './usageLimitPause.ts';
-/** @typedef {import('./statusCollect.ts').StatusSnapshot} StatusSnapshot */
+import type { StatusSnapshot } from './statusCollect.ts';
+import type { HistoryEntry } from './runHistory.ts';
+import type { ActiveRun } from './activeRuns.ts';
+import type { CronTickOutcome } from './cronState.ts';
+import type { AgentSubagent } from './agentBackend/index.ts';
+import type { OfficeSession } from './sessionWatch.ts';
 
-/** The owner's pauses, e.g. `by hand: everything for 1h20m (reason); chess-trainer for 45m`, or ''. @param {StatusSnapshot} d */
-function byHandText(d) {
+/** The owner's pauses, e.g. `by hand: everything for 1h20m (reason); chess-trainer for 45m`, or ''. */
+function byHandText(d: StatusSnapshot) {
   if (!d.manualPauses?.length) return '';
   return `by hand: ${d.manualPauses.map((p) => describeManualPause(p, d.now)).join('; ')}`;
 }
 
-/** The usage-limit pause, e.g. `usage limit hit, until 07:02 (resets 7am Europe/London)`, or ''. @param {StatusSnapshot} d */
-export const usageLimitText = (d) => (d.usageLimit ? `usage limit hit, ${describeUsageLimitPause(d.usageLimit, d.now)}` : '');
-/** @typedef {import('./runHistory.ts').HistoryEntry} HistoryEntry */
-/** @typedef {import('./activeRuns.ts').ActiveRun} ActiveRun */
-/** @typedef {Record<'dim' | 'green' | 'red' | 'yellow' | 'bold' | 'cyan', (s: string) => string>} Colors */
+/** The usage-limit pause, e.g. `usage limit hit, until 07:02 (resets 7am Europe/London)`, or ''. */
+export const usageLimitText = (d: StatusSnapshot) => (d.usageLimit ? `usage limit hit, ${describeUsageLimitPause(d.usageLimit, d.now)}` : '');
+export type Colors = Record<'dim' | 'green' | 'red' | 'yellow' | 'bold' | 'cyan', (s: string) => string>;
 
-/** @type {Colors} */
-export const plain = { dim: (s) => s, green: (s) => s, red: (s) => s, yellow: (s) => s, bold: (s) => s, cyan: (s) => s };
+export const plain: Colors = { dim: (s) => s, green: (s) => s, red: (s) => s, yellow: (s) => s, bold: (s) => s, cyan: (s) => s };
 
-/** @returns {Colors} */
-export function ansi() {
-  const wrap = (code) => (s) => `\x1b[${code}m${s}\x1b[0m`;
+export function ansi(): Colors {
+  const wrap = (code: number) => (s: string) => `\x1b[${code}m${s}\x1b[0m`;
   return { dim: wrap(2), green: wrap(32), red: wrap(31), yellow: wrap(33), bold: wrap(1), cyan: wrap(36) };
 }
 
 const DAY_MS = 864e5;
 
-/** @param {number | null | undefined} ms */
-export function formatDuration(ms) {
+export function formatDuration(ms: number | null | undefined) {
   if (ms == null || !Number.isFinite(ms)) return '-';
   const s = Math.max(0, Math.round(ms / 1000));
   if (s < 60) return `${s}s`;
@@ -43,70 +43,57 @@ export function formatDuration(ms) {
   return `${h}h${String(m % 60).padStart(2, '0')}m`;
 }
 
-/** @param {number | null | undefined} n */
-export function formatTokens(n) {
+export function formatTokens(n: number | null | undefined) {
   if (n == null) return '-';
   if (n < 1000) return String(n);
   if (n < 1e6) return `${(n / 1e3).toFixed(n < 1e4 ? 1 : 0)}k`;
   return `${(n / 1e6).toFixed(1)}M`;
 }
 
-/** @param {number | null | undefined} usd */
-export function formatCost(usd) {
+export function formatCost(usd: number | null | undefined) {
   return usd == null ? '-' : `$${usd.toFixed(usd < 10 ? 2 : 1)}`;
 }
 
-/** Drops a trailing date stamp: `claude-haiku-4-5-20251001` → `claude-haiku-4-5` @param {string | null | undefined} model */
-export function shortModel(model) {
+/** Drops a trailing date stamp: `claude-haiku-4-5-20251001` → `claude-haiku-4-5` */
+export function shortModel(model: string | null | undefined) {
   if (!model) return '-';
   return model.replace(/-\d{8}$/, '');
 }
 
-/** @param {HistoryEntry['tokens']} t */
-export function totalTokens(t) {
+export function totalTokens(t: HistoryEntry['tokens']) {
   return t ? (t.input || 0) + (t.output || 0) + (t.cacheRead || 0) + (t.cacheCreate || 0) : 0;
 }
 
-const since = (now, iso) => now - Date.parse(iso);
-const formatAgo = (ms) => `${formatDuration(ms)} ago`;
+const since = (now: number, iso: string | null | undefined) => (iso ? now - Date.parse(iso) : null);
+const formatAgo = (ms: number | null) => `${formatDuration(ms)} ago`;
 
-/** @param {HistoryEntry} r */
-const durationOf = (r) => r.durationMs ?? (r.startedAt ? Date.parse(r.endedAt) - Date.parse(r.startedAt) : null);
+const durationOf = (r: HistoryEntry) => r.durationMs ?? (r.startedAt ? Date.parse(r.endedAt) - Date.parse(r.startedAt) : null);
 
-/** What the run was asked to do. @param {{ label?: string, kind?: string, runId: string }} r */
-const what = (r) => r.label || r.kind || r.runId;
+/** What the run was asked to do. */
+const what = (r: { label?: string; kind?: string; runId: string }) => r.label || r.kind || r.runId;
 
-/** @param {string} s @param {number} n */
-const clip = (s, n) => (s.length <= n ? s : `${s.slice(0, n - 1)}…`);
+const clip = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n - 1)}…`);
 
 /**
  * What the run was asked to do, clipped to `n`, and the workspace a freeform run turned out to
  * work in: `fix the login bug → whatsapp-bot`.
- * @param {{ label?: string, kind?: string, runId: string, inferredWorkspace?: unknown }} r @param {number} n
  */
-const whatWhere = (r, n) => `${clip(what(r), n)}${typeof r.inferredWorkspace === 'string' ? ` → ${r.inferredWorkspace}` : ''}`;
+const whatWhere = (r: { label?: string; kind?: string; runId: string; inferredWorkspace?: unknown }, n: number) => `${clip(what(r), n)}${typeof r.inferredWorkspace === 'string' ? ` → ${r.inferredWorkspace}` : ''}`;
 
-/** @param {string} s @param {number} n */
-const pad = (s, n) => (s.length >= n ? s : s + ' '.repeat(n - s.length));
+const pad = (s: string, n: number) => (s.length >= n ? s : s + ' '.repeat(n - s.length));
 
 /**
  * pm2-style boxed table. `colorRow(i)` wraps a whole row's cells after padding, so widths hold.
- * @param {string[]} headers
- * @param {string[][]} rows
- * @param {Colors} [c]
- * @param {(i: number) => (s: string) => string} [colorRow]
- * @returns {string[]}
  */
-export function boxTable(headers, rows, c = plain, colorRow = () => (s) => s) {
+export function boxTable(headers: string[], rows: string[][], c: Colors = plain, colorRow: (i: number) => (s: string) => string = () => (s) => s): string[] {
   const widths = headers.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? '').length)));
-  const rule = (l, m, r) => c.dim(`${l}${widths.map((w) => '─'.repeat(w + 2)).join(m)}${r}`);
+  const rule = (l: string, m: string, r: string) => c.dim(`${l}${widths.map((w) => '─'.repeat(w + 2)).join(m)}${r}`);
   const bar = c.dim('│');
-  const line = (row, wrap = (x) => x) => `${bar}${row.map((cell, i) => wrap(` ${pad(cell ?? '', widths[i])} `)).join(bar)}${bar}`;
+  const line = (row: string[], wrap = (x: string) => x) => `${bar}${row.map((cell, i) => wrap(` ${pad(cell ?? '', widths[i])} `)).join(bar)}${bar}`;
   return [rule('┌', '┬', '┐'), line(headers, c.bold), rule('├', '┼', '┤'), ...rows.map((r, i) => line(r, colorRow(i))), rule('└', '┴', '┘')];
 }
 
-/** @param {import('./cronState.ts').CronTickOutcome | null} o */
-function describeCronOutcome(o) {
+function describeCronOutcome(o: CronTickOutcome | null) {
   if (!o) return 'starting (no tick finished yet)';
   switch (o.kind) {
     case 'busy':
@@ -118,7 +105,8 @@ function describeCronOutcome(o) {
     case 'no_eligible':
       return 'idle, no eligible issue';
     case 'ran': {
-      const label = { progress: 'made progress', no_progress: 'no lasting progress', prep_failed: 'issue fetch or git prep failed', failed: 'failed', timeout: 'timed out', no_changes: 'made no changes', limited: 'hit the usage limit', merge_retry: 'merge retried next tick' }[o.result] ?? o.result;
+      const labels: Record<string, string> = { progress: 'made progress', no_progress: 'no lasting progress', prep_failed: 'issue fetch or git prep failed', failed: 'failed', timeout: 'timed out', no_changes: 'made no changes', limited: 'hit the usage limit', merge_retry: 'merge retried next tick' };
+      const label = (o.result === undefined ? undefined : labels[o.result]) ?? o.result;
       return `worked ${o.repo}#${o.issue}, ${label}${o.note ? ` (${o.note})` : ''}`;
     }
     case 'error':
@@ -130,13 +118,11 @@ function describeCronOutcome(o) {
 
 /**
  * Finished runs, cost and tokens today (since local midnight) and over the last 7 days.
- * @param {StatusSnapshot} d
  */
-export function spend(d) {
+export function spend(d: StatusSnapshot) {
   const dayStart = new Date(d.now);
   dayStart.setHours(0, 0, 0, 0);
-  /** @param {HistoryEntry[]} rows */
-  const totals = (rows) => ({
+  const totals = (rows: HistoryEntry[]) => ({
     n: rows.length,
     cost: rows.reduce((a, r) => a + (r.costUsd || 0), 0),
     tokens: rows.reduce((a, r) => a + totalTokens(r.tokens), 0),
@@ -147,16 +133,11 @@ export function spend(d) {
   };
 }
 
-/** @param {{ n: number, cost: number, tokens: number }} t */
-const formatTotals = (t) => `${t.n} run${t.n === 1 ? '' : 's'} · ${formatCost(t.cost)} · ${formatTokens(t.tokens)} tok`;
+const formatTotals = (t: { n: number; cost: number; tokens: number }) => `${t.n} run${t.n === 1 ? '' : 's'} · ${formatCost(t.cost)} · ${formatTokens(t.tokens)} tok`;
 
 // --- terminal ---
 
-/**
- * @param {StatusSnapshot} d
- * @param {Colors} [c]
- */
-export function renderStatus(d, c = plain) {
+export function renderStatus(d: StatusSnapshot, c: Colors = plain) {
   const out = [];
   const stamp = new Date(d.now).toISOString().replace('T', ' ').slice(0, 19);
   out.push(`${c.bold('agent-runner')}  ${c.dim(`${stamp} UTC`)}`, '');
@@ -193,7 +174,7 @@ export function renderStatus(d, c = plain) {
       String(r.agentPid ?? '-'),
       r.health,
     ]);
-    const healthColor = (i) => (d.active[i].health === 'running' ? c.green : c.red);
+    const healthColor = (i: number) => (d.active[i].health === 'running' ? c.green : c.red);
     out.push(...boxTable(['run', 'kind', 'what', 'model', 'elapsed', 'turns', 'out', 'ctx', 'pid', 'state'], rows, c, healthColor));
     for (const r of d.active) {
       if (r.health === 'orphaned') out.push(c.red(`  ${r.runId}: runner died but agent pid ${r.agentPid} is still running; nothing will report its result`));
@@ -232,12 +213,8 @@ export function renderStatus(d, c = plain) {
 
 /**
  * Boxed table, one row per run, newest first.
- * @param {HistoryEntry[]} rows
- * @param {number} now
- * @param {Colors} [c]
- * @returns {string[]}
  */
-export function renderHistoryLines(rows, now, c = plain) {
+export function renderHistoryLines(rows: HistoryEntry[], now: number, c: Colors = plain): string[] {
   const body = rows.map((r) => [
     formatAgo(since(now, r.endedAt)),
     r.kind ?? '-',
@@ -261,11 +238,10 @@ export function renderHistoryLines(rows, now, c = plain) {
 
 // --- WhatsApp (plain text, one message) ---
 
-/** A scheduled job's run: a command, not an agent, so it has none of those unless it reported its usage. @param {{ kind?: string }} r */
-const isJob = (r) => r.kind === 'job';
+/** A scheduled job's run: a command, not an agent, so it has none of those unless it reported its usage. */
+const isJob = (r: { kind?: string }) => r.kind === 'job';
 
-/** @param {HistoryEntry} r @param {number} now */
-const historyLine = (r, now) =>
+const historyLine = (r: HistoryEntry, now: number) =>
   `${formatAgo(since(now, r.endedAt))} · ${whatWhere(r, 60)} — ${r.outcome}, ${formatDuration(durationOf(r))}` +
   (isJob(r) && !r.tokens ? '' : `, ${formatCost(r.costUsd)}, ${formatTokens(totalTokens(r.tokens))} tok`);
 
@@ -274,9 +250,8 @@ export const STATUS_RECENT_COUNT = 3;
 /**
  * The subagents a run has going, each with what it's doing: `Subagents (2): Spec review (Bash: git diff); Standards review`.
  * Empty when none.
- * @param {{ subagents?: import('./agentBackend/index.ts').AgentSubagent[] }} r
  */
-function subagentsText(r) {
+function subagentsText(r: { subagents?: AgentSubagent[] }) {
   const subs = Array.isArray(r.subagents) ? r.subagents : [];
   if (!subs.length) return '';
   return `Subagents (${subs.length}): ${subs.map((a) => (a.activity ? `${a.description} (${a.activity})` : a.description)).join('; ')}`;
@@ -284,12 +259,11 @@ function subagentsText(r) {
 
 /**
  * The interactive sessions open, e.g. `Sessions (2): agent-runner, working (Bash: npm test) · chess-trainer, waiting for you`, or ''.
- * @param {StatusSnapshot} d
  */
-function sessionsText(d) {
+function sessionsText(d: StatusSnapshot) {
   const list = d.sessions ?? [];
   if (!list.length) return '';
-  const one = (/** @type {import('./sessionWatch.ts').OfficeSession} */ s) => {
+  const one = (s: OfficeSession) => {
     const where = s.workspaceAlias ?? (s.cwd.split('/').filter(Boolean).pop() || s.cwd);
     return `${where}, ${s.state === 'waiting' ? 'waiting for you' : `working${s.activity ? ` (${clip(s.activity, 40)})` : ''}`}`;
   };
@@ -298,9 +272,8 @@ function sessionsText(d) {
 
 /**
  * `claude:status`: active run, pause, last cron tick, today's spend and the last few runs.
- * @param {StatusSnapshot} d
  */
-export function renderStatusText(d) {
+export function renderStatusText(d: StatusSnapshot) {
   const out = [];
   if (!d.active.length) out.push('Agent: idle');
   for (const r of d.active) {
@@ -342,10 +315,8 @@ export function renderStatusText(d) {
 
 /**
  * `claude:history [n]`: one line per finished run, newest first.
- * @param {HistoryEntry[]} rows
- * @param {number} now
  */
-export function renderHistoryText(rows, now) {
+export function renderHistoryText(rows: HistoryEntry[], now: number) {
   if (!rows.length) return 'No finished runs recorded yet.';
   const header = rows.length === 1 ? 'Last run:' : `Last ${rows.length} runs:`;
   return [header, ...rows.map((r) => historyLine(r, now))].join('\n');

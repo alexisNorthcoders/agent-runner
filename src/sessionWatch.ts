@@ -3,6 +3,8 @@ import { basename, join } from 'path';
 import { applyTranscriptLines, emptyTranscript, listClaudeCwds, subagentCount } from './agentBackend/claudeTranscripts.ts';
 import { errorText } from './narrow.ts';
 import { canonicalPath, workspaceOfPaths } from './workspaceInference.ts';
+import type { TranscriptState } from './agentBackend/claudeTranscripts.ts';
+import type { NotifyChange } from './stateChanges.ts';
 
 /**
  * The session watch: which interactive agent sessions are open on this machine, which workspace
@@ -14,28 +16,27 @@ import { canonicalPath, workspaceOfPaths } from './workspaceInference.ts';
  * `activeMs`, and reads only the bytes appended since the last poll (a file seen for the first time
  * from its tail). A session is open while its transcript is that recent; running agent processes
  * (`/proc`, best effort) only cap the sessions counted per cwd. Prompts and replies are never kept.
- *
- * @typedef {{
- *   id: string,
- *   workspaceAlias: string | null,
- *   cwd: string,
- *   branch: string | null,
- *   state: 'working' | 'waiting',
- *   activity: string | null,
- *   subagents: number,
- *   since: string,
- *   lastEntryAt: string,
- * }} OfficeSession
- *   `since`: when the watch first saw it open. `lastEntryAt`: its latest transcript entry.
- *
- * @typedef {{ path: string, size: number, mtimeMs: number }} TranscriptFile
- *
- * @typedef {{
- *   list: (root: string) => Promise<TranscriptFile[]>,
- *   read: (path: string, start: number, end: number) => Promise<Buffer>,
- * }} TranscriptFs
- *   `list`: every `<root>/<folder>/<id>.jsonl` with its size and mtime. `read`: the bytes `[start, end)`.
  */
+/** `since`: when the watch first saw it open. `lastEntryAt`: its latest transcript entry. */
+export type OfficeSession = {
+  id: string;
+  workspaceAlias: string | null;
+  cwd: string;
+  branch: string | null;
+  state: 'working' | 'waiting';
+  activity: string | null;
+  subagents: number;
+  since: string;
+  lastEntryAt: string;
+};
+
+export type TranscriptFile = { path: string; size: number; mtimeMs: number };
+
+/** `list`: every `<root>/<folder>/<id>.jsonl` with its size and mtime. `read`: the bytes `[start, end)`. */
+export type TranscriptFs = {
+  list: (root: string) => Promise<TranscriptFile[]>;
+  read: (path: string, start: number, end: number) => Promise<Buffer>;
+};
 
 export const SESSION_POLL_MS = 3000;
 export const SESSION_ACTIVE_MS = 10 * 60_000;
@@ -43,8 +44,7 @@ export const SESSION_ACTIVE_MS = 10 * 60_000;
 export const TAIL_BYTES = 64 * 1024;
 export const MAX_READ_BYTES = 1024 * 1024;
 
-/** @returns {TranscriptFs} */
-export function nodeTranscriptFs() {
+export function nodeTranscriptFs(): TranscriptFs {
   return {
     async list(root) {
       const files = [];
@@ -83,31 +83,17 @@ export function nodeTranscriptFs() {
 }
 
 /**
- * @typedef {{
- *   offset: number,
- *   partial: Buffer,
- *   transcript: import('./agentBackend/claudeTranscripts.ts').TranscriptState,
- *   openSince: number | null,
- * }} Tracked
- *   Per transcript file: how far it's been read, the unfinished last line, what it says so far,
- *   and when it first counted as an open session.
+ * Per transcript file: how far it's been read, the unfinished last line, what it says so far,
+ * and when it first counted as an open session.
  */
+export type Tracked = {
+  offset: number;
+  partial: Buffer;
+  transcript: TranscriptState;
+  openSince: number | null;
+};
 
-/**
- * @param {{
- *   root: string,
- *   workspaces: { list: () => Promise<Array<{ alias: string, root: string }>> },
- *   claudeCwds?: () => Promise<string[]>,
- *   fs?: TranscriptFs,
- *   realpath?: (p: string) => Promise<string>,
- *   intervalMs?: number,
- *   activeMs?: number,
- *   now?: () => number,
- *   onChange?: import('./stateChanges.ts').NotifyChange,
- *   logger?: Pick<Console, 'info' | 'warn'>,
- * }} deps
- *   `claudeCwds`: the cwd of each running agent process (`/proc`), injected so tests can fake it.
- */
+/** `claudeCwds`: the cwd of each running agent process (`/proc`), injected so tests can fake it. */
 export function createSessionWatch({
   root,
   workspaces,
@@ -119,19 +105,27 @@ export function createSessionWatch({
   now = Date.now,
   onChange = () => {},
   logger = console,
-}) {
-  /** @type {Map<string, Tracked>} */
-  const tracked = new Map();
-  /** @type {OfficeSession[]} */
-  let sessions = [];
+}: {
+    root: string;
+    workspaces: { list: () => Promise<Array<{ alias: string; root: string }>> };
+    claudeCwds?: () => Promise<string[]>;
+    fs?: TranscriptFs;
+    realpath?: (p: string) => Promise<string>;
+    intervalMs?: number;
+    activeMs?: number;
+    now?: () => number;
+    onChange?: NotifyChange;
+    logger?: Pick<Console, 'info' | 'warn'>;
+  }) {
+  const tracked: Map<string, Tracked> = new Map();
+  let sessions: OfficeSession[] = [];
   let signature = '[]';
   let warned = false;
   let polling = false;
-  /** @type {NodeJS.Timeout | null} */
-  let timer = null;
+  let timer: NodeJS.Timeout | null = null;
 
-  /** Read what `file` gained since the last poll into `t`. @param {TranscriptFile} file @param {Tracked | undefined} t @returns {Promise<Tracked>} */
-  async function catchUp(file, t) {
+  /** Read what `file` gained since the last poll into `t`. */
+  async function catchUp(file: TranscriptFile, t: Tracked | undefined): Promise<Tracked> {
     let cur = t;
     // gone below the offset: truncated or replaced, so start again from the beginning
     if (cur && file.size < cur.offset) cur = undefined;
@@ -161,10 +155,9 @@ export function createSessionWatch({
     return tracking;
   }
 
-  /** @param {string[]} cwds @returns {Promise<Map<string, number>>} the agent processes running in each (canonical) cwd */
-  async function processesByCwd(cwds) {
-    /** @type {Map<string, number>} */
-    const out = new Map();
+  /** The number of agent processes running in each (canonical) cwd. */
+  async function processesByCwd(cwds: string[]): Promise<Map<string, number>> {
+    const out: Map<string, number> = new Map();
     for (const c of cwds) {
       const canon = await canonicalPath(c, realpath);
       out.set(canon, (out.get(canon) ?? 0) + 1);
@@ -172,14 +165,12 @@ export function createSessionWatch({
     return out;
   }
 
-  /** @returns {Promise<OfficeSession[]>} */
-  async function scan() {
+  async function scan(): Promise<OfficeSession[]> {
     const t = now();
     const files = (await fs.list(root)).filter((f) => t - f.mtimeMs <= activeMs);
     const live = new Set(files.map((f) => f.path));
     for (const p of tracked.keys()) if (!live.has(p)) tracked.delete(p);
-    /** @type {Array<{ file: TranscriptFile, tr: Tracked }>} */
-    const read = [];
+    const read: Array<{ file: TranscriptFile; tr: Tracked }> = [];
     for (const file of files) {
       try {
         const tr = await catchUp(file, tracked.get(file.path));
@@ -192,9 +183,8 @@ export function createSessionWatch({
       }
     }
     const interactive = read.filter(({ tr }) => tr.transcript.interactive === true && tr.transcript.state && tr.transcript.cwd);
-    /** @type {Map<string, number>} */
-    let procs;
-    let roots;
+    let procs: Map<string, number>;
+    let roots: Array<{ alias: string; root: string }>;
     if (interactive.length) {
       // best effort: /proc can be unavailable or name the process differently, which hides nothing
       procs = await processesByCwd(await claudeCwds().catch(() => []));
@@ -203,14 +193,12 @@ export function createSessionWatch({
       procs = new Map();
       roots = [];
     }
-    /** @type {Map<string, typeof interactive>} */
-    const byCwd = new Map();
+    const byCwd: Map<string, typeof interactive> = new Map();
     for (const s of interactive) {
-      const cwd = await canonicalPath(/** @type {string} */ (s.tr.transcript.cwd), realpath);
+      const cwd = await canonicalPath(s.tr.transcript.cwd as string, realpath);
       byCwd.set(cwd, [...(byCwd.get(cwd) ?? []), s]);
     }
-    /** @type {OfficeSession[]} */
-    const open = [];
+    const open: OfficeSession[] = [];
     const openPaths = new Set();
     for (const [cwd, group] of byCwd) {
       // with agent processes found in the directory, one session each (the most recently written); with none found, all
@@ -222,9 +210,9 @@ export function createSessionWatch({
         open.push({
           id: x.sessionId ?? basename(file.path, '.jsonl'),
           workspaceAlias: await workspaceOfPaths([cwd], roots, realpath),
-          cwd: /** @type {string} */ (x.cwd),
+          cwd: (x.cwd as string),
           branch: x.branch,
-          state: /** @type {'working' | 'waiting'} */ (x.state),
+          state: (x.state as 'working' | 'waiting'),
           activity: x.activity,
           subagents: subagentCount(x, t),
           since: new Date(tr.openSince).toISOString(),
@@ -261,8 +249,8 @@ export function createSessionWatch({
   return {
     poll,
 
-    /** The open sessions as of the last poll, oldest first. @returns {OfficeSession[]} */
-    current: () => sessions,
+    /** The open sessions as of the last poll, oldest first. */
+    current: (): OfficeSession[] => sessions,
 
     /** Poll now, then every `intervalMs`. */
     start() {

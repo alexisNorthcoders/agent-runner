@@ -4,31 +4,45 @@
  * one notebook so a WhatsApp message can't pull arbitrary notes into an agent prompt.
  */
 
+import { errorText, isRecord, recordOrEmpty, stringOrNull } from './narrow.ts';
+
 const PAGE_LIMIT = 100;
 
-/**
- * @param {{ baseUrl: string, token: string, notebook: string, fetchFn?: typeof fetch }} p
- */
-export function createJoplinClient({ baseUrl, token, notebook, fetchFn = fetch }) {
-  async function get(path, params = {}) {
+type JoplinItem = { id: string; title: string };
+
+/** The part of `fetch` the client uses, so tests can pass a fake. */
+export type JoplinFetch = (url: string) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>;
+
+/** The rows of a page with a string id and title; any other row is skipped. */
+function pageItems(items: unknown): JoplinItem[] {
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item) => {
+    const { id, title } = recordOrEmpty(item);
+    return typeof id === 'string' && typeof title === 'string' ? [{ id, title }] : [];
+  });
+}
+
+export function createJoplinClient({ baseUrl, token, notebook, fetchFn = fetch }: { baseUrl: string; token: string; notebook: string; fetchFn?: JoplinFetch }) {
+  async function get(path: string, params: Record<string, string | number> = {}): Promise<Record<string, unknown>> {
     const url = new URL(path, baseUrl);
     for (const [k, v] of Object.entries({ ...params, token })) url.searchParams.set(k, String(v));
     let res;
     try {
       res = await fetchFn(url.toString());
     } catch (err) {
-      throw new Error(`Joplin Data API unreachable at ${baseUrl} (${err?.message || err}). Is the Joplin clipper server running?`);
+      throw new Error(`Joplin Data API unreachable at ${baseUrl} (${errorText(err)}). Is the Joplin clipper server running?`);
     }
     if (!res.ok) throw new Error(`Joplin Data API ${path} returned HTTP ${res.status}`);
-    return res.json();
+    const body: unknown = await res.json();
+    if (!isRecord(body)) throw new Error(`Joplin Data API ${path} returned a non-object body`);
+    return body;
   }
 
-  /** @returns {Promise<any[]>} */
-  async function getAll(path, fields) {
-    const items = [];
+  async function getAll(path: string, fields: string): Promise<JoplinItem[]> {
+    const items: JoplinItem[] = [];
     for (let page = 1; ; page++) {
       const data = await get(path, { fields, page, limit: PAGE_LIMIT });
-      items.push(...(data.items ?? []));
+      items.push(...pageItems(data.items));
       if (!data.has_more) return items;
     }
   }
@@ -37,10 +51,8 @@ export function createJoplinClient({ baseUrl, token, notebook, fetchFn = fetch }
     /**
      * Find a note in the configured notebook by title (exact, case-insensitive, first), id or id
      * prefix, then partial title.
-     * @param {string} query
-     * @returns {Promise<{ id: string, title: string, body: string }>}
      */
-    async getNote(query) {
+    async getNote(query: string): Promise<{ id: string; title: string; body: string }> {
       if (!token) throw new Error('JOPLIN_API_TOKEN is not set (Joplin → Options → Web Clipper → authorization token).');
       const q = query.trim().toLowerCase();
 
@@ -56,7 +68,7 @@ export function createJoplinClient({ baseUrl, token, notebook, fetchFn = fetch }
       if (!hit) throw new Error(`No Joplin note matching "${query}" in notebook "${notebook}".`);
 
       const note = await get(`/notes/${hit.id}`, { fields: 'id,title,body' });
-      return { id: note.id, title: note.title, body: note.body ?? '' };
+      return { id: stringOrNull(note.id) ?? hit.id, title: stringOrNull(note.title) ?? hit.title, body: stringOrNull(note.body) ?? '' };
     },
   };
 }

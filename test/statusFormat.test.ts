@@ -12,12 +12,11 @@ import {
 } from '../src/statusFormat.ts';
 
 const NOW = Date.parse('2026-09-24T12:00:00Z');
-const ago = (ms) => new Date(NOW - ms).toISOString();
+const ago = (ms: number) => new Date(NOW - ms).toISOString();
 const MIN = 60_000;
 
-const tokens = (output, input = 0) => ({ input, output, cacheRead: 1000, cacheCreate: 0 });
-/** @param {object} [extra] */
-const row = (extra = {}) => ({
+const tokens = (output: number, input = 0) => ({ input, output, cacheRead: 1000, cacheCreate: 0 });
+const row = (extra: object = {}) => ({
   runId: 'r1',
   kind: 'freeform',
   label: 'list the repos',
@@ -32,8 +31,7 @@ const row = (extra = {}) => ({
   ...extra,
 });
 
-/** @param {object} [extra] */
-const snapshot = (extra = {}) => ({
+const snapshot = (extra: object = {}) => ({
   now: NOW,
   active: [],
   paused: null,
@@ -60,7 +58,7 @@ describe('status formatting helpers', () => {
 });
 
 describe('renderStatusText sessions', () => {
-  const session = (extra) => ({ id: 's', workspaceAlias: 'agent-runner', cwd: '/home/a/agent-runner', branch: 'main', state: 'working', activity: 'Bash: npm test', subagents: 0, since: ago(MIN), lastEntryAt: ago(0), ...extra });
+  const session = (extra: object = {}) => ({ id: 's', workspaceAlias: 'agent-runner', cwd: '/home/a/agent-runner', branch: 'main', state: 'working', activity: 'Bash: npm test', subagents: 0, since: ago(MIN), lastEntryAt: ago(0), ...extra });
 
   it('lists the open sessions on one line', () => {
     const text = renderStatusText(snapshot({ sessions: [session(), session({ id: 't', workspaceAlias: null, cwd: '/home/a/chess-trainer', state: 'waiting' })] }));

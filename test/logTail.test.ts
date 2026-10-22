@@ -4,11 +4,11 @@ import { appendFile, mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createLogTail } from '../src/logTail.ts';
+import type { ActiveLog } from '../src/logTail.ts';
 
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** @param {() => boolean} ok */
-async function until(ok, ms = 1000) {
+async function until(ok: () => boolean, ms = 1000) {
   const end = Date.now() + ms;
   while (!ok()) {
     if (Date.now() > end) throw new Error('timed out');
@@ -17,14 +17,10 @@ async function until(ok, ms = 1000) {
 }
 
 describe('log tail', () => {
-  /** @type {string} */
-  let dir;
-  /** @type {import('../src/logTail.ts').ActiveLog | null} */
-  let current;
-  /** @type {ReturnType<typeof createLogTail> | null} */
-  let tail;
-  /** @type {{ runId: string | null, reset: boolean, lines: string[] }[]} */
-  let events;
+  let dir: string;
+  let current: ActiveLog | null;
+  let tail: ReturnType<typeof createLogTail> | null;
+  let events: { runId: string | null; reset: boolean; lines: string[] }[];
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'logtail-'));
@@ -37,8 +33,7 @@ describe('log tail', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  /** @param {Partial<Parameters<typeof createLogTail>[0]>} [opts] */
-  function start(opts = {}) {
+  function start(opts: Partial<Parameters<typeof createLogTail>[0]> = {}) {
     tail = createLogTail({ current: () => current, pollMs: 10, ...opts });
     tail.onLines((e) => events.push(e));
     return tail.start();

@@ -1,6 +1,7 @@
 import { open } from 'fs/promises';
 import { StringDecoder } from 'string_decoder';
 import { maskSecrets } from './maskSecrets.ts';
+import { errorText } from './narrow.ts';
 
 /**
  * Follows the active run's log for the office feed's live tail. It polls `current()` (the run this
@@ -14,11 +15,11 @@ import { maskSecrets } from './maskSecrets.ts';
  * clients keep what they have until the next run.
  *
  * It only polls between `start()` and `stop()` (the feed starts it while anyone is connected).
- *
- * @typedef {{ runId: string | null, reset: boolean, lines: string[] }} LogLines
- * @typedef {{ runId: string, logPath: string, fromByte?: number }} ActiveLog
- *   `fromByte`: where the run's output starts, in a log other runs append to (a scheduled job's).
  */
+export type LogLines = { runId: string | null; reset: boolean; lines: string[] };
+
+/** `fromByte`: where the run's output starts, in a log other runs append to (a scheduled job's). */
+export type ActiveLog = { runId: string; logPath: string; fromByte?: number };
 
 export const LOG_POLL_MS = 500;
 export const LOG_TAIL_LINES = 200;
@@ -28,34 +29,25 @@ const TAIL_BYTES = 256 * 1024;
 /** The most one poll reads, so a burst is streamed over a few polls. */
 const MAX_READ_BYTES = 1024 * 1024;
 
-/**
- * @param {{
- *   current: () => ActiveLog | null,
- *   pollMs?: number,
- *   tailLines?: number,
- *   maxLineChars?: number,
- *   logger?: Pick<Console, 'warn'>,
- * }} p
- */
-export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_TAIL_LINES, maxLineChars = LOG_MAX_LINE_CHARS, logger = console }) {
-  /** @type {Set<(e: LogLines) => void>} */
-  const listeners = new Set();
+export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_TAIL_LINES, maxLineChars = LOG_MAX_LINE_CHARS, logger = console }: {
+    current: () => ActiveLog | null;
+    pollMs?: number;
+    tailLines?: number;
+    maxLineChars?: number;
+    logger?: Pick<Console, 'warn'>;
+  }) {
+  const listeners: Set<(e: LogLines) => void> = new Set();
   /** Bumped by start and stop, so a poll from an earlier session changes nothing. */
   let session = 0;
   let running = false;
-  /** @type {Promise<void>} */
-  let firstPoll = Promise.resolve();
-  /** @type {NodeJS.Timeout | null} */
-  let timer = null;
+  let firstPoll: Promise<void> = Promise.resolve();
+  let timer: NodeJS.Timeout | null = null;
 
-  /** @type {string | null} */
-  let runId = null;
-  /** @type {string[]} */
-  let lines = [];
-  /** @type {string | null} */
-  let path = null;
-  /** Bytes of `path` read so far; null until its tail has been read. @type {number | null} */
-  let offset = null;
+  let runId: string | null = null;
+  let lines: string[] = [];
+  let path: string | null = null;
+  /** Bytes of `path` read so far; null until its tail has been read. */
+  let offset: number | null = null;
   let partial = '';
   let decoder = new StringDecoder('utf8');
   /** A new run was seen and listeners haven't been told yet. */
@@ -76,19 +68,17 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
     resetReader();
   }
 
-  /** @param {string} line */
-  function clean(line) {
+  function clean(line: string) {
     const masked = maskSecrets(line.endsWith('\r') ? line.slice(0, -1) : line);
     return masked.length <= maxLineChars ? masked : `${masked.slice(0, maxLineChars)}… (${masked.length - maxLineChars} more chars)`;
   }
 
-  /** @param {LogLines} e */
-  function emit(e) {
+  function emit(e: LogLines) {
     for (const fn of listeners) {
       try {
         fn(e);
       } catch (err) {
-        logger.warn(`log tail listener failed: ${err?.message || err}`);
+        logger.warn(`log tail listener failed: ${errorText(err)}`);
       }
     }
   }
@@ -98,10 +88,8 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
    * end but not before `fromByte`, from the first whole line: `midLine` says the first line read is
    * the end of one that started earlier). Null if it can't be read (e.g. not
    * created yet).
-   * @param {string} file
-   * @param {number} fromByte
    */
-  async function readNew(file, fromByte) {
+  async function readNew(file: string, fromByte: number) {
     let fh;
     try {
       fh = await open(file, 'r');
@@ -132,7 +120,7 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
     }
   }
 
-  async function poll(/** @type {number} */ s) {
+  async function poll(s: number) {
     const cur = current();
     if (!cur) {
       if (runId !== null) forget();
@@ -151,18 +139,17 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
       resetReader();
     }
     const read = await readNew(path, cur.fromByte ?? 0).catch((err) => {
-      logger.warn(`log tail: cannot read ${path}: ${err?.message || err}`);
+      logger.warn(`log tail: cannot read ${path}: ${errorText(err)}`);
       return null;
     });
     // the run or its log may have changed while reading; the next poll starts over
     if (s !== session || current()?.logPath !== path || cur.runId !== runId) return;
-    /** @type {string[]} */
-    let fresh = [];
+    let fresh: string[] = [];
     if (read) {
       if (offset == null || read.from !== offset) resetReader();
       offset = read.to;
       const pieces = (partial + decoder.write(read.bytes)).split('\n');
-      partial = /** @type {string} */ (pieces.pop());
+      partial = pieces.pop() as string;
       if (read.midLine) pieces.shift();
       fresh = pieces.map(clean);
       lines.push(...fresh);
@@ -174,8 +161,7 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
     } else if (fresh.length) emit({ runId, reset: false, lines: fresh });
   }
 
-  /** @param {number} s */
-  function loop(s) {
+  function loop(s: number) {
     timer = setTimeout(() => {
       timer = null;
       poll(s).finally(() => {
@@ -210,11 +196,10 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
       forget();
     },
 
-    /** The active run's recent lines, masked. @returns {{ runId: string | null, lines: string[] }} */
-    tail: () => ({ runId, lines: [...lines] }),
+    /** The active run's recent lines, masked. */
+    tail: (): { runId: string | null; lines: string[] } => ({ runId, lines: [...lines] }),
 
-    /** @param {(e: LogLines) => void} fn @returns {() => void} unsubscribe */
-    onLines(fn) {
+    onLines(fn: (e: LogLines) => void): () => void {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },

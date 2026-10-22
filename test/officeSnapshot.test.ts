@@ -2,11 +2,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildOfficeSnapshot, collectOfficeSnapshot } from '../src/officeSnapshot.ts';
 import { spend } from '../src/statusFormat.ts';
+import type { StatusSnapshot } from '../src/statusCollect.ts';
+import type { OfficeSession } from '../src/sessionWatch.ts';
 
 const NOW = Date.parse('2026-09-24T12:00:00Z');
 
-/** @returns {import('../src/statusCollect.ts').StatusSnapshot} */
-function status(overrides = {}) {
+function status(overrides = {}): StatusSnapshot {
   return {
     now: NOW,
     active: [
@@ -155,7 +156,7 @@ describe('buildOfficeSnapshot', () => {
   });
 
   it('marks a scheduled job with trigger schedule, its room and its name', () => {
-    const job = { runId: 'j1', kind: 'job', trigger: /** @type {const} */ ('schedule'), jobName: 'cleanup_agent', room: 'reddit-bot', label: 'scheduled job cleanup_agent' };
+    const job = { runId: 'j1', kind: 'job', trigger: ('schedule' as const), jobName: 'cleanup_agent', room: 'reddit-bot', label: 'scheduled job cleanup_agent' };
     const st = status();
     const s = buildOfficeSnapshot({
       status: {
@@ -242,12 +243,11 @@ describe('buildOfficeSnapshot', () => {
 });
 
 describe('sessions', () => {
-  /** @returns {import('../src/sessionWatch.ts').OfficeSession} */
-  const session = (extra = {}) => ({ id: 's1', workspaceAlias: 'bot', cwd: '/p/bot', branch: 'main', state: /** @type {const} */ ('working'), activity: 'Bash: npm test', subagents: 1, since: '2026-09-24T11:00:00.000Z', lastEntryAt: '2026-09-24T11:59:00.000Z', ...extra });
+  const session = (extra = {}): OfficeSession => ({ id: 's1', workspaceAlias: 'bot', cwd: '/p/bot', branch: 'main', state: ('working' as const), activity: 'Bash: npm test', subagents: 1, since: '2026-09-24T11:00:00.000Z', lastEntryAt: '2026-09-24T11:59:00.000Z', ...extra });
   const base = { statusSnapshot: async () => status(), liveRun: async () => ({ activeRun: null }), workspaceAliases: async () => ['bot'] };
 
   it('carries the open sessions, and none when the watch is off or fails', async () => {
-    const list = [session(), session({ id: 's2', workspaceAlias: null, state: /** @type {const} */ ('waiting') })];
+    const list = [session(), session({ id: 's2', workspaceAlias: null, state: ('waiting' as const) })];
     assert.deepEqual((await collectOfficeSnapshot({ ...base, sessions: () => list })).sessions, list);
     assert.deepEqual((await collectOfficeSnapshot(base)).sessions, []);
     const broken = await collectOfficeSnapshot({ ...base, sessions: () => { throw new Error('boom'); } });
@@ -255,7 +255,8 @@ describe('sessions', () => {
   });
 
   it('carries only the documented fields', () => {
-    const s = buildOfficeSnapshot({ status: status(), live: null, workspaces: [], sessions: [/** @type {any} */ ({ ...session(), prompt: 'secret' })] });
+    const stray = { ...session(), prompt: 'secret' };
+    const s = buildOfficeSnapshot({ status: status(), live: null, workspaces: [], sessions: [stray] });
     // (a stray field on the way in, from a looser source, is not passed on)
     assert.deepEqual(Object.keys(s.sessions[0]), ['id', 'workspaceAlias', 'cwd', 'branch', 'state', 'activity', 'subagents', 'since', 'lastEntryAt']);
   });
