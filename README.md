@@ -610,7 +610,7 @@ are told the same rule in their prompt preamble.
 ## Layout
 
 - `src/main.js`: wiring (Redis, HTTP on 127.0.0.1, startup recovery).
-- `src/runner.js`: command handling, the run lifecycle and status.
+- `src/runner.ts`: command handling, the run lifecycle and status.
 - `src/commands.ts`: parses `claude…` text.
 - `src/preamble.ts`: the rules prepended to every agent prompt. Freeform and Joplin runs add the git rules, and issue runs don't, since their post-run commits and merges.
 - `src/agentBackend/`: the `AgentBackend` seam. `claude.ts` holds everything Claude-specific (CLI

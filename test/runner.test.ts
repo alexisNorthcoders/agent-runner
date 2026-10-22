@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRunner } from '../src/runner.js';
+import { createRunner } from '../src/runner.ts';
 import { createRunLock } from '../src/runLock.ts';
 import { createPauseFlag } from '../src/pauseFlag.ts';
 import { createRunQueue } from '../src/runQueue.ts';
