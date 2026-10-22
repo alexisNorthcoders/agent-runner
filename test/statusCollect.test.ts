@@ -1,25 +1,24 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectStatus } from '../src/statusCollect.js';
+import { collectStatus } from '../src/statusCollect.ts';
 
 const NOW = Date.parse('2026-09-24T12:00:00Z');
 
 function deps(overrides = {}) {
-  /** @type {any[]} */
-  const reads = [];
+  const reads: unknown[] = [];
   return {
     reads,
     deps: {
-      activeRuns: { list: async () => [{ runId: 'a', health: /** @type {const} */ ('running') }] },
+      activeRuns: { list: async () => [{ runId: 'a', health: ('running' as const) }] },
       history: {
-        read: async (/** @type {any} */ opts) => {
+        read: async (opts: unknown) => {
           reads.push(opts);
           return [{ runId: 'h', endedAt: '2026-09-24T11:00:00Z', outcome: 'success' }];
         },
       },
       readCron: async () => ({ pid: 42, intervalMs: 1000, lastTickStartedAt: null, lastTickEndedAt: null, outcome: null }),
       readPause: async () => null,
-      isAlive: (/** @type {number} */ pid) => pid === 42,
+      isAlive: (pid: number | null | undefined) => pid === 42,
       now: () => NOW,
       ...overrides,
     },

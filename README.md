@@ -281,7 +281,7 @@ on the runner, not sent to the page).
 
 ### Live log
 
-The feed also streams the active run's log (`src/logTail.js`), including an autofix pass's own log,
+The feed also streams the active run's log (`src/logTail.ts`), including an autofix pass's own log,
 as `event: log` with `{ runId, reset, lines }`. While anyone is connected the runner polls the log
 every 500ms. A client that connects mid-run gets the last 200 lines right after its first snapshot
 (`reset: true`), then new lines as they are written (`reset: false`). A new run sends `reset: true`
@@ -300,7 +300,7 @@ curl -sN localhost:3790/office/feed
 
 ### Snapshot shape
 
-`OfficeSnapshot` in `src/officeSnapshot.js` (JSDoc-typed) is the contract. It is built from the
+`OfficeSnapshot` in `src/officeSnapshot.ts` (JSDoc-typed) is the contract. It is built from the
 same status snapshot as `npm run agent:status`, plus the live phase and progress the runner holds
 in memory, so the numbers match. It carries no reply addresses or prompts, and no paths but each
 interactive session's `cwd`.
@@ -380,7 +380,7 @@ Add fields freely; bump `version` for anything that breaks a reader.
 
 ### Session watch
 
-`src/sessionWatch.js` shows the interactive Claude Code sessions the owner has open in a terminal
+`src/sessionWatch.ts` shows the interactive Claude Code sessions the owner has open in a terminal
 (the `sessions` above, `claude:status`'s `Sessions (n): …` line, and a visitor with a laptop in the
 workspace's cubicle, or the Freeform room, on the dashboard). It reads the transcripts Claude Code
 already writes, `~/.claude/projects/<folder>/<session-id>.jsonl`, so sessions pay no tokens and no
@@ -402,7 +402,7 @@ format (`entrypoint`, `isSidechain`, `cwd`, `gitBranch`, the content blocks): a 
 ### The page
 
 `dashboard/index.html` + `app.js` (rendering) + the scene's modules (below) + `format.js` (number formatting, kept in step with
-`src/statusFormat.js` by a test) + `logPane.js` (the live log's lines). The Now tab tails the
+`src/statusFormat.ts` by a test) + `logPane.js` (the live log's lines). The Now tab tails the
 active run's log in a monospace pane that auto-scrolls, with a button to pause and resume
 scrolling. It opens the feed at the relative URL `feed`, re-renders every
 second so elapsed times and the cron countdown move, and says **runner down** while the feed
@@ -621,7 +621,7 @@ are told the same rule in their prompt preamble.
 - `src/scheduledJobs.js`: scheduled jobs' config and once-a-day scheduler, over `runner.submitJob`.
   `src/jobProcess.js` runs a job's command with its output appended to the log file.
 - `src/safeRestart.js` + `bin/safe-restart.js`: restart decision logic and the CLI.
-- `src/joplin.js`: Joplin Data API client.
+- `src/joplin.ts`: Joplin Data API client.
 - `src/workspaces.ts`: the issue-run workspace allowlist.
 - `src/issuePipeline/`: issue runs. `index.ts` is the entry point (`prepare` before the agent,
   `finish` after it, `commitInterruptedWork` for startup recovery), shared by manual runs and the
@@ -629,11 +629,11 @@ are told the same rule in their prompt preamble.
   `postRun.ts`, `llm.ts` (review and summary over `fetch`), `mailer.ts`. All `git`/`gh` calls go
   through the injectable `exec.ts`.
 - `src/activeRuns.ts`, `src/runHistory.ts`: the files under `logs/agent-runs/`.
-- `src/statusCollect.js` + `src/statusFormat.js`: the status snapshot and its terminal/WhatsApp
+- `src/statusCollect.ts` + `src/statusFormat.ts`: the status snapshot and its terminal/WhatsApp
   rendering. `bin/agent-cli.js` is the terminal CLI.
 - `src/stateChanges.ts`: the runner's "state changed" notification, and the Redis store that raises it.
-- `src/officeSnapshot.js` + `src/officeFeed.js`: the office snapshot and the SSE feed that pushes it.
-- `src/logTail.js` + `src/maskSecrets.ts`: the feed's live log of the active run, masked.
+- `src/officeSnapshot.ts` + `src/officeFeed.ts`: the office snapshot and the SSE feed that pushes it.
+- `src/logTail.ts` + `src/maskSecrets.ts`: the feed's live log of the active run, masked.
 - `dashboard/`: the office dashboard page (static, no build). `docs/nginx/office.conf` serves it.
 - `logs/agent-runs/`: one `<runId>.log` per run (plus `<runId>-autofix.log`), `active/<runId>.json`
   per in-flight run (live progress), `runs.jsonl` history (an issue run's `costUsd` includes its

@@ -1,15 +1,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createJoplinClient } from '../src/joplin.js';
+import { createJoplinClient, type JoplinFetch } from '../src/joplin.ts';
+
+type Item = { id: string; title: string };
 
 /** Fake Joplin Data API: routes by path, records every URL requested. */
-function fakeApi({ folders, notes, bodies }) {
-  /** @type {URL[]} */
-  const calls = [];
-  const fetchFn = async (url) => {
+function fakeApi({ folders, notes, bodies }: { folders: Item[]; notes: Record<string, Item[]>; bodies: Record<string, Item & { body: string; parent_id: string }> }) {
+  const calls: URL[] = [];
+  const fetchFn: JoplinFetch = async (url) => {
     const u = new URL(url);
     calls.push(u);
-    const json = (data, status = 200) => ({ ok: status < 400, status, json: async () => data });
+    const json = (data: unknown, status = 200) => ({ ok: status < 400, status, json: async () => data });
     const page = Number(u.searchParams.get('page') || '1');
     if (u.pathname === '/folders') {
       // two pages to exercise pagination
@@ -44,7 +45,7 @@ const api = () =>
     },
   });
 
-const client = (fetchFn, extra = {}) =>
+const client = (fetchFn: JoplinFetch, extra: { token?: string; notebook?: string } = {}) =>
   createJoplinClient({ baseUrl: 'http://127.0.0.1:41184', token: 'T', notebook: 'WhatsApp Bot', fetchFn, ...extra });
 
 describe('joplin Data API client', () => {
@@ -74,6 +75,17 @@ describe('joplin Data API client', () => {
   it('errors clearly without a token', async () => {
     const { fetchFn } = api();
     await assert.rejects(client(fetchFn, { token: '' }).getNote('x'), /JOPLIN_API_TOKEN/);
+  });
+
+  it('skips malformed rows and rejects a non-object body', async () => {
+    const reply = (data: unknown) => ({ ok: true, status: 200, json: async () => data });
+    const fetchFn: JoplinFetch = async (url) => {
+      const { pathname } = new URL(url);
+      if (pathname === '/folders') return reply({ items: [null, { id: 7, title: 'WhatsApp Bot' }, { id: 'f-bot', title: 'WhatsApp Bot' }] });
+      if (pathname === '/folders/f-bot/notes') return reply({ items: [{ id: 'n1' }, { id: 'n2', title: 'plan' }] });
+      return reply(['not', 'an', 'object']);
+    };
+    await assert.rejects(client(fetchFn).getNote('plan'), /Joplin Data API \/notes\/n2 returned a non-object body/);
   });
 
   it('explains an unreachable API', async () => {

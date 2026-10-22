@@ -3,7 +3,7 @@ import type { Store } from './redisStore.ts';
 
 /**
  * The runner's one internal "state changed" notification. Anything that changes what the status
- * views would show calls `notify`, and the office feed (src/officeFeed.js) subscribes so it pushes
+ * views would show calls `notify`, and the office feed (src/officeFeed.ts) subscribes so it pushes
  * a new snapshot on change instead of polling. Notifications carry only a reason, for logs and
  * tests: subscribers re-read the state themselves, so a burst of changes can be coalesced.
  *

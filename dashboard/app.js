@@ -1,6 +1,6 @@
 // The office dashboard: listens to the office feed (`feed`, next to this page), draws the office
 // floor on a canvas, and renders the panel's Now, Issues, History and Office tabs as text and tables. No
-// build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeSnapshot.js.
+// build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeSnapshot.ts.
 import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, what } from './format.js';
 import { cartSlots, clickFilter, deskAt, fitScene, folderSlots, inTraySlots, inside, layoutOffice, placeName, placeRect, sessionDesk, stickyNote, workerRect } from './layout.js';
 import { applyLogEvent } from './logPane.js';

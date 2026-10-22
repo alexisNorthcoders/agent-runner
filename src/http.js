@@ -39,7 +39,7 @@ function readJson(req) {
 /**
  * @param {{
  *   runner: Pick<ReturnType<typeof import('./runner.js').createRunner>, 'handleCommand' | 'status'>,
- *   officeFeed?: Pick<ReturnType<typeof import('./officeFeed.js').createOfficeFeed>, 'attach'>,
+ *   officeFeed?: Pick<ReturnType<typeof import('./officeFeed.ts').createOfficeFeed>, 'attach'>,
  *   logger?: Pick<Console, 'error'>,
  * }} p
  */
