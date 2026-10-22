@@ -2,48 +2,50 @@ import { readdir, readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { pidAlive } from './pidAlive.ts';
 import { writeJsonAtomic } from './jsonFile.ts';
+import { parseJsonObject } from './narrow.ts';
+import type { RunRecord } from './runLock.ts';
+import type { AgentProgress } from './agentBackend/index.js';
 
 /**
  * One `active/<runId>.json` file per in-flight run, rewritten (throttled) as it progresses and
  * removed when it finishes. The Redis lock says *whether* a run is active; these files carry its
  * live progress to the terminal CLIs, and outlive the runner process so a crash leaves a trace.
  * Writes never throw: telemetry must not break a run.
- *
- * @typedef {'running' | 'orphaned' | 'stale'} RunHealth
- *   `running`: the runner process that owns it is alive. `orphaned`: the runner died but the agent
- *   process is still going, so nobody will report its result. `stale`: both are gone.
- *
- * @typedef {import('./runLock.ts').RunRecord & Partial<import('./agentBackend/index.js').AgentProgress> & { updatedAt?: string }} ActiveRunFile
- * @typedef {ActiveRunFile & { health: RunHealth }} ActiveRun
  */
+/**
+ * `running`: the runner process that owns it is alive. `orphaned`: the runner died but the agent
+ * process is still going, so nobody will report its result. `stale`: both are gone.
+ */
+export type RunHealth = 'running' | 'orphaned' | 'stale';
+
+export type ActiveRunFile = RunRecord & Partial<AgentProgress> & { updatedAt?: string };
+
+export type ActiveRun = ActiveRunFile & { health: RunHealth };
 
 export const PROGRESS_THROTTLE_MS = 1500;
 
-/**
- * @param {{ dir: string, isAlive?: (pid: number) => boolean, throttleMs?: number, now?: () => number }} p
- */
-export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRESS_THROTTLE_MS, now = Date.now }) {
+export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRESS_THROTTLE_MS, now = Date.now }: { dir: string; isAlive?: (pid: number | null | undefined) => boolean; throttleMs?: number; now?: () => number }) {
   const activeDir = join(dir, 'active');
 
   /**
-   * @param {{ ownersGone?: boolean }} [opts] `ownersGone`: judge health by the agent pid alone
+   * @param opts `ownersGone`: judge health by the agent pid alone
    *   (on runner startup, every file belongs to a previous process whose pid may have been reused).
-   * @returns {Promise<ActiveRun[]>} oldest first
+   * @returns oldest first
    */
-  async function list({ ownersGone = false } = {}) {
+  async function list({ ownersGone = false }: { ownersGone?: boolean } = {}): Promise<ActiveRun[]> {
     let names;
     try {
       names = await readdir(activeDir);
     } catch {
       return [];
     }
-    /** @type {ActiveRun[]} */
-    const runs = [];
+    const runs: ActiveRun[] = [];
     for (const name of names.filter((n) => n.endsWith('.json'))) {
       try {
-        /** @type {ActiveRunFile} */
-        const run = JSON.parse(await readFile(join(activeDir, name), 'utf8'));
-        if (typeof run?.runId !== 'string') continue;
+        // only `track` writes these files, so a runId is enough to skip a torn or foreign one
+        const o = parseJsonObject(await readFile(join(activeDir, name), 'utf8'));
+        if (typeof o?.runId !== 'string') continue;
+        const run = o as ActiveRunFile;
         const health = !ownersGone && isAlive(run.ownerPid) ? 'running' : isAlive(run.agentPid) ? 'orphaned' : 'stale';
         runs.push({ ...run, health });
       } catch {
@@ -59,26 +61,19 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
     /**
      * Publish a run as active. `update` is throttled, and a skipped write is flushed shortly after
      * (trailing edge). `finish` removes the file; nothing is written after it.
-     * @param {import('./runLock.ts').RunRecord} record
      */
-    track(record) {
+    track(record: RunRecord) {
       let rec = record;
       const path = join(activeDir, `${record.runId}.json`);
       let finished = false;
       let lastWrite = now();
-      /** @type {import('./agentBackend/index.js').AgentProgress | null} */
-      let pending = null;
+      let pending: AgentProgress | null = null;
       /** the progress last written, kept when the record changes */
-      /** @type {import('./agentBackend/index.js').AgentProgress | null} */
-      let written = null;
-      /** @type {NodeJS.Timeout | null} */
-      let timer = null;
-      /** @type {Promise<unknown>} */
-      let chain = Promise.resolve();
-      /** @param {() => Promise<unknown>} fn */
-      const enqueue = (fn) => (chain = chain.then(fn).catch(() => {}));
-      /** @param {import('./agentBackend/index.js').AgentProgress | null} p */
-      const write = (p) =>
+      let written: AgentProgress | null = null;
+      let timer: NodeJS.Timeout | null = null;
+      let chain: Promise<unknown> = Promise.resolve();
+      const enqueue = (fn: () => Promise<unknown>) => (chain = chain.then(fn).catch(() => {}));
+      const write = (p: AgentProgress | null) =>
         enqueue(async () => {
           if (finished) return;
           written = p ?? written;
@@ -87,8 +82,7 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
 
       const ready = write(null);
 
-      /** @param {import('./agentBackend/index.js').AgentProgress} p */
-      function update(p) {
+      function update(p: AgentProgress) {
         if (finished) return chain;
         pending = p;
         const wait = throttleMs - (now() - lastWrite);
@@ -110,9 +104,8 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
         update,
         /**
          * Rewrite the record (same runId) now, unthrottled, keeping the progress.
-         * @param {import('./runLock.ts').RunRecord} next
          */
-        setRecord(next) {
+        setRecord(next: RunRecord) {
           rec = next;
           return write(null);
         },
@@ -128,10 +121,10 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
     /**
      * Delete the files of `stale` runs, e.g. left by a restart mid-run. `orphaned` ones are kept:
      * their agent is still working and the file is the only trace of it.
-     * @param {{ ownersGone?: boolean }} [opts] see `list`
-     * @returns {Promise<string[]>} removed runIds
+     * @param opts see `list`
+     * @returns removed runIds
      */
-    async removeStale(opts) {
+    async removeStale(opts?: { ownersGone?: boolean }): Promise<string[]> {
       const removed = [];
       for (const run of await list(opts)) {
         if (run.health !== 'stale') continue;

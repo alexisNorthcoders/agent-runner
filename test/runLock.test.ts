@@ -1,9 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRunLock } from '../src/runLock.ts';
+import type { RunRecord } from '../src/runLock.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';
 
-const run = (runId, extra = {}) => ({ runId, kind: 'freeform', replyTo: 'r', startedAt: 't', ...extra });
+const run = (runId: string, extra: Partial<RunRecord> = {}) => ({ runId, kind: 'freeform', replyTo: 'r', startedAt: 't', ...extra });
 
 describe('runLock', () => {
   it('is single-flight: a second acquire fails while the first run holds it', async () => {
@@ -46,6 +47,13 @@ describe('runLock', () => {
     const lock = createRunLock({ store, ttlSeconds: 60 });
     assert.deepEqual(await lock.current(), { runId: 'unknown' });
     assert.equal(await lock.tryAcquire(run('a')), false);
+  });
+
+  it('keeps only the well-typed fields of a lock value', async () => {
+    const store = createMemoryStore();
+    store.kv.set('agent-runner:lock', JSON.stringify({ runId: 'a', label: 'job', ownerPid: '12', agentPid: null, trigger: 'nightly', extra: 1 }));
+    const lock = createRunLock({ store, ttlSeconds: 60 });
+    assert.deepEqual(await lock.current(), { runId: 'a', label: 'job', agentPid: null });
   });
 
   it('forceClear removes whatever holds the lock', async () => {

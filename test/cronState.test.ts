@@ -24,6 +24,15 @@ describe('cronState', () => {
     });
   });
 
+  it('reads a value without a numeric pid and interval as absent, and a bad outcome as none', async () => {
+    const store = createMemoryStore();
+    const state = createCronState({ store });
+    store.kv.set('agent-runner:cron:state', JSON.stringify({ pid: '1', intervalMs: 60_000 }));
+    assert.equal(await state.read(), null);
+    store.kv.set('agent-runner:cron:state', JSON.stringify({ pid: 1, intervalMs: 60_000, lastTickStartedAt: 5, outcome: { repo: REPO } }));
+    assert.deepEqual(await state.read(), { pid: 1, intervalMs: 60_000, lastTickStartedAt: null, lastTickEndedAt: null, outcome: null });
+  });
+
   it('forgets the last tick on clear', async () => {
     const state = createCronState({ store: createMemoryStore() });
     await state.writeStarted({ intervalMs: 1 });

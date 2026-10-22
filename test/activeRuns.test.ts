@@ -4,12 +4,12 @@ import { mkdtemp, readdir, rm, writeFile, mkdir } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createActiveRuns } from '../src/activeRuns.ts';
+import type { RunRecord } from '../src/runLock.ts';
 
-const rec = (runId, extra = {}) => ({ runId, kind: 'freeform', label: 'job', startedAt: `2026-01-01T00:00:0${runId.length}Z`, ownerPid: 10, agentPid: 20, ...extra });
+const rec = (runId: string, extra: Partial<RunRecord> = {}) => ({ runId, kind: 'freeform', label: 'job', startedAt: `2026-01-01T00:00:0${runId.length}Z`, ownerPid: 10, agentPid: 20, ...extra });
 
 describe('activeRuns', () => {
-  /** @type {string} */
-  let dir;
+  let dir: string;
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'active-'));
   });
@@ -57,7 +57,7 @@ describe('activeRuns', () => {
     await t.track(rec('ok', { ownerPid: 1, agentPid: 2 })).ready;
     await t.track(rec('orphan', { ownerPid: 3, agentPid: 4 })).ready;
     await t.track(rec('dead', { ownerPid: 5, agentPid: 6 })).ready;
-    const alive = new Set([1, 2, 4]);
+    const alive: Set<number | null | undefined> = new Set([1, 2, 4]);
     const runs = await createActiveRuns({ dir, isAlive: (pid) => alive.has(pid) }).list();
     assert.deepEqual(
       Object.fromEntries(runs.map((r) => [r.runId, r.health])),

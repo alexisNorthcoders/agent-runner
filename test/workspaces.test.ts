@@ -16,9 +16,9 @@ describe('parseCompactMap', () => {
 });
 
 describe('workspace allowlist', () => {
-  let dir;
-  let repoA;
-  let repoB;
+  let dir: string;
+  let repoA: string;
+  let repoB: string;
   before(async () => {
     dir = await realpath(await mkdtemp(join(tmpdir(), 'agent-ws-')));
     repoA = join(dir, 'repo-a');

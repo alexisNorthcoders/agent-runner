@@ -8,7 +8,7 @@ export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 dotenv.config({ path: join(REPO_ROOT, '.env') });
 
-const int = (v, fallback) => {
+const int = (v: string | undefined, fallback: number) => {
   const n = parseInt(v ?? '', 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 };
@@ -17,10 +17,9 @@ const int = (v, fallback) => {
  * The cron's workspaces, in priority order: `CLAUDE_ISSUE_DEFAULT_ALIAS`, then
  * `CRON_SECONDARY_WORKSPACE_ALIASES` (comma-separated), else the older single
  * `CRON_PLATFORMER_WORKSPACE_ALIAS` (default `platformer`). Each must be in the workspace allowlist.
- * @param {Record<string, string | undefined>} env
  */
-export function cronAliasesFromEnv(env) {
-  const list = (s) =>
+export function cronAliasesFromEnv(env: Record<string, string | undefined>) {
+  const list = (s: string | undefined) =>
     String(s || '')
       .split(',')
       .map((a) => a.trim())

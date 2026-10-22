@@ -1,20 +1,18 @@
+import { parseJsonObject } from '../../src/narrow.ts';
+import type { Store } from '../../src/redisStore.ts';
+
 /**
  * In-memory fake of `Store` (src/redisStore.ts). TTLs are ignored; `test/store.contract.test.ts`
  * keeps its behaviour in step with the real Redis store.
- * @returns {import('../../src/redisStore.ts').Store & { kv: Map<string, string>, hashes: Map<string, Map<string, string>>, streams: Map<string, Array<{ id: string, fields: Record<string, string> }>>, failNext: (err: Error) => void }}
  */
-export function createMemoryStore() {
-  const kv = new Map();
-  /** @type {Map<string, Map<string, string>>} */
-  const hashes = new Map();
-  /** @type {Map<string, Array<{ id: string, fields: Record<string, string> }>>} */
-  const streams = new Map();
-  /** @type {Map<string, string[]>} */
-  const lists = new Map();
+export function createMemoryStore(): Store & { kv: Map<string, string>; hashes: Map<string, Map<string, string>>; streams: Map<string, Array<{ id: string; fields: Record<string, string> }>>; failNext: (err: Error) => void } {
+  const kv: Map<string, string> = new Map();
+  const hashes: Map<string, Map<string, string>> = new Map();
+  const streams: Map<string, Array<{ id: string; fields: Record<string, string> }>> = new Map();
+  const lists: Map<string, string[]> = new Map();
   let seq = 0;
   let lastMs = 0;
-  /** @type {Error | null} */
-  let pendingError = null;
+  let pendingError: Error | null = null;
 
   const check = () => {
     if (pendingError) {
@@ -24,7 +22,7 @@ export function createMemoryStore() {
     }
   };
 
-  const idMs = (id) => Number(String(id).split('-')[0]);
+  const idMs = (id: string) => Number(id.split('-')[0]);
 
   return {
     kv,
@@ -36,7 +34,7 @@ export function createMemoryStore() {
     },
     async get(key) {
       check();
-      return kv.has(key) ? kv.get(key) : null;
+      return kv.get(key) ?? null;
     },
     async set(key, value) {
       check();
@@ -60,14 +58,8 @@ export function createMemoryStore() {
     },
     async deleteIfField(key, field, expected) {
       check();
-      if (!kv.has(key)) return false;
-      let parsed;
-      try {
-        parsed = JSON.parse(kv.get(key));
-      } catch {
-        return false;
-      }
-      if (parsed?.[field] !== expected) return false;
+      const raw = kv.get(key);
+      if (raw === undefined || parseJsonObject(raw)?.[field] !== expected) return false;
       kv.delete(key);
       return true;
     },

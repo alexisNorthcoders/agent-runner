@@ -19,6 +19,17 @@ describe('manual pause', () => {
     assert.equal(await mp.general(), null);
   });
 
+  it('reads a pause stored without a reason or start time, and drops one without an end', async () => {
+    const store = createMemoryStore();
+    store.hashes.set('agent-runner:manual-pause', new Map([
+      ['bot', JSON.stringify({ scope: 'bot', until: '2026-09-26T05:00:00.000Z' })],
+      ['snake', JSON.stringify({ scope: 'snake', reason: 'x' })],
+    ]));
+    const mp = createManualPause({ store, now: () => Date.parse('2026-09-26T04:00:00Z') });
+    assert.deepEqual(await mp.list(), [{ scope: 'bot', reason: '', pausedAt: '2026-09-26T05:00:00.000Z', until: '2026-09-26T05:00:00.000Z' }]);
+    assert.deepEqual([...(store.hashes.get('agent-runner:manual-pause')?.keys() ?? [])], ['bot']);
+  });
+
   it('parses and formats durations', () => {
     assert.equal(parseDuration('45m'), 2700);
     assert.equal(parseDuration('2H'), 7200);

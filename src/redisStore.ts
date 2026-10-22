@@ -3,27 +3,29 @@ import { createClient } from 'redis';
 /**
  * The narrow slice of Redis the runner uses. The lock, pause flag, queue, outbox and cron state depend on this
  * interface, not on the client, so tests swap in `test/helpers/memoryStore.ts`.
- *
- * @typedef {{
- *   get: (key: string) => Promise<string | null>,
- *   set: (key: string, value: string) => Promise<void>,
- *   setWithTtl: (key: string, value: string, ttlSeconds: number) => Promise<void>,
- *   setIfAbsent: (key: string, value: string, ttlSeconds: number) => Promise<boolean>,
- *   replaceIfPresent: (key: string, value: string) => Promise<boolean>,
- *   deleteIfField: (key: string, field: string, expected: string) => Promise<boolean>,
- *   del: (key: string) => Promise<void>,
- *   hashGetAll: (key: string) => Promise<Record<string, string>>,
- *   hashSet: (key: string, field: string, value: string) => Promise<void>,
- *   hashDelete: (key: string, field: string) => Promise<void>,
- *   appendToStream: (key: string, fields: Record<string, string>, opts: { minIdMs: number }) => Promise<string>,
- *   listPushBack: (key: string, value: string) => Promise<number>,
- *   listPushFront: (key: string, value: string) => Promise<number>,
- *   listPopFront: (key: string) => Promise<string | null>,
- *   listAll: (key: string) => Promise<string[]>,
- *   listReplaceAt: (key: string, index: number, expected: string, value: string) => Promise<boolean>,
- *   listLength: (key: string) => Promise<number>,
- * }} Store
  */
+export type Store = {
+  get: (key: string) => Promise<string | null>;
+  set: (key: string, value: string) => Promise<void>;
+  setWithTtl: (key: string, value: string, ttlSeconds: number) => Promise<void>;
+  setIfAbsent: (key: string, value: string, ttlSeconds: number) => Promise<boolean>;
+  replaceIfPresent: (key: string, value: string) => Promise<boolean>;
+  deleteIfField: (key: string, field: string, expected: string) => Promise<boolean>;
+  del: (key: string) => Promise<void>;
+  hashGetAll: (key: string) => Promise<Record<string, string>>;
+  hashSet: (key: string, field: string, value: string) => Promise<void>;
+  hashDelete: (key: string, field: string) => Promise<void>;
+  appendToStream: (key: string, fields: Record<string, string>, opts: { minIdMs: number }) => Promise<string>;
+  listPushBack: (key: string, value: string) => Promise<number>;
+  listPushFront: (key: string, value: string) => Promise<number>;
+  listPopFront: (key: string) => Promise<string | null>;
+  listAll: (key: string) => Promise<string[]>;
+  listReplaceAt: (key: string, index: number, expected: string, value: string) => Promise<boolean>;
+  listLength: (key: string) => Promise<number>;
+};
+
+/** The client `connectRedis` returns. */
+export type RedisClient = ReturnType<typeof createClient>;
 
 /** Delete the key only if its JSON value has `field == expected`, atomically. */
 const DELETE_IF_FIELD = `
@@ -41,11 +43,7 @@ if redis.call('LINDEX', KEYS[1], ARGV[1]) ~= ARGV[2] then return 0 end
 redis.call('LSET', KEYS[1], ARGV[1], ARGV[3])
 return 1`;
 
-/**
- * @param {import('redis').RedisClientType<any, any, any>} client
- * @returns {Store}
- */
-export function createRedisStore(client) {
+export function createRedisStore(client: RedisClient): Store {
   return {
     get: (key) => client.get(key),
     async set(key, value) {
@@ -99,21 +97,16 @@ export const STATE_CHANNEL = 'agent-runner:state-changed';
 /**
  * Announce a state write on `STATE_CHANNEL`, for a process other than the runner (pass it to
  * `notifyingStore`). A failed publish only delays the office feed, so it's swallowed.
- * @param {import('redis').RedisClientType<any, any, any>} client
- * @returns {(key: string) => Promise<void>}
  */
-export const publishStateChange = (client) => async (key) => {
+export const publishStateChange = (client: RedisClient): (key: string) => Promise<void> => async (key) => {
   await client.publish(STATE_CHANNEL, key).catch(() => {});
 };
 
 /**
  * Call `onChange(key)` for each state write another process announces. Pub/sub needs its own
  * connection, a duplicate of `client`. Resolves with a function that closes it.
- * @param {import('redis').RedisClientType<any, any, any>} client
- * @param {(key: string) => void} onChange
- * @returns {Promise<() => Promise<void>>}
  */
-export async function subscribeStateChanges(client, onChange) {
+export async function subscribeStateChanges(client: RedisClient, onChange: (key: string) => void): Promise<() => Promise<void>> {
   const sub = client.duplicate();
   sub.on('error', () => {});
   await sub.connect();
@@ -125,9 +118,8 @@ export async function subscribeStateChanges(client, onChange) {
 
 /**
  * Connected client for the service and CLIs. Errors are logged, and node-redis keeps reconnecting.
- * @param {{ url: string, logger?: Pick<Console, 'error'> }} opts
  */
-export async function connectRedis({ url, logger = console }) {
+export async function connectRedis({ url, logger = console }: { url: string; logger?: Pick<Console, 'error'> }): Promise<RedisClient> {
   const client = createClient({ url });
   client.on('error', (err) => logger.error('agent-runner redis:', err.message));
   await client.connect();

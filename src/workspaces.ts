@@ -1,5 +1,6 @@
 import { readFile, realpath, stat } from 'fs/promises';
 import { resolve as pathResolve } from 'path';
+import { errorText, isRecord } from './narrow.ts';
 
 /**
  * The workspace allowlist for issue runs: the only repos an issue run may branch, commit and push
@@ -15,12 +16,10 @@ import { resolve as pathResolve } from 'path';
 const ALIAS_RE = /^[a-zA-Z0-9_-]+$/;
 
 /**
- * @param {string | undefined} str `alias=value,alias=value`
- * @returns {Map<string, string>}
+ * @param str `alias=value,alias=value`
  */
-export function parseCompactMap(str) {
-  /** @type {Map<string, string>} */
-  const out = new Map();
+export function parseCompactMap(str: string | undefined): Map<string, string> {
+  const out: Map<string, string> = new Map();
   for (const segment of String(str || '').split(',')) {
     const p = segment.trim();
     const eq = p.indexOf('=');
@@ -32,36 +31,34 @@ export function parseCompactMap(str) {
   return out;
 }
 
-/** @param {string} rawPath @returns {Promise<string>} canonical realpath of a directory */
-async function canonicalDir(rawPath) {
+/** @returns canonical realpath of a directory */
+async function canonicalDir(rawPath: string): Promise<string> {
   let rp;
   try {
     rp = await realpath(pathResolve(rawPath));
   } catch (e) {
-    throw new Error(`Path does not exist or is not reachable: ${rawPath} (${e.message || e})`);
+    throw new Error(`Path does not exist or is not reachable: ${rawPath} (${errorText(e)})`);
   }
   if (!(await stat(rp)).isDirectory()) throw new Error(`Not a directory: ${rp}`);
   return rp;
 }
 
-/** @param {string} file @returns {Promise<Map<string, string>>} */
-async function loadMapFile(file) {
+async function loadMapFile(file: string): Promise<Map<string, string>> {
   const resolved = pathResolve(file);
   let raw;
   try {
     raw = await readFile(resolved, 'utf8');
   } catch (e) {
-    throw new Error(`CLAUDE_WORKSPACE_MAP_FILE: cannot read ${resolved}: ${e.message || e}`);
+    throw new Error(`CLAUDE_WORKSPACE_MAP_FILE: cannot read ${resolved}: ${errorText(e)}`);
   }
-  let obj;
+  let obj: unknown;
   try {
     obj = JSON.parse(raw);
   } catch (e) {
-    throw new Error(`CLAUDE_WORKSPACE_MAP_FILE: invalid JSON (${e.message || e})`);
+    throw new Error(`CLAUDE_WORKSPACE_MAP_FILE: invalid JSON (${errorText(e)})`);
   }
-  /** @type {Map<string, string>} */
-  const out = new Map();
-  if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+  const out: Map<string, string> = new Map();
+  if (isRecord(obj)) {
     for (const [k, v] of Object.entries(obj)) {
       if (typeof v === 'string' && v.trim() && ALIAS_RE.test(k)) out.set(k, v.trim());
     }
@@ -72,25 +69,23 @@ async function loadMapFile(file) {
 /**
  * The config is re-read on every lookup (it's a couple of stat calls), so an edited map file
  * applies without a restart.
- * @param {{ env?: Record<string, string | undefined> }} [p]
  */
-export function createWorkspaceAllowlist({ env = process.env } = {}) {
-  /** @returns {Promise<Map<string, string>>} alias → configured (not yet canonical) path */
-  async function configuredAliases() {
+export function createWorkspaceAllowlist({ env = process.env }: { env?: Record<string, string | undefined> } = {}) {
+  /** @returns alias → configured (not yet canonical) path */
+  async function configuredAliases(): Promise<Map<string, string>> {
     const file = env.CLAUDE_WORKSPACE_MAP_FILE?.trim();
     return new Map([...parseCompactMap(env.CLAUDE_WORKSPACE_MAP), ...(file ? await loadMapFile(file) : [])]);
   }
 
   return {
-    /** The allowlisted aliases, sorted (no paths, so nothing is resolved). @returns {Promise<string[]>} */
-    aliases: async () => [...(await configuredAliases()).keys()].sort(),
+    /** The allowlisted aliases, sorted (no paths, so nothing is resolved). */
+    aliases: async (): Promise<string[]> => [...(await configuredAliases()).keys()].sort(),
 
     /**
      * Every allowlisted workspace with its canonical root, sorted by alias. One whose path doesn't
      * resolve is left out.
-     * @returns {Promise<Array<{ alias: string, root: string }>>}
      */
-    async list() {
+    async list(): Promise<Array<{ alias: string; root: string }>> {
       const out = [];
       for (const [alias, raw] of [...(await configuredAliases())].sort(([a], [b]) => a.localeCompare(b))) {
         try {
@@ -103,10 +98,9 @@ export function createWorkspaceAllowlist({ env = process.env } = {}) {
     },
 
     /**
-     * @param {string | null} alias null → `CLAUDE_ISSUE_DEFAULT_ALIAS`
-     * @returns {Promise<{ alias: string, root: string }>}
+     * @param alias null → `CLAUDE_ISSUE_DEFAULT_ALIAS`
      */
-    async resolveIssueWorkspace(alias) {
+    async resolveIssueWorkspace(alias: string | null): Promise<{ alias: string; root: string }> {
       const aliases = await configuredAliases();
       const wanted = alias ?? env.CLAUDE_ISSUE_DEFAULT_ALIAS?.trim() ?? '';
       const valid = [...aliases.keys()].sort().join(', ') || '(none: set CLAUDE_WORKSPACE_MAP)';

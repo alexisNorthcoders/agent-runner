@@ -1,3 +1,6 @@
+import { isRecord, parseJsonObject, stringOrNull } from './narrow.ts';
+import type { Store } from './redisStore.ts';
+
 /**
  * The cron issue tracer's state, in Redis so the bot, the CLIs and a restarted runner all see it.
  * It starts fresh: nothing is migrated from the bot's JSON files.
@@ -13,29 +16,51 @@
  *   was last told about, so they hear about it once.
  * - `agent-runner:cron:no-changes` (hash `owner/repo#n` → count): consecutive runs of an issue that
  *   made no changes. At the limit the cron parks the issue; any lasting progress resets it.
- *
- * @typedef {{
- *   kind: 'busy' | 'paused' | 'limited' | 'no_eligible' | 'ran' | 'error' | string,
- *   repo?: string,
- *   issue?: number,
- *   result?: string,
- *   note?: string,
- * }} CronTickOutcome
- *
- * @typedef {{
- *   pid: number,
- *   intervalMs: number,
- *   lastTickStartedAt: string | null,
- *   lastTickEndedAt: string | null,
- *   outcome: CronTickOutcome | null,
- * }} CronState
  */
+export type CronTickOutcome = {
+  kind: 'busy' | 'paused' | 'limited' | 'no_eligible' | 'ran' | 'error' | string;
+  repo?: string;
+  issue?: number;
+  result?: string;
+  note?: string;
+};
+
+export type CronState = {
+  pid: number;
+  intervalMs: number;
+  lastTickStartedAt: string | null;
+  lastTickEndedAt: string | null;
+  outcome: CronTickOutcome | null;
+};
 
 export const CRON_STATE_KEY = 'agent-runner:cron:state';
 export const CRON_LAST_STARTED_KEY = 'agent-runner:cron:last-started';
 export const CRON_PR_ATTEMPTS_KEY = 'agent-runner:cron:pr-attempts';
 export const CRON_PARK_NOTICES_KEY = 'agent-runner:cron:park-notices';
 export const CRON_NO_CHANGES_KEY = 'agent-runner:cron:no-changes';
+
+function parseOutcome(v: unknown): CronTickOutcome | null {
+  if (!isRecord(v) || typeof v.kind !== 'string') return null;
+  const out: CronTickOutcome = { kind: v.kind };
+  if (typeof v.repo === 'string') out.repo = v.repo;
+  if (typeof v.issue === 'number') out.issue = v.issue;
+  if (typeof v.result === 'string') out.result = v.result;
+  if (typeof v.note === 'string') out.note = v.note;
+  return out;
+}
+
+/** The cron state value, or null without a numeric `pid` and `intervalMs`. */
+function parseCronState(raw: string): CronState | null {
+  const o = parseJsonObject(raw);
+  if (typeof o?.pid !== 'number' || typeof o.intervalMs !== 'number') return null;
+  return {
+    pid: o.pid,
+    intervalMs: o.intervalMs,
+    lastTickStartedAt: stringOrNull(o.lastTickStartedAt),
+    lastTickEndedAt: stringOrNull(o.lastTickEndedAt),
+    outcome: parseOutcome(o.outcome),
+  };
+}
 
 const REPO_SLUG_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const ISSUE_KEY_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+#\d+$/;
@@ -44,59 +69,42 @@ const ISSUE_KEY_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+#\d+$/;
  * The state of an open agent PR that a cron attempt has worked on: its head commit and its base
  * branch's tip. A PR that stays blocked is not re-run every tick, but gets another go when either
  * side moves.
- * @param {{ headSha: string }} pr
- * @param {string} baseSha
  */
-export const prAttemptStateKey = (pr, baseSha) => `${pr.headSha}:${baseSha}`;
+export const prAttemptStateKey = (pr: { headSha: string }, baseSha: string) => `${pr.headSha}:${baseSha}`;
 
 /**
  * `owner/repo#n`, the field for an issue in the cron's hashes. Throws on a bad slug or number, so
  * nothing corrupt is stored.
- * @param {string} repo
- * @param {number} number
  */
-export function issueKey(repo, number) {
+export function issueKey(repo: string, number: number) {
   if (!REPO_SLUG_RE.test(repo)) throw new TypeError(`cron state: invalid repo slug ${JSON.stringify(repo)} (expected owner/name)`);
   if (!Number.isInteger(number) || number < 1) throw new TypeError(`cron state: invalid issue number ${number}`);
   return `${repo}#${number}`;
 }
 
-/**
- * @param {{ store: import('./redisStore.ts').Store, now?: () => number, pid?: number }} p
- */
-export function createCronState({ store, now = Date.now, pid = process.pid }) {
-  /** @param {string} key @returns {Promise<Map<string, string>>} */
-  async function issueMap(key) {
+export function createCronState({ store, now = Date.now, pid = process.pid }: { store: Store; now?: () => number; pid?: number }) {
+  async function issueMap(key: string): Promise<Map<string, string>> {
     const all = await store.hashGetAll(key);
     return new Map(Object.entries(all).filter(([k]) => ISSUE_KEY_RE.test(k)));
   }
 
   return {
-    /** @returns {Promise<CronState | null>} */
-    async read() {
+    async read(): Promise<CronState | null> {
       const raw = await store.get(CRON_STATE_KEY);
-      if (raw == null) return null;
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return null;
-      }
+      return raw == null ? null : parseCronState(raw);
     },
 
     /** Forget the last tick, e.g. when the cron is disabled, so status doesn't show a dead cron. */
     clear: () => store.del(CRON_STATE_KEY),
 
-    /** The cron has started and not ticked yet. @param {{ intervalMs: number }} p */
-    async writeStarted({ intervalMs }) {
-      /** @type {CronState} */
-      const state = { pid, intervalMs, lastTickStartedAt: null, lastTickEndedAt: null, outcome: null };
+    /** The cron has started and not ticked yet. */
+    async writeStarted({ intervalMs }: { intervalMs: number }) {
+      const state: CronState = { pid, intervalMs, lastTickStartedAt: null, lastTickEndedAt: null, outcome: null };
       await store.set(CRON_STATE_KEY, JSON.stringify(state));
     },
 
-    /** @param {{ outcome: CronTickOutcome, intervalMs: number, startedAt: number }} p */
-    async writeTick({ outcome, intervalMs, startedAt }) {
-      /** @type {CronState} */
-      const state = {
+    async writeTick({ outcome, intervalMs, startedAt }: { outcome: CronTickOutcome; intervalMs: number; startedAt: number }) {
+      const state: CronState = {
         pid,
         intervalMs,
         lastTickStartedAt: new Date(startedAt).toISOString(),
@@ -106,10 +114,9 @@ export function createCronState({ store, now = Date.now, pid = process.pid }) {
       await store.set(CRON_STATE_KEY, JSON.stringify(state));
     },
 
-    /** @returns {Promise<Map<string, number>>} `owner/repo` → last started issue */
-    async lastStarted() {
-      /** @type {Map<string, number>} */
-      const out = new Map();
+    /** @returns `owner/repo` → last started issue */
+    async lastStarted(): Promise<Map<string, number>> {
+      const out: Map<string, number> = new Map();
       for (const [repo, v] of Object.entries(await store.hashGetAll(CRON_LAST_STARTED_KEY))) {
         const n = Number(v);
         if (REPO_SLUG_RE.test(repo) && Number.isInteger(n) && n >= 1) out.set(repo, n);
@@ -117,28 +124,24 @@ export function createCronState({ store, now = Date.now, pid = process.pid }) {
       return out;
     },
 
-    /** @param {string} repo @param {number} number */
-    async setLastStarted(repo, number) {
+    async setLastStarted(repo: string, number: number) {
       issueKey(repo, number); // validates
       await store.hashSet(CRON_LAST_STARTED_KEY, repo, String(number));
     },
 
-    /** @returns {Promise<Map<string, string>>} `owner/repo#n` → PR state last attempted */
-    prAttempts: () => issueMap(CRON_PR_ATTEMPTS_KEY),
+    /** @returns `owner/repo#n` → PR state last attempted */
+    prAttempts: (): Promise<Map<string, string>> => issueMap(CRON_PR_ATTEMPTS_KEY),
 
-    /** @param {string} repo @param {number} number @param {string} stateKey */
-    setPrAttempt: (repo, number, stateKey) => store.hashSet(CRON_PR_ATTEMPTS_KEY, issueKey(repo, number), stateKey),
+    setPrAttempt: (repo: string, number: number, stateKey: string) => store.hashSet(CRON_PR_ATTEMPTS_KEY, issueKey(repo, number), stateKey),
 
-    /** @returns {Promise<Map<string, string>>} `owner/repo#n` → parked PR state the owner was told about */
-    parkNotices: () => issueMap(CRON_PARK_NOTICES_KEY),
+    /** @returns `owner/repo#n` → parked PR state the owner was told about */
+    parkNotices: (): Promise<Map<string, string>> => issueMap(CRON_PARK_NOTICES_KEY),
 
-    /** @param {string} repo @param {number} number @param {string} stateKey */
-    setParkNotice: (repo, number, stateKey) => store.hashSet(CRON_PARK_NOTICES_KEY, issueKey(repo, number), stateKey),
+    setParkNotice: (repo: string, number: number, stateKey: string) => store.hashSet(CRON_PARK_NOTICES_KEY, issueKey(repo, number), stateKey),
 
-    /** @returns {Promise<Map<string, number>>} `owner/repo#n` → consecutive no-change runs */
-    async noChanges() {
-      /** @type {Map<string, number>} */
-      const out = new Map();
+    /** @returns `owner/repo#n` → consecutive no-change runs */
+    async noChanges(): Promise<Map<string, number>> {
+      const out: Map<string, number> = new Map();
       for (const [k, v] of await issueMap(CRON_NO_CHANGES_KEY)) {
         const n = Number(v);
         if (Number.isInteger(n) && n >= 1) out.set(k, n);
@@ -146,15 +149,13 @@ export function createCronState({ store, now = Date.now, pid = process.pid }) {
       return out;
     },
 
-    /** @param {string} repo @param {number} number @param {number} count */
-    setNoChanges: (repo, number, count) => store.hashSet(CRON_NO_CHANGES_KEY, issueKey(repo, number), String(count)),
+    setNoChanges: (repo: string, number: number, count: number) => store.hashSet(CRON_NO_CHANGES_KEY, issueKey(repo, number), String(count)),
 
-    /** @param {string} repo @param {number} number */
-    clearNoChanges: (repo, number) => store.hashDelete(CRON_NO_CHANGES_KEY, issueKey(repo, number)),
+    clearNoChanges: (repo: string, number: number) => store.hashDelete(CRON_NO_CHANGES_KEY, issueKey(repo, number)),
 
-    /** The PR is no longer parked. @param {string} repo @param {number} number */
-    clearParkNotice: (repo, number) => store.hashDelete(CRON_PARK_NOTICES_KEY, issueKey(repo, number)),
+    /** The PR is no longer parked. */
+    clearParkNotice: (repo: string, number: number) => store.hashDelete(CRON_PARK_NOTICES_KEY, issueKey(repo, number)),
   };
 }
 
-/** @typedef {ReturnType<typeof createCronState>} CronStateStore */
+export type CronStateStore = ReturnType<typeof createCronState>;

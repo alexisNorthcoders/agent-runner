@@ -6,8 +6,7 @@ import { join } from 'path';
 import { createRunHistory } from '../src/runHistory.ts';
 
 describe('runHistory', () => {
-  /** @type {string} */
-  let dir;
+  let dir: string;
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'runs-'));
   });
