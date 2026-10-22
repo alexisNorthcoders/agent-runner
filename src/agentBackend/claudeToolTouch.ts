@@ -3,7 +3,7 @@ import { isAbsolute, resolve } from 'path';
 
 /**
  * Which paths a Claude tool call works on, as the agent-neutral `AgentTouch` the runner infers a
- * freeform run's workspace from (see ./index.js). Edits name their file; a Bash command touches
+ * freeform run's workspace from (see ./index.ts). Edits name their file; a Bash command touches
  * the directory it runs in and the paths it targets. Reads and searches touch nothing.
  *
  * The Bash tool keeps its working directory between calls, so the reader follows `cd` from one
@@ -82,7 +82,7 @@ export function createToolTouchReader({ cwd, home = homedir() }) {
     /**
      * @param {string} name the tool
      * @param {Record<string, unknown>} [input]
-     * @returns {import('./index.js').AgentTouch | null}
+     * @returns {import('./index.ts').AgentTouch | null}
      */
     read(name, input = {}) {
       if (EDIT_TOOLS.has(name)) {

@@ -274,7 +274,7 @@ export const STATUS_RECENT_COUNT = 3;
 /**
  * The subagents a run has going, each with what it's doing: `Subagents (2): Spec review (Bash: git diff); Standards review`.
  * Empty when none.
- * @param {{ subagents?: import('./agentBackend/index.js').AgentSubagent[] }} r
+ * @param {{ subagents?: import('./agentBackend/index.ts').AgentSubagent[] }} r
  */
 function subagentsText(r) {
   const subs = Array.isArray(r.subagents) ? r.subagents : [];

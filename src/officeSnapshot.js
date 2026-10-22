@@ -136,7 +136,7 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  *   first, with the allowlisted workspace each is in (null outside any); `[]` when the watch is off
  *   or fails. They carry no prompt or reply text.
  *
- * @typedef {{ runId: string, phase?: 'agent' | 'post-run' | 'job', inferredWorkspace?: string } & Partial<import('./agentBackend/index.js').AgentProgress>} LiveRun
+ * @typedef {{ runId: string, phase?: 'agent' | 'post-run' | 'job', inferredWorkspace?: string } & Partial<import('./agentBackend/index.ts').AgentProgress>} LiveRun
  *   What this process knows about the run it's executing (from `runner.status()`), fresher than
  *   the throttled active-run file.
  */

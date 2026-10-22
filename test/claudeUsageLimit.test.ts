@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { usageLimitFrom, RESET_BUFFER_MS, FALLBACK_PAUSE_MS, MAX_PAUSE_MS } from '../src/agentBackend/claudeUsageLimit.js';
+import { usageLimitFrom, RESET_BUFFER_MS, FALLBACK_PAUSE_MS, MAX_PAUSE_MS } from '../src/agentBackend/claudeUsageLimit.ts';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;

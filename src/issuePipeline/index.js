@@ -17,7 +17,7 @@ import { REQUEUED_NOTE } from '../runQueue.ts';
  * @typedef {{ number: number, repo: string, title: string }} IssueRef
  * @typedef {'merged' | 'pr_open' | 'pushed' | 'no_changes' | 'timeout' | 'limited' | 'failed'} IssueRunResult
  *   `limited`: the agent (the first pass or the autofix) hit its usage limit, so the run stopped short.
- * @typedef {Pick<import('../agentBackend/index.js').AgentResult, 'outcome' | 'exitCode' | 'stderr'>} AgentOutcomeLike
+ * @typedef {Pick<import('../agentBackend/index.ts').AgentResult, 'outcome' | 'exitCode' | 'stderr'>} AgentOutcomeLike
  */
 
 /** @param {unknown} err */

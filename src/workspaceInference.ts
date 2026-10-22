@@ -1,7 +1,7 @@
 import { realpath as fsRealpath } from 'fs/promises';
 import { basename, dirname, join } from 'path';
 import { errorText } from './narrow.ts';
-import type { AgentTouch } from './agentBackend/index.js';
+import type { AgentTouch } from './agentBackend/index.ts';
 
 /**
  * A freeform run's inferred workspace: the allowlisted workspace its first edit or command works

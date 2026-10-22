@@ -1,6 +1,6 @@
 import { open, readdir, realpath as fsRealpath, stat } from 'fs/promises';
 import { basename, join } from 'path';
-import { applyTranscriptLines, emptyTranscript, listClaudeCwds, subagentCount } from './agentBackend/claudeTranscripts.js';
+import { applyTranscriptLines, emptyTranscript, listClaudeCwds, subagentCount } from './agentBackend/claudeTranscripts.ts';
 import { errorMessageFromUnknown } from './issuePipeline/index.js';
 import { canonicalPath, workspaceOfPaths } from './workspaceInference.ts';
 
@@ -8,7 +8,7 @@ import { canonicalPath, workspaceOfPaths } from './workspaceInference.ts';
  * The session watch: which interactive agent sessions are open on this machine, which workspace
  * each is in, and whether the agent is working or waiting for the owner, for the office and
  * `claude:status`. It reads the transcripts the agent already writes (the Claude-specific parsing
- * is in src/agentBackend/claudeTranscripts.js), so a session pays no tokens and no latency.
+ * is in src/agentBackend/claudeTranscripts.ts), so a session pays no tokens and no latency.
  *
  * Every `intervalMs` it `stat`s every transcript but opens only those written in the last
  * `activeMs`, and reads only the bytes appended since the last poll (a file seen for the first time
@@ -86,7 +86,7 @@ export function nodeTranscriptFs() {
  * @typedef {{
  *   offset: number,
  *   partial: Buffer,
- *   transcript: import('./agentBackend/claudeTranscripts.js').TranscriptState,
+ *   transcript: import('./agentBackend/claudeTranscripts.ts').TranscriptState,
  *   openSince: number | null,
  * }} Tracked
  *   Per transcript file: how far it's been read, the unfinished last line, what it says so far,

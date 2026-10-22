@@ -1,4 +1,4 @@
-import { createClaudeBackend } from './claude.js';
+import { createClaudeBackend } from './claude.ts';
 
 /**
  * The seam between the runner and a concrete coding agent. The runner only speaks these types;

@@ -4,13 +4,13 @@ import { appendFile, mkdir, readFile } from 'fs/promises';
 import { finished } from 'stream/promises';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
-import { createStreamAccumulator, resultUsage } from './claudeStreamParser.js';
-import { usageLimitFrom } from './claudeUsageLimit.js';
+import { createStreamAccumulator, resultUsage } from './claudeStreamParser.ts';
+import { usageLimitFrom } from './claudeUsageLimit.ts';
 import { augmentedPathEnv } from '../processPath.ts';
 import { USAGE_FILE_ENV } from '../jobUsage.ts';
 
 /**
- * The Claude Code CLI implementation of `AgentBackend` (see ./index.js). Everything Claude-specific
+ * The Claude Code CLI implementation of `AgentBackend` (see ./index.ts). Everything Claude-specific
  * lives here: binary lookup, CLI flags, stream-json parsing, token/cost extraction and `/implement`.
  */
 
@@ -127,7 +127,7 @@ export async function repoSettingsModel(cwd) {
  *   killProcess?: (child: import('child_process').ChildProcess, signal: NodeJS.Signals) => void,
  *   now?: () => number,
  * }} p
- * @returns {import('./index.js').AgentBackend}
+ * @returns {import('./index.ts').AgentBackend}
  */
 export function createClaudeBackend({
   bin = resolveClaudeBin(),
@@ -146,7 +146,7 @@ export function createClaudeBackend({
     async start({ prompt, preamble, implement, model: requested, modelSource = 'prefix', cwd, logPath, onProgress, onTouch, resume }) {
       await mkdir(dirname(logPath), { recursive: true });
       const workspaceModel = requested ? null : await repoSettingsModel(cwd);
-      /** @type {import('./index.js').AgentModelChoice} */
+      /** @type {import('./index.ts').AgentModelChoice} */
       const choice = requested
         ? { name: requested, source: modelSource }
         : workspaceModel
@@ -199,7 +199,7 @@ export function createClaudeBackend({
         for (const l of lines) log.write(`[out] ${l}\n`);
       };
 
-      /** @type {Promise<import('./index.js').AgentResult>} */
+      /** @type {Promise<import('./index.ts').AgentResult>} */
       const done = new Promise((resolve) => {
         /** @param {{ exitCode: number | null, spawnError?: string }} p */
         const finish = ({ exitCode, spawnError }) => {
@@ -217,7 +217,7 @@ export function createClaudeBackend({
           // the run failed (the CLI may still exit 0 with an error result) and the stream signalled the
           // usage limit; the text only supplies the reset time
           const hitLimit = failed && snap.rateLimited;
-          /** @type {import('./index.js').AgentOutcome} */
+          /** @type {import('./index.ts').AgentOutcome} */
           const outcome = spawnError
             ? 'spawn_error'
             : stopped

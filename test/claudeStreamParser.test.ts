@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createStreamAccumulator, describeToolUse } from '../src/agentBackend/claudeStreamParser.js';
+import { createStreamAccumulator, describeToolUse } from '../src/agentBackend/claudeStreamParser.ts';
 
 const line = (o) => `${JSON.stringify(o)}\n`;
 

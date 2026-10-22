@@ -1,5 +1,5 @@
 import { readdir, readFile, readlink } from 'fs/promises';
-import { describeToolUse } from './claudeStreamParser.js';
+import { describeToolUse } from './claudeStreamParser.ts';
 
 /**
  * Reads Claude Code's session transcripts (`~/.claude/projects/<folder>/<session-id>.jsonl`, one

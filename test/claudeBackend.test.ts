@@ -5,7 +5,7 @@ import { PassThrough } from 'stream';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createClaudeBackend } from '../src/agentBackend/claude.js';
+import { createClaudeBackend } from '../src/agentBackend/claude.ts';
 
 const line = (o) => `${JSON.stringify(o)}\n`;
 
@@ -349,7 +349,7 @@ describe('stopOrphanClaude', () => {
   const CMD = '/bin/claude -p --model sonnet --output-format stream-json --verbose --dangerously-skip-permissions do it';
 
   it('stops a leftover headless claude process group, escalating to SIGKILL', async () => {
-    const { stopOrphanClaude } = await import('../src/agentBackend/claude.js');
+    const { stopOrphanClaude } = await import('../src/agentBackend/claude.ts');
     /** @type {string[]} */
     const signals = [];
     let aliveUntilKill = true;
@@ -367,7 +367,7 @@ describe('stopOrphanClaude', () => {
   });
 
   it('leaves a recycled pid that is not an agent alone', async () => {
-    const { stopOrphanClaude } = await import('../src/agentBackend/claude.js');
+    const { stopOrphanClaude } = await import('../src/agentBackend/claude.ts');
     let killed = false;
     const gone = await stopOrphanClaude(77, {
       readCmdline: async () => 'node server.js',
@@ -382,7 +382,7 @@ describe('stopOrphanClaude', () => {
 
 describe('read-only exploration session', () => {
   it('disables editing and shell tools by CLI flag, not just the prompt', async () => {
-    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.js');
+    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.ts');
     let seen;
     const launch = createReadOnlySessionLauncher({
       bin: 'claude',
@@ -399,13 +399,13 @@ describe('read-only exploration session', () => {
   });
 
   it('ends options before the prompt, so the variadic tool lists do not swallow it', async () => {
-    const { readOnlySessionArgs } = await import('../src/agentBackend/claude.js');
+    const { readOnlySessionArgs } = await import('../src/agentBackend/claude.ts');
     const args = readOnlySessionArgs({ prompt: 'explore', model: 'sonnet' });
     assert.deepEqual(args.slice(-2), ['--', 'explore']);
   });
 
   it('runs on Opus by default, whatever model other runs pin, unless REPO_INSIGHT_MODEL says otherwise', async () => {
-    const { readOnlySessionArgs } = await import('../src/agentBackend/claude.js');
+    const { readOnlySessionArgs } = await import('../src/agentBackend/claude.ts');
     const saved = { agent: process.env.CLAUDE_AGENT_MODEL, insight: process.env.REPO_INSIGHT_MODEL };
     try {
       process.env.CLAUDE_AGENT_MODEL = 'claude-sonnet-5-5';
@@ -424,7 +424,7 @@ describe('read-only exploration session', () => {
   });
 
   it("appends the session's model, cost and tokens to the job's usage file, even when it reports an error", async () => {
-    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.js');
+    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.ts');
     const { sumJobUsage } = await import('../src/jobUsage.ts');
     /** @type {string[]} */
     const written = [];
@@ -453,7 +453,7 @@ describe('read-only exploration session', () => {
   });
 
   it('still returns the text when the usage file cannot be written, and writes none without one', async () => {
-    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.js');
+    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.ts');
     const execFileFn = /** @type {any} */ ((_bin, _args, _opts, cb) => cb(null, JSON.stringify({ result: 'idea', total_cost_usd: 1 }), ''));
     const failing = createReadOnlySessionLauncher({
       bin: 'claude',
@@ -469,7 +469,7 @@ describe('read-only exploration session', () => {
   });
 
   it('closes stdin so the CLI does not wait for piped input', async () => {
-    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.js');
+    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.ts');
     let ended = false;
     const launch = createReadOnlySessionLauncher({
       bin: 'claude',

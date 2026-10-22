@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { SUBAGENT_RECENT_MS, applyTranscriptLines, emptyTranscript, subagentCount } from '../src/agentBackend/claudeTranscripts.js';
+import { SUBAGENT_RECENT_MS, applyTranscriptLines, emptyTranscript, subagentCount } from '../src/agentBackend/claudeTranscripts.ts';
 
 const T0 = Date.parse('2026-10-06T10:00:00Z');
 const at = (s) => new Date(T0 + s * 1000).toISOString();

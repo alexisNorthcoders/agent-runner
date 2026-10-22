@@ -1,6 +1,6 @@
 /**
  * Claude's usage-limit message, e.g. `You've hit your session limit · resets 7am (Europe/London)`,
- * turned into the neutral `AgentUsageLimit` (./index.js): when runs may start again. A reset epoch
+ * turned into the neutral `AgentUsageLimit` (./index.ts): when runs may start again. A reset epoch
  * from the stream's rate-limit event wins over the text. The reset gets a small buffer and is
  * capped; text that can't be read gives a short pause, so the next run acts as a probe.
  */
@@ -97,7 +97,7 @@ function parseResetText(text, now) {
  * from the stream) if given, else the text's reset time, plus the buffer, capped at 7 days. Text
  * that can't be read gives a 1h pause.
  * @param {{ text: string, resetsAtEpoch?: number | null, now: number }} p
- * @returns {import('./index.js').AgentUsageLimit}
+ * @returns {import('./index.ts').AgentUsageLimit}
  */
 export function usageLimitFrom({ text, resetsAtEpoch = null, now }) {
   const parsed = parseResetText(String(text ?? ''), now);

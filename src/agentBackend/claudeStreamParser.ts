@@ -1,5 +1,5 @@
 import { StringDecoder } from 'string_decoder';
-import { createToolTouchReader } from './claudeToolTouch.js';
+import { createToolTouchReader } from './claudeToolTouch.ts';
 
 /**
  * Incremental parser for `claude -p --output-format stream-json --verbose` output (NDJSON).
@@ -76,7 +76,7 @@ export function resultUsage(ev) {
  *   rejectedResetsAt: number | null,
  *   rateLimited: boolean,
  *   assistantText: string,
- *   subagents: import('./index.js').AgentSubagent[],
+ *   subagents: import('./index.ts').AgentSubagent[],
  *   result: null | {
  *     text: string,
  *     isError: boolean,
@@ -101,8 +101,8 @@ const SPAWN_TOOLS = new Set(['Agent', 'Task']);
 const TASK_OVER = new Set(['completed', 'failed', 'killed', 'stopped', 'cancelled', 'error']);
 
 /**
- * @param {{ cwd?: string, onTouch?: (t: import('./index.js').AgentTouch) => void }} [o] `onTouch`
- *   hears each edit or command tool call (./claudeToolTouch.js), read from `cwd`.
+ * @param {{ cwd?: string, onTouch?: (t: import('./index.ts').AgentTouch) => void }} [o] `onTouch`
+ *   hears each edit or command tool call (./claudeToolTouch.ts), read from `cwd`.
  */
 export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
   const touches = onTouch ? createToolTouchReader({ cwd }) : null;
@@ -157,7 +157,7 @@ export function createStreamAccumulator({ cwd = process.cwd(), onTouch } = {}) {
       state.outputTokens = [...outputByMessage.values()].reduce((a, b) => a + b, 0);
     }
     if (!subagent(ev.parent_tool_use_id)) spawned(ev.parent_tool_use_id, { description: ev.task_description, subagent_type: ev.subagent_type });
-    const who = /** @type {import('./index.js').AgentSubagent} */ (subagent(ev.parent_tool_use_id));
+    const who = /** @type {import('./index.ts').AgentSubagent} */ (subagent(ev.parent_tool_use_id));
     const lines = [];
     for (const block of m.content || []) {
       if (block.type === 'tool_use') {

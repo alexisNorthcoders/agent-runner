@@ -10,7 +10,7 @@ import { createUsageLimitPause } from '../src/usageLimitPause.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';
 
 /** Controllable AgentBackend fake: each start() creates a run you settle by hand. */
-/** @param {import('../src/agentBackend/index.js').AgentModelChoice} [modelChoice] */
+/** @param {import('../src/agentBackend/index.ts').AgentModelChoice} [modelChoice] */
 function fakeBackend(modelChoice = { name: 'sonnet', source: 'default' }) {
   /** @type {any[]} */
   const starts = [];
@@ -37,7 +37,7 @@ function fakeBackend(modelChoice = { name: 'sonnet', source: 'default' }) {
             const r = result(outcome, text);
             settle({ ...r, usage: { ...r.usage, sessionId } });
           },
-          /** @param {import('../src/agentBackend/index.js').AgentUsageLimit} limit @param {number} [turns] */
+          /** @param {import('../src/agentBackend/index.ts').AgentUsageLimit} limit @param {number} [turns] */
           hitLimit: (limit, turns = 3) => {
             const r = result('limited', "You've hit your session limit");
             settle({ ...r, exitCode: 1, limit, usage: { ...r.usage, turns } });

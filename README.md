@@ -94,7 +94,7 @@ and searches don't count. Paths are compared by realpath. Once set, it doesn't c
 of the run.
 
 The agent backend turns its tool calls into agent-neutral touches (`AgentTouch`; Claude's parsing is
-`src/agentBackend/claudeToolTouch.js`), and `src/workspaceInference.ts` matches them to the
+`src/agentBackend/claudeToolTouch.ts`), and `src/workspaceInference.ts` matches them to the
 allowlist. The workspace is recorded as `inferredWorkspace` on the lock record and the active-run
 file, in the history row and the office snapshot, and shows in `claude:status` and
 `claude:history` as `fix the login bug → whatsapp-bot`. Joplin runs don't infer one.
@@ -385,7 +385,7 @@ Add fields freely; bump `version` for anything that breaks a reader.
 workspace's cubicle, or the Freeform room, on the dashboard). It reads the transcripts Claude Code
 already writes, `~/.claude/projects/<folder>/<session-id>.jsonl`, so sessions pay no tokens and no
 latency, and it uses no hooks and changes no Claude settings. The parsing is
-`src/agentBackend/claudeTranscripts.js`, and relies on a handful of fields of Claude Code's internal
+`src/agentBackend/claudeTranscripts.ts`, and relies on a handful of fields of Claude Code's internal
 format (`entrypoint`, `isSidechain`, `cwd`, `gitBranch`, the content blocks): a line without them is skipped.
 
 - Every `SESSION_POLL_MS` (3000) it `stat`s every transcript, but opens only those written in the last
@@ -613,7 +613,7 @@ are told the same rule in their prompt preamble.
 - `src/runner.js`: command handling, the run lifecycle and status.
 - `src/commands.js`: parses `claude…` text.
 - `src/preamble.ts`: the rules prepended to every agent prompt. Freeform and Joplin runs add the git rules, and issue runs don't, since their post-run commits and merges.
-- `src/agentBackend/`: the `AgentBackend` seam. `claude.js` holds everything Claude-specific (CLI
+- `src/agentBackend/`: the `AgentBackend` seam. `claude.ts` holds everything Claude-specific (CLI
   flags, stream-json parsing, cost/tokens, `/implement`).
 - `src/runLock.ts`, `src/runQueue.ts`, `src/pauseFlag.ts`, `src/manualPause.ts`, `src/outbox.ts`, `src/cronState.ts`: Redis state over
   `src/redisStore.ts`.

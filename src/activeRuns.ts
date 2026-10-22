@@ -4,7 +4,7 @@ import { pidAlive } from './pidAlive.ts';
 import { writeJsonAtomic } from './jsonFile.ts';
 import { parseJsonObject } from './narrow.ts';
 import type { RunRecord } from './runLock.ts';
-import type { AgentProgress } from './agentBackend/index.js';
+import type { AgentProgress } from './agentBackend/index.ts';
 
 /**
  * One `active/<runId>.json` file per in-flight run, rewritten (throttled) as it progresses and

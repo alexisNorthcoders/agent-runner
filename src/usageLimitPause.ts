@@ -1,6 +1,6 @@
 import { parseJsonObject, stringOrNull } from './narrow.ts';
 import type { Store } from './redisStore.ts';
-import type { AgentUsageLimit } from './agentBackend/index.js';
+import type { AgentUsageLimit } from './agentBackend/index.ts';
 
 /**
  * The usage-limit pause: set when an agent run ends on its usage limit, it holds every new run
