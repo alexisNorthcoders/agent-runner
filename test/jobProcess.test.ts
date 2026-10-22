@@ -39,10 +39,12 @@ describe('job process', () => {
     const r = await run.done;
     assert.equal(r.outcome, 'stopped');
     assert.equal(r.signal, 'SIGTERM');
+    const { pid } = run;
+    assert.ok(pid != null);
     // the group's other members may take a moment to be reaped
     const groupAlive = () => {
       try {
-        process.kill(-(run.pid as number), 0);
+        process.kill(-pid, 0);
         return true;
       } catch {
         return false;
