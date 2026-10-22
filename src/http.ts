@@ -1,4 +1,8 @@
 import { createServer } from 'http';
+import { errorText, recordOrEmpty } from './narrow.ts';
+import type { IncomingMessage, ServerResponse } from 'http';
+import type { createRunner } from './runner.js';
+import type { createOfficeFeed } from './officeFeed.ts';
 
 /**
  * Localhost-only command API for the bot (bind to 127.0.0.1; there is no auth):
@@ -9,16 +13,16 @@ import { createServer } from 'http';
 
 const MAX_BODY_BYTES = 256 * 1024;
 
-function send(res, status, body) {
+function send(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
 }
 
-function readJson(req) {
+function readJson(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let size = 0;
-    const chunks = [];
-    req.on('data', (c) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => {
       size += c.length;
       if (size > MAX_BODY_BYTES) {
         reject(new Error('body too large'));
@@ -36,14 +40,11 @@ function readJson(req) {
   });
 }
 
-/**
- * @param {{
- *   runner: Pick<ReturnType<typeof import('./runner.js').createRunner>, 'handleCommand' | 'status'>,
- *   officeFeed?: Pick<ReturnType<typeof import('./officeFeed.ts').createOfficeFeed>, 'attach'>,
- *   logger?: Pick<Console, 'error'>,
- * }} p
- */
-export function createHttpServer({ runner, officeFeed, logger = console }) {
+export function createHttpServer({ runner, officeFeed, logger = console }: {
+    runner: Pick<ReturnType<typeof createRunner>, 'handleCommand' | 'status'>;
+    officeFeed?: Pick<ReturnType<typeof createOfficeFeed>, 'attach'>;
+    logger?: Pick<Console, 'error'>;
+  }) {
   return createServer(async (req, res) => {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
     try {
@@ -54,13 +55,13 @@ export function createHttpServer({ runner, officeFeed, logger = console }) {
         return await officeFeed.attach(req, res);
       }
       if (req.method === 'POST' && path === '/command') {
-        let body;
+        let body: unknown;
         try {
           body = await readJson(req);
         } catch (err) {
-          return send(res, 400, { reply: `Bad request: ${err.message}` });
+          return send(res, 400, { reply: `Bad request: ${errorText(err)}` });
         }
-        const { text, replyTo } = body ?? {};
+        const { text, replyTo } = recordOrEmpty(body);
         if (typeof text !== 'string' || typeof replyTo !== 'string' || !replyTo) {
           return send(res, 400, { reply: 'Bad request: expected {text: string, replyTo: string}' });
         }
@@ -69,7 +70,7 @@ export function createHttpServer({ runner, officeFeed, logger = console }) {
       return send(res, 404, { reply: 'Not found' });
     } catch (err) {
       logger.error(`${req.method} ${path} failed:`, err);
-      return send(res, 500, { reply: `agent-runner error: ${err?.message || err}` });
+      return send(res, 500, { reply: `agent-runner error: ${errorText(err)}` });
     }
   });
 }

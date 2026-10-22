@@ -50,7 +50,7 @@ export function loadConfig(env = process.env) {
       intervalMs: int(env.CRON_ISSUE_TRACER_INTERVAL_MS, 10 * 60 * 1000),
       aliases: cronAliasesFromEnv(env),
     },
-    // the office's issue scan (src/issueScan.js)
+    // the office's issue scan (src/issueScan.ts)
     issueScan: { intervalMs: int(env.ISSUE_SCAN_INTERVAL_MS, 5 * 60 * 1000) },
     // the session watch (src/sessionWatch.ts): interactive Claude sessions, read from their transcripts
     sessionWatch: {
@@ -59,7 +59,7 @@ export function loadConfig(env = process.env) {
       intervalMs: int(env.SESSION_POLL_MS, 3000),
       activeMs: int(env.SESSION_ACTIVE_MS, 10 * 60 * 1000),
     },
-    // scheduled jobs (src/scheduledJobs.js): a JSON array, re-read every tick; missing = none
+    // scheduled jobs (src/scheduledJobs.ts): a JSON array, re-read every tick; missing = none
     jobs: { file: env.SCHEDULED_JOBS_FILE?.trim() || join(REPO_ROOT, 'scheduled-jobs.json') },
     joplin: {
       baseUrl: env.JOPLIN_API_URL?.trim() || 'http://127.0.0.1:41184',

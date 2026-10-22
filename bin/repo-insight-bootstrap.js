@@ -12,7 +12,7 @@ import { createCronState } from '../src/cronState.ts';
 import { createWorkspaceAllowlist } from '../src/workspaces.ts';
 import { createIssuePipeline } from '../src/issuePipeline/index.ts';
 import { createReadOnlySessionLauncher } from '../src/agentBackend/claude.ts';
-import { createRepoInsightCursor, createRepoInsightLookups, runRepoInsight, sweepRepoInsight } from '../src/repoInsight.js';
+import { createRepoInsightCursor, createRepoInsightLookups, runRepoInsight, sweepRepoInsight } from '../src/repoInsight.ts';
 
 async function main() {
   const config = loadConfig();

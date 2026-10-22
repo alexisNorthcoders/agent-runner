@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
-import { createJobLauncher } from '../src/jobProcess.js';
+import { createJobLauncher } from '../src/jobProcess.ts';
 
 const CMD = 'echo out-1; echo err-1 >&2; echo out-2; echo "cwd=$(pwd) X=$X"; exit 3';
 
@@ -42,7 +42,7 @@ describe('job process', () => {
     // the group's other members may take a moment to be reaped
     const groupAlive = () => {
       try {
-        process.kill(-(/** @type {number} */ (run.pid)), 0);
+        process.kill(-(run.pid as number), 0);
         return true;
       } catch {
         return false;

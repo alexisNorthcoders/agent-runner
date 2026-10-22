@@ -8,11 +8,12 @@ import {
   pickNextIdleWorkspace as pick,
   runRepoInsight,
   sweepRepoInsight,
-} from '../src/repoInsight.js';
+} from '../src/repoInsight.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';
+import type { OpenAgentPr, OpenIssue, SuggestedIssue } from '../src/issuePipeline/githubIssue.ts';
 
 const allIdle = Object.fromEntries(ORDER.map((a) => [a, true]));
-const only = (...aliases) => Object.fromEntries(ORDER.map((a) => [a, aliases.includes(a)]));
+const only = (...aliases: string[]) => Object.fromEntries(ORDER.map((a) => [a, aliases.includes(a)]));
 
 describe('pickNextIdleWorkspace', () => {
   it('has the fixed 13-workspace order', () => {
@@ -77,12 +78,13 @@ describe('repo insight cursor', () => {
 });
 
 describe('repo insight lookups', () => {
-  const issue = (number, ...labels) => ({ number, title: `T${number}`, labels });
-  const suggested = /** @type {import('../src/issuePipeline/githubIssue.ts').SuggestedIssue[]} */ ([{ number: 9, title: 'S', url: 'u', state: 'closed', labels: ['agent-suggested', 'wontfix'] }]);
-  const setup = async ({ issues = [], blockers = {}, prs = new Map(), attempts = new Map() } = {}) => {
-    const { createRepoInsightLookups } = await import('../src/repoInsight.js');
+  const issue = (number: number, ...labels: string[]): OpenIssue => ({ number, title: `T${number}`, labels });
+  const suggested: SuggestedIssue[] = [{ number: 9, title: 'S', url: 'u', state: 'closed', labels: ['agent-suggested', 'wontfix'] }];
+  type LookupFixture = { issues?: OpenIssue[]; blockers?: Record<number, number | Error>; prs?: Map<number, OpenAgentPr>; attempts?: Map<string, string> };
+  const setup = async ({ issues = [], blockers = {}, prs = new Map(), attempts = new Map() }: LookupFixture = {}) => {
+    const { createRepoInsightLookups } = await import('../src/repoInsight.ts');
     return createRepoInsightLookups({
-      workspaces: { resolveIssueWorkspace: async (alias) => ({ alias, root: `/ws/${alias}` }) },
+      workspaces: { resolveIssueWorkspace: async (alias) => ({ alias: alias ?? '', root: `/ws/${alias}` }) },
       github: {
         resolveIssueRepo: async (_root, alias) => `o/${alias}`,
         listOpenIssues: async () => issues,
@@ -135,9 +137,10 @@ describe('repo insight lookups', () => {
 });
 
 describe('decideRepoInsightTarget', () => {
-  /** @returns {any} */
-  const fakes = ({ cursor = null, idle = [], past = {} } = {}) => {
-    const calls = [];
+  const past3: SuggestedIssue = { number: 3, title: 'S', url: 'u', state: 'open', labels: ['agent-suggested'] };
+  type DecideDeps = Parameters<typeof decide>[0];
+  const fakes = ({ cursor = null, idle = [], past = {} }: { cursor?: string | null; idle?: string[]; past?: Record<string, SuggestedIssue[]> } = {}): { calls: string[]; deps: DecideDeps } => {
+    const calls: string[] = [];
     return {
       calls,
       deps: {
@@ -152,13 +155,16 @@ describe('decideRepoInsightTarget', () => {
   it('checks from just after the cursor, wrapping, and stops at the first idle one', async () => {
     const { calls, deps } = fakes({ cursor: 'b', idle: ['a', 'c'] });
     const r = await decide(deps);
+    assert.ok(r);
     assert.equal(r.alias, 'c');
     assert.deepEqual(calls, ['idle:c', 'write:c', 'past:c']);
   });
 
   it('wraps around the end', async () => {
     const { calls, deps } = fakes({ cursor: 'b', idle: ['a'] });
-    assert.equal((await decide(deps)).alias, 'a');
+    const r = await decide(deps);
+    assert.ok(r);
+    assert.equal(r.alias, 'a');
     assert.deepEqual(calls.slice(0, 3), ['idle:c', 'idle:a', 'write:a']);
   });
 
@@ -170,8 +176,8 @@ describe('decideRepoInsightTarget', () => {
   });
 
   it('returns the past suggestions alongside the alias', async () => {
-    const { deps } = fakes({ idle: ['a'], past: { a: [3] } });
-    assert.deepEqual(await decide(deps), { alias: 'a', pastSuggestions: [3] });
+    const { deps } = fakes({ idle: ['a'], past: { a: [past3] } });
+    assert.deepEqual(await decide(deps), { alias: 'a', pastSuggestions: [past3] });
   });
 
   it('leaves the cursor alone and returns null when nothing is idle', async () => {
@@ -182,13 +188,13 @@ describe('decideRepoInsightTarget', () => {
 });
 
 describe('runRepoInsight', () => {
-  /** @type {import('../src/issuePipeline/githubIssue.ts').SuggestedIssue[]} */
-  const past = [
+  const past: SuggestedIssue[] = [
     { number: 3, title: 'Cache the thing', url: 'u3', state: 'open', labels: ['agent-suggested'] },
     { number: 4, title: 'Drop the widget', url: 'u4', state: 'closed', labels: ['agent-suggested'] },
   ];
-  const setup = (text = '{"title":"Add retries","body":"Why and how"}') => {
-    const calls = { session: [], issues: [] };
+  type RunDeps = Parameters<typeof runRepoInsight>[0];
+  const setup = (text = '{"title":"Add retries","body":"Why and how"}'): { calls: { session: Parameters<RunDeps['launchSession']>[0][]; issues: Parameters<RunDeps['createIssue']>[] }; deps: RunDeps } => {
+    const calls: { session: Parameters<RunDeps['launchSession']>[0][]; issues: Parameters<RunDeps['createIssue']>[] } = { session: [], issues: [] };
     return {
       calls,
       deps: {
@@ -235,12 +241,12 @@ describe('runRepoInsight', () => {
 });
 
 describe('sweepRepoInsight', () => {
-  const setup = (idleAliases, { failOn } = /** @type {{ failOn?: string }} */ ({})) => {
+  const setup = (idleAliases: string[], { failOn }: { failOn?: string } = {}) => {
     const store = createMemoryStore();
     const cursor = createRepoInsightCursor({ store });
-    const explored = [];
-    const checked = [];
-    const deps = {
+    const explored: string[] = [];
+    const checked: string[] = [];
+    const deps: Parameters<typeof sweepRepoInsight>[0] = {
       cursor,
       runnableIssues: async (a) => {
         checked.push(a);

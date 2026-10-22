@@ -1,11 +1,11 @@
 import { randomUUID } from 'crypto';
 import { readFile, stat } from 'fs/promises';
 import { join } from 'path';
-import { parseCommand } from './commands.js';
+import { parseCommand } from './commands.ts';
 import { ALL, applyPauseCommand, describeManualPause } from './manualPause.ts';
 import { OWNER } from './outbox.ts';
-import { DEFAULT_JOB_TIMEOUT_MINUTES } from './scheduledJobs.js';
-import { decideSafeRestart } from './safeRestart.js';
+import { DEFAULT_JOB_TIMEOUT_MINUTES } from './scheduledJobs.ts';
+import { decideSafeRestart } from './safeRestart.ts';
 import { describeRun, UNKNOWN_RUN_ID } from './runLock.ts';
 import { describeUsageLimitPause } from './usageLimitPause.ts';
 import { pidAlive } from './pidAlive.ts';
@@ -18,7 +18,7 @@ import { sumJobUsage, USAGE_FILE_ENV } from './jobUsage.ts';
 /**
  * The runner: turns a `claude…` command into at most one agent run at a time and reports every
  * outcome through the outbox. A request that arrives while busy (or paused) waits in the run queue
- * and starts when the runs ahead of it have finished. HTTP (src/http.js) and startup (src/main.js)
+ * and starts when the runs ahead of it have finished. HTTP (src/http.ts) and startup (src/main.js)
  * are thin shells over it.
  */
 
@@ -80,7 +80,7 @@ export function formatRunResult(rec, r) {
 /**
  * A failed scheduled job's one-line report. Null for a success, which stays quiet.
  * @param {import('./runLock.ts').RunRecord} rec
- * @param {import('./jobProcess.js').JobResult} r
+ * @param {import('./jobProcess.ts').JobResult} r
  * @param {number} durationMs
  */
 export function formatJobResult(rec, r, durationMs) {
@@ -148,7 +148,7 @@ export function formatJobResult(rec, r, durationMs) {
  *     list?: () => Promise<Array<{ alias: string, root: string }>>,
  *   },
  *   issues?: Pick<import('./issuePipeline/index.ts').IssuePipeline, 'prepare' | 'finish' | 'commitInterruptedWork'>,
- *   jobs?: Pick<import('./jobProcess.js').JobLauncher, 'start'>,
+ *   jobs?: Pick<import('./jobProcess.ts').JobLauncher, 'start'>,
  *   jobTimeoutMs?: number,
  *   readUsageFile?: (path: string) => Promise<string>,
  *   workspaceRoot: string,
@@ -608,7 +608,7 @@ export function createRunner({
    * Run a scheduled job's command under the lock: no preamble, no post-run. Its output goes to the
    * job's log file (else a run log). History gets `trigger: schedule`; `owner` hears only about a
    * failure, including one to start, since nobody is waiting for the reply.
-   * @param {import('./scheduledJobs.js').ScheduledJob} job
+   * @param {import('./scheduledJobs.ts').ScheduledJob} job
    * @returns {Promise<{ reply: string, started: boolean, refused?: 'busy' | 'paused' }>}
    */
   async function startJobRun(job) {
@@ -648,7 +648,7 @@ export function createRunner({
       const usage = sumJobUsage(text, (line, why) => logger.warn(`job ${job.name}: skipped usage line (${why}): ${oneLine(line, 80)}`));
       return usage ?? {};
     };
-    /** @param {import('./jobProcess.js').JobResult} result */
+    /** @param {import('./jobProcess.ts').JobResult} result */
     const jobHistory = async (result) => ({
       trigger: 'schedule',
       jobName: job.name,
@@ -1146,7 +1146,7 @@ export function createRunner({
 
     /**
      * A due scheduled job joins the run queue (or starts, if nothing is ahead of it).
-     * @param {import('./scheduledJobs.js').ScheduledJob} job
+     * @param {import('./scheduledJobs.ts').ScheduledJob} job
      */
     submitJob: (job) => submit({ kind: 'job', job }, OWNER),
 

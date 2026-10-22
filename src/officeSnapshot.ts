@@ -3,8 +3,8 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.ts';
 import type { RunHealth, ActiveRun } from './activeRuns.ts';
 import type { RunTrigger } from './runLock.ts';
 import type { CronTickOutcome } from './cronState.ts';
-import type { OfficeIssues } from './issueScan.js';
-import type { JobScheduleEntry } from './scheduledJobs.js';
+import type { OfficeIssues } from './issueScan.ts';
+import type { JobScheduleEntry } from './scheduledJobs.ts';
 import type { OfficeSession } from './sessionWatch.ts';
 import type { AgentProgress } from './agentBackend/index.ts';
 import type { HistoryEntry } from './runHistory.ts';
@@ -132,8 +132,8 @@ export type OfficeLock = {
  * `active`: every in-flight run `agent:status` lists, including orphaned and stale ones, oldest
  * first. `queue`: oldest first. `history`: the last 7 days, newest first. `spend`: today (since
  * local midnight) and the last 7 days. `workspaces`: the allowlisted aliases, sorted. `issues`:
- * the issue scan's latest result (src/issueScan.js), null before its first scan ends. `jobs`: the
- * scheduled jobs' config (src/scheduledJobs.js) with each one's next due time, in config order.
+ * the issue scan's latest result (src/issueScan.ts), null before its first scan ends. `jobs`: the
+ * scheduled jobs' config (src/scheduledJobs.ts) with each one's next due time, in config order.
  * `sessions`: the interactive agent sessions open on the machine (src/sessionWatch.ts), oldest
  * first, with the allowlisted workspace each is in (null outside any); `[]` when the watch is off
  * or fails. They carry no prompt or reply text.

@@ -3,24 +3,27 @@ import { closeSync, openSync } from 'fs';
 import { mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import { augmentedPathEnv } from './processPath.ts';
+import { errorText } from './narrow.ts';
+import type { ChildProcess } from 'child_process';
 
 /**
  * Runs a scheduled job's command as-is: `sh -c <command>` in its directory, with stdout and stderr
  * both appended to the log file through one file descriptor, exactly like a crontab line's
  * `>> file 2>&1`. Nothing else is written to the file. The command runs in its own process group,
  * so a stop or timeout kills everything it started.
- *
- * @typedef {'success' | 'failed' | 'timeout' | 'stopped' | 'spawn_error'} JobOutcome
- * @typedef {{ outcome: JobOutcome, exitCode: number | null, signal: string | null, error?: string }} JobResult
- * @typedef {{ pid: number | null, done: Promise<JobResult>, stop: () => void }} JobRun
- *   `done` never rejects.
- * @typedef {{ command: string, cwd: string, logPath: string, env?: Record<string, string>, timeoutMs: number }} JobStartOptions
  */
+export type JobOutcome = 'success' | 'failed' | 'timeout' | 'stopped' | 'spawn_error';
+
+export type JobResult = { outcome: JobOutcome; exitCode: number | null; signal: string | null; error?: string };
+
+/** `done` never rejects. */
+export type JobRun = { pid: number | null; done: Promise<JobResult>; stop: () => void };
+
+export type JobStartOptions = { command: string; cwd: string; logPath: string; env?: Record<string, string>; timeoutMs: number };
 
 const KILL_GRACE_MS = 5000;
 
-/** @param {import('child_process').ChildProcess} child @param {NodeJS.Signals} signal */
-function killProcessGroup(child, signal) {
+function killProcessGroup(child: ChildProcess, signal: NodeJS.Signals) {
   try {
     if (child.pid) process.kill(-child.pid, signal);
   } catch {
@@ -32,17 +35,12 @@ function killProcessGroup(child, signal) {
   }
 }
 
-/**
- * @param {{ spawnFn?: typeof spawn, killProcess?: typeof killProcessGroup, killGraceMs?: number }} [p]
- */
-export function createJobLauncher({ spawnFn = spawn, killProcess = killProcessGroup, killGraceMs = KILL_GRACE_MS } = {}) {
+export function createJobLauncher({ spawnFn = spawn, killProcess = killProcessGroup, killGraceMs = KILL_GRACE_MS }: { spawnFn?: typeof spawn; killProcess?: typeof killProcessGroup; killGraceMs?: number } = {}) {
   return {
     /**
      * Throws only if the log file can't be opened; a command that can't start is a `spawn_error`.
-     * @param {JobStartOptions} opts
-     * @returns {Promise<JobRun>}
      */
-    async start({ command, cwd, logPath, env = {}, timeoutMs }) {
+    async start({ command, cwd, logPath, env = {}, timeoutMs }: JobStartOptions): Promise<JobRun> {
       await mkdir(dirname(logPath), { recursive: true });
       const fd = openSync(logPath, 'a');
       let child;
@@ -61,8 +59,7 @@ export function createJobLauncher({ spawnFn = spawn, killProcess = killProcessGr
       let stopped = false;
       let timedOut = false;
       let closed = false;
-      /** @type {NodeJS.Timeout | null} */
-      let killTimer = null;
+      let killTimer: NodeJS.Timeout | null = null;
       const terminate = () => {
         if (closed) return;
         killProcess(child, 'SIGTERM');
@@ -77,19 +74,16 @@ export function createJobLauncher({ spawnFn = spawn, killProcess = killProcessGr
       }, timeoutMs);
       timer.unref();
 
-      /** @type {Promise<JobResult>} */
-      const done = new Promise((resolve) => {
-        /** @param {number | null} exitCode @param {string | null} signal @param {string} [error] */
-        const finish = (exitCode, signal, error) => {
+      const done: Promise<JobResult> = new Promise((resolve) => {
+        const finish = (exitCode: number | null, signal: string | null, error?: string) => {
           if (closed) return;
           closed = true;
           clearTimeout(timer);
           if (killTimer) clearTimeout(killTimer);
-          /** @type {JobOutcome} */
-          const outcome = error ? 'spawn_error' : stopped ? 'stopped' : timedOut ? 'timeout' : exitCode === 0 ? 'success' : 'failed';
+          const outcome: JobOutcome = error ? 'spawn_error' : stopped ? 'stopped' : timedOut ? 'timeout' : exitCode === 0 ? 'success' : 'failed';
           resolve({ outcome, exitCode, signal, ...(error ? { error } : {}) });
         };
-        child.on('error', (err) => finish(null, null, err.message));
+        child.on('error', (err) => finish(null, null, errorText(err)));
         child.on('close', (code, signal) => finish(code, signal));
       });
 
@@ -105,4 +99,4 @@ export function createJobLauncher({ spawnFn = spawn, killProcess = killProcessGr
   };
 }
 
-/** @typedef {ReturnType<typeof createJobLauncher>} JobLauncher */
+export type JobLauncher = ReturnType<typeof createJobLauncher>;

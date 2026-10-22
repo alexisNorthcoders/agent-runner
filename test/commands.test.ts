@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCommand, USAGE } from '../src/commands.js';
+import { parseCommand, USAGE } from '../src/commands.ts';
 
 describe('parseCommand', () => {
   it('parses a freeform instruction', () => {
@@ -37,7 +37,9 @@ describe('parseCommand', () => {
   });
 
   it('rejects a model prefix in front of issue: or with nothing after it', () => {
-    assert.match(/** @type {any} */ (parseCommand('claude opus: issue:12')).message, /issue runs/);
+    const prefixed = parseCommand('claude opus: issue:12');
+    assert.ok(prefixed.kind === 'error');
+    assert.match(prefixed.message, /issue runs/);
     assert.equal(parseCommand('claude opus: issue:a:12').kind, 'error');
     assert.equal(parseCommand('claude haiku:').kind, 'error');
   });
@@ -133,7 +135,7 @@ describe('parseCommand', () => {
     assert.equal(parseCommand('hello').kind, 'error');
     assert.equal(parseCommand('claudette do it').kind, 'error');
     assert.equal(parseCommand('').kind, 'error');
-    assert.equal(parseCommand(/** @type {any} */ (undefined)).kind, 'error');
+    assert.equal(parseCommand(undefined as unknown as string).kind, 'error');
   });
 });
 
@@ -165,8 +167,8 @@ describe('parseCommand: claude:more', () => {
   it('gives the usage for empty instructions, and lists the command in USAGE', () => {
     for (const t of ['claude:more', 'claude:more   ']) {
       const c = parseCommand(t);
-      assert.equal(c.kind, 'error');
-      assert.match(/** @type {any} */ (c).message, /^Usage: claude:more \[haiku\|sonnet\|opus:\] \[run-id prefix\] <instructions>/);
+      assert.ok(c.kind === 'error');
+      assert.match(c.message, /^Usage: claude:more \[haiku\|sonnet\|opus:\] \[run-id prefix\] <instructions>/);
     }
     assert.match(USAGE, /^claude:more \[haiku\|sonnet\|opus:\] \[run-id prefix\] <instructions>/m);
   });

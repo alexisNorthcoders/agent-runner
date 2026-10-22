@@ -1,27 +1,32 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCronTracer, partitionIssuesWithOpenPr, pickNextRunnableIssue } from '../src/cronTracer.js';
+import { createCronTracer, partitionIssuesWithOpenPr, pickNextRunnableIssue } from '../src/cronTracer.ts';
 import { cronAliasesFromEnv } from '../src/config.ts';
 import { createManualPause } from '../src/manualPause.ts';
 import { createUsageLimitPause } from '../src/usageLimitPause.ts';
 import { createCronState } from '../src/cronState.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';
+import type { OpenAgentPr, OpenIssue } from '../src/issuePipeline/githubIssue.ts';
+
+type CronDeps = Parameters<typeof createCronTracer>[0];
+type StartIssueRun = CronDeps['startIssueRun'];
+type RunOutcome = NonNullable<Awaited<NonNullable<Awaited<ReturnType<StartIssueRun>>['done']>>>;
+type RunResult = RunOutcome['result'] | RunOutcome | null;
 
 const REPO = 'alexisNorthcoders/WhatsappBot';
 const REPO_P = 'alexisNorthcoders/Platformer';
-const ready = (number, title = `Task ${number}`) => ({ number, title, labels: ['ready-for-agent'] });
-/** @type {(repo: string, issueNumber: number) => Promise<number>} */
-const noBlockers = async () => 0;
+const ready = (number: number, title = `Task ${number}`): OpenIssue => ({ number, title, labels: ['ready-for-agent'] });
+const noBlockers: (repo: string, issueNumber: number) => Promise<number> = async (): Promise<number> => 0;
 
 describe('pickNextRunnableIssue', () => {
-  const pick = (rows, last = new Map(), blockedByCount = noBlockers) => pickNextRunnableIssue(rows, REPO, last, blockedByCount);
+  const pick = (rows: OpenIssue[], last = new Map<string, number>(), blockedByCount = noBlockers) => pickNextRunnableIssue(rows, REPO, last, blockedByCount);
 
   it('returns null when no issue carries the ready-for-agent label', async () => {
     assert.equal(await pick([{ number: 23, title: 'x', labels: ['needs-triage'] }, { number: 99, title: 'y', labels: [] }, { number: 9, title: 'z', labels: ['ready-for-human'] }]), null);
   });
 
   it('ignores case and whitespace in the label name, and a missing labels array', async () => {
-    assert.equal((await pick([{ number: 1, title: 'no labels' }, { number: 2, title: 'x', labels: ['bug', ' Ready-For-Agent '] }]))?.number, 2);
+    assert.equal((await pick([{ number: 1, title: 'no labels' } as OpenIssue, { number: 2, title: 'x', labels: ['bug', ' Ready-For-Agent '] }]))?.number, 2);
   });
 
   it('picks the lowest ready-for-agent issue', async () => {
@@ -36,9 +41,8 @@ describe('pickNextRunnableIssue', () => {
   });
 
   it('skips a blocked issue for the next one, and treats a failed lookup as blocked', async () => {
-    /** @type {number[]} */
-    const asked = [];
-    const blocked = async (/** @type {string} */ _repo, /** @type {number} */ n) => {
+    const asked: number[] = [];
+    const blocked = async (_repo: string, n: number) => {
       asked.push(n);
       if (n === 1) throw new Error('gh api boom');
       return n === 2 ? 1 : 0;
@@ -50,7 +54,7 @@ describe('pickNextRunnableIssue', () => {
 });
 
 describe('partitionIssuesWithOpenPr', () => {
-  const pr = (url) => ({ url, headSha: 'h', baseRefName: 'main', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN' });
+  const pr = (url: string): OpenAgentPr => ({ url, headSha: 'h', baseRefName: 'main', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN' });
   const rows = [ready(1), ready(2), ready(3)];
   const openPrs = new Map([[1, pr('u1')], [2, pr('u2')]]);
   const bases = new Map([['main', 'm']]);
@@ -80,36 +84,46 @@ describe('cronAliasesFromEnv', () => {
   });
 });
 
-/** @param {any} r a result string, a full run outcome, or null */
-const outcomeOf = (r) => (r == null || typeof r === 'object' ? r : { result: r, mergeNetworkError: false });
+/** `r` is a result string, a full run outcome, or null. */
+const outcomeOf = (r: RunResult) => (r == null || typeof r === 'object' ? r : { result: r, mergeNetworkError: false });
+
+type ResultSpec = RunResult | ((issueNumber: number) => RunResult);
+
+type HarnessOptions = {
+  store?: ReturnType<typeof createMemoryStore>;
+  repos?: Record<string, string>;
+  issues?: Record<string, OpenIssue[]>;
+  openPrs?: Map<string, Map<number, OpenAgentPr>>;
+  result?: ResultSpec;
+  startIssueRun?: StartIssueRun;
+  listError?: string;
+  prLookupError?: string;
+  blockedByCount?: CronDeps['github']['blockedByCount'];
+  aliases?: string[];
+};
 
 /**
  * A tracer over fakes: `issues` maps repo → open issues, `repos` maps alias → repo. Every issue run
  * resolves with `result` (a result string, a full run outcome, or a function of the issue number
  * returning either) unless `startIssueRun` is overridden. State is the real Redis-shaped store over the memory fake, shared across ticks.
- * @param {any} [o]
  */
-function harness(o = {}) {
+function harness(o: HarnessOptions = {}) {
   const store = o.store ?? createMemoryStore();
   const state = createCronState({ store });
   const manualPause = createManualPause({ store });
   const usageLimit = createUsageLimitPause({ store });
   let sweeps = 0;
   const repos = o.repos ?? { bot: REPO, platformer: REPO_P };
-  let issues = o.issues ?? { [REPO]: [], [REPO_P]: [] };
-  let openPrs = o.openPrs ?? new Map();
+  let issues: Record<string, OpenIssue[]> = o.issues ?? { [REPO]: [], [REPO_P]: [] };
+  let openPrs: Map<string, Map<number, OpenAgentPr>> = o.openPrs ?? new Map();
   let baseSha = 'base0';
-  let lockHolder = null;
-  let paused = null;
-  /** @type {Array<{ issueNumber: number, alias: string | null, replyTo: string, trigger?: string }>} */
-  const runs = [];
-  /** @type {string[]} */
-  const listed = [];
-  /** @type {{ replyTo: string, text: string }[]} */
-  const sent = [];
-  /** @type {string[]} */
-  const warnings = [];
-  let result = 'result' in o ? o.result : 'merged';
+  let lockHolder: Awaited<ReturnType<CronDeps['lock']['current']>> = null;
+  let paused: Awaited<ReturnType<CronDeps['pause']['get']>> = null;
+  const runs: Parameters<StartIssueRun>[0][] = [];
+  const listed: string[] = [];
+  const sent: { replyTo: string; text: string }[] = [];
+  const warnings: string[] = [];
+  let result: ResultSpec = 'result' in o ? (o.result ?? null) : 'merged';
   const tracer = createCronTracer({
     startIssueRun:
       o.startIssueRun ??
@@ -126,12 +140,12 @@ function harness(o = {}) {
     state,
     workspaces: {
       async resolveIssueWorkspace(alias) {
-        if (!(alias in repos)) throw new Error(`Unknown workspace alias "${alias}"`);
+        if (alias === null || !(alias in repos)) throw new Error(`Unknown workspace alias "${alias}"`);
         return { alias, root: `/repos/${alias}` };
       },
     },
     github: {
-      resolveIssueRepo: async (_root, alias) => repos[alias],
+      resolveIssueRepo: async (_root, alias) => repos[alias ?? ''],
       async listOpenIssues(repo) {
         listed.push(repo);
         if (o.listError) throw new Error(o.listError);
@@ -144,7 +158,12 @@ function harness(o = {}) {
       },
       branchHeadSha: async () => baseSha,
     },
-    outbox: { send: async (m) => void sent.push(m) },
+    outbox: {
+      send: async (m) => {
+        sent.push(m);
+        return '1-0';
+      },
+    },
     aliases: o.aliases ?? ['bot', 'platformer'],
     intervalMs: 60_000,
     logger: { info() {}, warn: (m) => void warnings.push(String(m)) },
@@ -161,12 +180,12 @@ function harness(o = {}) {
     sent,
     warnings,
     ran: () => runs.map((r) => `${r.alias}#${r.issueNumber}`),
-    setIssues: (x) => void (issues = x),
-    setOpenPrs: (x) => void (openPrs = x),
-    setBaseSha: (x) => void (baseSha = x),
-    setResult: (x) => void (result = x),
-    holdLock: (x = { runId: 'manual' }) => void (lockHolder = x),
-    setPaused: (x = { reason: 'safe-restart' }) => void (paused = x),
+    setIssues: (x: typeof issues) => void (issues = x),
+    setOpenPrs: (x: typeof openPrs) => void (openPrs = x),
+    setBaseSha: (x: string) => void (baseSha = x),
+    setResult: (x: typeof result) => void (result = x),
+    holdLock: (x: typeof lockHolder = { runId: 'manual' }) => void (lockHolder = x),
+    setPaused: (x: typeof paused = { token: null, reason: 'safe-restart', pausedAt: null }) => void (paused = x),
   };
 }
 
@@ -186,7 +205,7 @@ describe('cron tick: when to skip', () => {
     assert.deepEqual(h.listed, []);
   });
 
-  for (const why of /** @type {const} */ (['busy', 'paused'])) {
+  for (const why of (['busy', 'paused'] as const)) {
     it(`counts a run refused as ${why} as a ${why} tick, with no message`, async () => {
       const h = harness({
         issues: { [REPO]: [ready(1)] },
@@ -289,7 +308,8 @@ describe('cron tick: progress', () => {
     assert.deepEqual(h.ran(), ['bot#7']);
   });
 
-  for (const result of ['no_changes', 'failed', 'timeout', 'limited', null]) {
+  const notProgress: RunResult[] = ['no_changes', 'failed', 'timeout', 'limited', null];
+  for (const result of notProgress) {
     it(`a ${result ?? 'missing'} result is not progress, so the next tick retries the issue`, async () => {
       const h = harness({ issues: { [REPO]: [ready(32)] }, result });
       assert.deepEqual(
@@ -316,7 +336,9 @@ describe('cron tick: progress', () => {
     await h.tracer.tick();
     assert.deepEqual(await h.tracer.tick(), { kind: 'no_eligible' });
     assert.deepEqual(h.ran(), ['bot#57', 'bot#57', 'bot#57']);
-    assert.match(h.sent.at(-1).text, /parking .*#57\. It made no changes in 3 runs in a row/);
+    const last = h.sent.at(-1);
+    assert.ok(last);
+    assert.match(last.text, /parking .*#57\. It made no changes in 3 runs in a row/);
     assert.equal(h.sent.length, 3);
   });
 
@@ -366,7 +388,7 @@ describe('cron tick: open agent PRs', () => {
   const conflicting = { url: PR, headSha: 'head1', baseRefName: 'main', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' };
 
   it('works an open-PR issue once per PR state, parks it while nothing changes, and retries when the base moves', async () => {
-    const h = harness({ issues: { [REPO]: [ready(39), ready(41)], [REPO_P]: [] }, result: (n) => (n === 39 ? 'no_changes' : 'failed') });
+    const h = harness({ issues: { [REPO]: [ready(39), ready(41)], [REPO_P]: [] }, result: (n: number) => (n === 39 ? 'no_changes' : 'failed') });
     h.setOpenPrs(new Map([[REPO, new Map([[39, conflicting]])]]));
     h.setBaseSha('main1');
     await h.tracer.tick();
@@ -397,8 +419,7 @@ describe('cron tick: open agent PRs', () => {
   });
 
   it('records the state of a PR a fresh run just opened, so a blocked one is not re-run next tick', async () => {
-    /** @type {ReturnType<typeof harness>} */
-    let h;
+    let h: ReturnType<typeof harness>;
     h = harness({
       issues: { [REPO]: [ready(5)] },
       startIssueRun: async (p) => {
@@ -415,11 +436,9 @@ describe('cron tick: open agent PRs', () => {
     const approvedPr = { url: PR, headSha: 'head1', baseRefName: 'main', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN' };
     /**
      * Each run leaves issue 5's PR open (the review approved, the merge failed) and resolves with `run`.
-     * @param {any} run
      */
-    function mergeFailed(run) {
-      /** @type {ReturnType<typeof harness>} */
-      let h;
+    function mergeFailed(run: RunOutcome) {
+      let h: ReturnType<typeof harness>;
       h = harness({
         issues: { [REPO]: [ready(5)], [REPO_P]: [] },
         startIssueRun: async (p) => {
@@ -480,8 +499,7 @@ describe('cron tick: open agent PRs', () => {
 
 describe('cron runOnce', () => {
   it('records each tick in Redis, and never overlaps two ticks', async () => {
-    /** @type {() => void} */
-    let finishRun = () => {};
+    let finishRun: () => void = (): void => {};
     const h = harness({
       issues: { [REPO]: [ready(1)] },
       startIssueRun: async (p) => {

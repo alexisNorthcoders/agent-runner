@@ -20,7 +20,7 @@ import { collectStatus } from '../src/statusCollect.ts';
 import { createRunQueue } from '../src/runQueue.ts';
 import { applyPauseCommand, createManualPause } from '../src/manualPause.ts';
 import { createUsageLimitPause } from '../src/usageLimitPause.ts';
-import { parsePauseArgs } from '../src/commands.js';
+import { parsePauseArgs } from '../src/commands.ts';
 import { createWorkspaceAllowlist } from '../src/workspaces.ts';
 import { ansi, plain, renderHistoryLines, renderStatus } from '../src/statusFormat.ts';
 

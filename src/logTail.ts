@@ -149,7 +149,7 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
       if (offset == null || read.from !== offset) resetReader();
       offset = read.to;
       const pieces = (partial + decoder.write(read.bytes)).split('\n');
-      partial = pieces.pop() as string;
+      partial = pieces.pop() ?? '';
       if (read.midLine) pieces.shift();
       fresh = pieces.map(clean);
       lines.push(...fresh);
@@ -199,6 +199,7 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
     /** The active run's recent lines, masked. */
     tail: (): { runId: string | null; lines: string[] } => ({ runId, lines: [...lines] }),
 
+    /** Listen for new lines. Returns the unsubscribe function. */
     onLines(fn: (e: LogLines) => void): () => void {
       listeners.add(fn);
       return () => listeners.delete(fn);

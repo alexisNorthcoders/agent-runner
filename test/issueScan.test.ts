@@ -1,39 +1,47 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createIssueScan } from '../src/issueScan.js';
+import { createIssueScan } from '../src/issueScan.ts';
 import { createCronState } from '../src/cronState.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';
 import { notifyingStore } from '../src/stateChanges.ts';
+import type { OpenAgentPr, OpenIssue } from '../src/issuePipeline/githubIssue.ts';
+import type { Store } from '../src/redisStore.ts';
+
+type IssueScanDeps = Parameters<typeof createIssueScan>[0];
 
 const REPO = 'o/bot';
 const REPO_P = 'o/plat';
-const issue = (number, ...labels) => ({ number, title: `Task ${number}`, labels });
-const link = (repo, n) => `https://github.com/${repo}/issues/${n}`;
-const pr = (url, headSha = 'h') => ({ url, headSha, baseRefName: 'main', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' });
+const issue = (number: number, ...labels: string[]): OpenIssue => ({ number, title: `Task ${number}`, labels });
+const link = (repo: string, n: number) => `https://github.com/${repo}/issues/${n}`;
+const pr = (url: string, headSha = 'h'): OpenAgentPr => ({ url, headSha, baseRefName: 'main', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' });
 
 /**
  * A `gh` fake per repo: its open issues, open agent PRs (by issue), blockers per issue (a number,
  * or an Error to throw), and the tip of `main`. `fail` makes every call for the repo throw.
- * @param {Record<string, { issues?: any[], prs?: Map<number, any>, blockers?: Record<number, number | Error>, fail?: boolean }>} repos
  */
-function fakeGithub(repos) {
-  /** @type {string[]} */
-  const calls = [];
-  const of = (repo) => {
+type RepoFixture = { issues?: OpenIssue[]; prs?: Map<number, OpenAgentPr>; blockers?: Record<number, number | Error>; fail?: boolean };
+
+function fakeGithub(repos: Record<string, RepoFixture>) {
+  const calls: string[] = [];
+  const of = (repo: string) => {
     const r = repos[repo];
     if (!r || r.fail) throw new Error(`gh: could not reach ${repo}`);
     return r;
   };
   return {
     calls,
-    resolveIssueRepo: async (_root, alias) => ({ bot: REPO, plat: REPO_P })[alias],
-    listOpenIssues: async (repo) => {
+    resolveIssueRepo: async (_root: string, alias: string | null): Promise<string> => {
+      const repo = alias === 'bot' ? REPO : alias === 'plat' ? REPO_P : undefined;
+      assert.ok(repo, `unexpected alias ${alias}`);
+      return repo;
+    },
+    listOpenIssues: async (repo: string) => {
       calls.push(`issues ${repo}`);
       return of(repo).issues ?? [];
     },
-    listOpenAgentPrsByIssue: async (repo) => of(repo).prs ?? new Map(),
+    listOpenAgentPrsByIssue: async (repo: string) => of(repo).prs ?? new Map(),
     branchHeadSha: async () => 'm',
-    blockedByCount: async (repo, n) => {
+    blockedByCount: async (repo: string, n: number) => {
       calls.push(`blockers ${repo}#${n}`);
       const b = of(repo).blockers?.[n] ?? 0;
       if (b instanceof Error) throw b;
@@ -42,16 +50,14 @@ function fakeGithub(repos) {
   };
 }
 
-const workspaces = (aliases = ['bot', 'plat']) => ({
+const workspaces = (aliases = ['bot', 'plat']): IssueScanDeps['workspaces'] => ({
   aliases: async () => aliases,
-  resolveIssueWorkspace: async (alias) => ({ alias, root: `/ws/${alias}` }),
+  resolveIssueWorkspace: async (alias) => ({ alias: alias ?? '', root: `/ws/${alias}` }),
 });
 
-/** @param {{ github: any, aliases?: string[], store?: any, now?: () => number }} p */
-function setup({ github, aliases, store = createMemoryStore(), now = () => Date.parse('2026-09-26T10:00:00Z') }) {
+function setup({ github, aliases, store = createMemoryStore(), now = () => Date.parse('2026-09-26T10:00:00Z') }: { github: IssueScanDeps['github']; aliases?: string[]; store?: Store; now?: () => number }) {
   const cronState = createCronState({ store });
-  /** @type {string[]} */
-  const changes = [];
+  const changes: string[] = [];
   const scan = createIssueScan({
     workspaces: workspaces(aliases),
     github,
@@ -139,8 +145,7 @@ describe('issue scan', () => {
 
   it("doesn't change any cron state", async () => {
     const github = fakeGithub({ [REPO]: { issues: [issue(5, 'ready-for-agent'), issue(6, 'ready-for-agent')], prs: new Map([[5, pr('u')]]) } });
-    /** @type {string[]} */
-    const writes = [];
+    const writes: string[] = [];
     const { scan, cronState } = setup({ github, aliases: ['bot'], store: notifyingStore(createMemoryStore(), (key) => void writes.push(key)) });
     await cronState.setPrAttempt(REPO, 5, 'h:m');
     writes.length = 0;
@@ -151,7 +156,7 @@ describe('issue scan', () => {
 
   it('keeps the last good data of a repo whose scan fails, marked stale', async () => {
     let t = Date.parse('2026-09-26T10:00:00Z');
-    const repos = { [REPO]: { issues: [issue(3, 'ready-for-agent')] }, [REPO_P]: { issues: [issue(1, 'ready-for-human')] } };
+    const repos: Record<string, RepoFixture> = { [REPO]: { issues: [issue(3, 'ready-for-agent')] }, [REPO_P]: { issues: [issue(1, 'ready-for-human')] } };
     const { scan } = setup({ github: fakeGithub(repos), now: () => t });
     await scan.scan();
     repos[REPO].fail = true;
@@ -187,7 +192,7 @@ describe('issue scan', () => {
           if (broken) throw new Error('bad map file');
           return ['bot'];
         },
-        resolveIssueWorkspace: async (alias) => ({ alias, root: `/ws/${alias}` }),
+        resolveIssueWorkspace: async (alias) => ({ alias: alias ?? '', root: `/ws/${alias}` }),
       },
       github,
       prAttempts: async () => new Map(),
@@ -213,10 +218,9 @@ describe('issue scan', () => {
 
   it('runs one scan at a time, and a scan asked for meanwhile runs once after it', async () => {
     const github = fakeGithub({ [REPO]: { issues: [] } });
-    /** @type {(() => void)[]} */
-    const gates = [];
+    const gates: (() => void)[] = [];
     const list = github.listOpenIssues;
-    github.listOpenIssues = async (repo) => {
+    github.listOpenIssues = async (repo: string) => {
       await new Promise((r) => gates.push(() => r(undefined)));
       return list(repo);
     };

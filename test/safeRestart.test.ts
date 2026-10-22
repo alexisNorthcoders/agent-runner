@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { decideSafeRestart, runSafeRestart } from '../src/safeRestart.js';
+import { decideSafeRestart, runSafeRestart } from '../src/safeRestart.ts';
 import { createRunLock } from '../src/runLock.ts';
 import { createPauseFlag } from '../src/pauseFlag.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';
@@ -27,8 +27,7 @@ function setup() {
   const store = createMemoryStore();
   const lock = createRunLock({ store, ttlSeconds: 60 });
   const pause = createPauseFlag({ store });
-  /** @type {string[]} */
-  const events = [];
+  const events: string[] = [];
   const deps = {
     lock,
     pause,

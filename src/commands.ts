@@ -3,23 +3,22 @@ import { ALL, DEFAULT_MANUAL_PAUSE_SECONDS, MAX_MANUAL_PAUSE_SECONDS, parseDurat
 /**
  * Parses the raw WhatsApp text the bot forwards (`claude…`) into a runner command. Pure.
  * User-facing commands keep the `claude` prefix even though the runner itself is agent-neutral.
- *
- * @typedef {{ kind: 'freeform', prompt: string, model?: string }
- *   | { kind: 'joplin', noteQuery: string, model?: string }
- *   | { kind: 'more', instructions: string, runRef?: string, model?: string }
- *   | { kind: 'issue', issueNumber: number, alias: string | null, extraInstructions: string }
- *   | { kind: 'stop' }
- *   | { kind: 'restart' }
- *   | { kind: 'status' }
- *   | { kind: 'history', count: number }
- *   | { kind: 'queue', clear: boolean }
- *   | PauseCommand
- *   | { kind: 'error', message: string }} Command
- *
- * @typedef {{ kind: 'pause', scope: string, seconds: number, reason: string }
- *   | { kind: 'resume', scope: string | null }} PauseCommand
- *   `scope` is `all` or a workspace alias; a resume with no scope clears every pause.
  */
+export type Command = { kind: 'freeform'; prompt: string; model?: string } |
+{ kind: 'joplin'; noteQuery: string; model?: string } |
+{ kind: 'more'; instructions: string; runRef?: string; model?: string } |
+{ kind: 'issue'; issueNumber: number; alias: string | null; extraInstructions: string } |
+{ kind: 'stop' } |
+{ kind: 'restart' } |
+{ kind: 'status' } |
+{ kind: 'history'; count: number } |
+{ kind: 'queue'; clear: boolean } |
+  PauseCommand |
+{ kind: 'error'; message: string };
+
+/** `scope` is `all` or a workspace alias; a resume with no scope clears every pause. */
+export type PauseCommand = { kind: 'pause'; scope: string; seconds: number; reason: string } |
+{ kind: 'resume'; scope: string | null };
 
 export const USAGE = `Usage:
 claude <instructions>  run the agent in ~/Projects
@@ -44,7 +43,7 @@ const MORE_USAGE = 'Usage: claude:more [haiku|sonnet|opus:] [run-id prefix] <ins
 /** Run ids are timestamps like 2026-09-24T11-00-00-000Z: only a first word shaped like one is a run reference. */
 const RUN_PREFIX = /^\d{4}-[\dTZ-]*$/;
 
-const SUBCOMMANDS = /** @type {const} */ (['stop', 'restart', 'status']);
+const SUBCOMMANDS = ['stop', 'restart', 'status'] as const;
 
 export const DEFAULT_HISTORY_COUNT = 10;
 export const MAX_HISTORY_COUNT = 30;
@@ -54,29 +53,27 @@ export const PAUSE_USAGE = 'Usage: claude:pause [<alias>] [duration] [reason]  (
 /**
  * The words after `pause` / `resume`, shared with the `agent:pause` CLI.
  * `pause [<alias>|all] [<duration>] [reason…]`: a leading duration means the general pause.
- * @param {'pause' | 'resume'} verb
- * @param {string[]} words
- * @returns {PauseCommand | { kind: 'error', message: string }}
  */
-export function parsePauseArgs(verb, words) {
+export function parsePauseArgs(verb: 'pause' | 'resume', words: string[]): PauseCommand | { kind: 'error'; message: string } {
   const w = words.filter(Boolean);
   if (verb === 'resume') {
     if (w.length > 1) return { kind: 'error', message: PAUSE_USAGE };
     return { kind: 'resume', scope: w[0] ? w[0].toLowerCase() : null };
   }
+  let i = 0;
   let scope = ALL;
-  if (w.length && parseDuration(w[0]) == null) scope = /** @type {string} */ (w.shift()).toLowerCase();
+  if (i < w.length && parseDuration(w[i]) == null) scope = w[i++].toLowerCase();
   let seconds = DEFAULT_MANUAL_PAUSE_SECONDS;
-  if (w.length && parseDuration(w[0]) != null) seconds = /** @type {number} */ (parseDuration(/** @type {string} */ (w.shift())));
+  const duration = i < w.length ? parseDuration(w[i]) : null;
+  if (duration != null) {
+    seconds = duration;
+    i++;
+  }
   if (seconds > MAX_MANUAL_PAUSE_SECONDS) return { kind: 'error', message: PAUSE_USAGE };
-  return { kind: 'pause', scope, seconds, reason: w.join(' ') };
+  return { kind: 'pause', scope, seconds, reason: w.slice(i).join(' ') };
 }
 
-/**
- * @param {string} text
- * @returns {Command}
- */
-export function parseCommand(text) {
+export function parseCommand(text: string): Command {
   const trimmed = typeof text === 'string' ? text.trim() : '';
   const m = trimmed.match(/^claude(?=$|[\s:])(.*)$/is);
   if (!m) return { kind: 'error', message: `Not a claude command.\n\n${USAGE}` };
@@ -87,8 +84,8 @@ export function parseCommand(text) {
   const sub = rest.match(/^:(\S+)(?:\s([\s\S]*))?$/);
   if (sub) {
     const name = sub[1].toLowerCase();
-    if (/** @type {readonly string[]} */ (SUBCOMMANDS).includes(name)) {
-      return { kind: /** @type {'stop' | 'restart' | 'status'} */ (name) };
+    if ((SUBCOMMANDS as readonly string[]).includes(name)) {
+      return { kind: (name as 'stop' | 'restart' | 'status') };
     }
     if (name === 'more') {
       const prefix = (sub[2] ?? '').trim().match(/^(haiku|sonnet|opus)\s*:\s*([\s\S]*)$/i);

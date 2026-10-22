@@ -14,21 +14,21 @@ import { createAgentBackend } from './agentBackend/index.ts';
 import { createRunHistory } from './runHistory.ts';
 import { createActiveRuns } from './activeRuns.ts';
 import { createCronState } from './cronState.ts';
-import { createCronTracer } from './cronTracer.js';
+import { createCronTracer } from './cronTracer.ts';
 import { collectStatus } from './statusCollect.ts';
 import { createJoplinClient } from './joplin.ts';
 import { buildFreeformPreamble, buildPreamble } from './preamble.ts';
 import { createRunner } from './runner.js';
-import { createHttpServer } from './http.js';
+import { createHttpServer } from './http.ts';
 import { createWorkspaceAllowlist } from './workspaces.ts';
 import { createIssuePipeline } from './issuePipeline/index.ts';
 import { createStateChanges, notifyingStore } from './stateChanges.ts';
 import { collectOfficeSnapshot } from './officeSnapshot.ts';
 import { createOfficeFeed } from './officeFeed.ts';
 import { createLogTail } from './logTail.ts';
-import { createJobLauncher } from './jobProcess.js';
-import { createJobScheduler, jobSchedule, loadJobsFile } from './scheduledJobs.js';
-import { createIssueScan } from './issueScan.js';
+import { createJobLauncher } from './jobProcess.ts';
+import { createJobScheduler, jobSchedule, loadJobsFile } from './scheduledJobs.ts';
+import { createIssueScan } from './issueScan.ts';
 import { createSessionWatch } from './sessionWatch.ts';
 
 async function main() {

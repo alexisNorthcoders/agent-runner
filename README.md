@@ -266,7 +266,7 @@ read-only: it takes no input and there is no control route beside it.
 
 ### Issue scan
 
-The office shows the work waiting in each repo (`src/issueScan.js`). The runner lists the open
+The office shows the work waiting in each repo (`src/issueScan.ts`). The runner lists the open
 issues of every allowlisted workspace's GitHub repo with `gh` on startup, every
 `ISSUE_SCAN_INTERVAL_MS` (default 5 minutes) and right after each run ends, and caches the result
 for the feed (`issues` above), so the page never talks to GitHub. Per repo: its `ready-for-agent`
@@ -300,7 +300,7 @@ curl -sN localhost:3790/office/feed
 
 ### Snapshot shape
 
-`OfficeSnapshot` in `src/officeSnapshot.ts` (JSDoc-typed) is the contract. It is built from the
+`OfficeSnapshot` in `src/officeSnapshot.ts` is the contract. It is built from the
 same status snapshot as `npm run agent:status`, plus the live phase and progress the runner holds
 in memory, so the numbers match. It carries no reply addresses or prompts, and no paths but each
 interactive session's `cwd`.
@@ -611,16 +611,16 @@ are told the same rule in their prompt preamble.
 
 - `src/main.js`: wiring (Redis, HTTP on 127.0.0.1, startup recovery).
 - `src/runner.js`: command handling, the run lifecycle and status.
-- `src/commands.js`: parses `claude…` text.
+- `src/commands.ts`: parses `claude…` text.
 - `src/preamble.ts`: the rules prepended to every agent prompt. Freeform and Joplin runs add the git rules, and issue runs don't, since their post-run commits and merges.
 - `src/agentBackend/`: the `AgentBackend` seam. `claude.ts` holds everything Claude-specific (CLI
   flags, stream-json parsing, cost/tokens, `/implement`).
 - `src/runLock.ts`, `src/runQueue.ts`, `src/pauseFlag.ts`, `src/manualPause.ts`, `src/outbox.ts`, `src/cronState.ts`: Redis state over
   `src/redisStore.ts`.
-- `src/cronTracer.js`: the cron issue tracer (picking, parking, progress), over `runner.startIssueRun`.
-- `src/scheduledJobs.js`: scheduled jobs' config and once-a-day scheduler, over `runner.submitJob`.
-  `src/jobProcess.js` runs a job's command with its output appended to the log file.
-- `src/safeRestart.js` + `bin/safe-restart.js`: restart decision logic and the CLI.
+- `src/cronTracer.ts`: the cron issue tracer (picking, parking, progress), over `runner.startIssueRun`.
+- `src/scheduledJobs.ts`: scheduled jobs' config and once-a-day scheduler, over `runner.submitJob`.
+  `src/jobProcess.ts` runs a job's command with its output appended to the log file.
+- `src/safeRestart.ts` + `bin/safe-restart.js`: restart decision logic and the CLI.
 - `src/joplin.ts`: Joplin Data API client.
 - `src/workspaces.ts`: the issue-run workspace allowlist.
 - `src/issuePipeline/`: issue runs. `index.ts` is the entry point (`prepare` before the agent,

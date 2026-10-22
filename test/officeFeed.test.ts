@@ -5,7 +5,6 @@ import { createOfficeFeed } from '../src/officeFeed.ts';
 import { createStateChanges } from '../src/stateChanges.ts';
 import { recordOrEmpty } from '../src/narrow.ts';
 import type { LogLines } from '../src/logTail.ts';
-import type { AddressInfo } from 'net';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -24,7 +23,9 @@ async function setup(opts = {}) {
   });
   const server = createServer((req, res) => feed.attach(req, res));
   await new Promise((r) => server.listen(0, '127.0.0.1', () => r(undefined)));
-  const port = (server.address() as AddressInfo).port;
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const { port } = address;
   const readers: AbortController[] = [];
 
   async function connect() {
@@ -120,7 +121,7 @@ describe('office feed', () => {
   });
 
   it('builds nothing while nobody is connected, and forgets a client that disconnects', async () => {
-    let builds: number = 0;
+    let builds = 0;
     t = await setup({ snapshot: async () => ({ n: ++builds }) });
     t.changes.notify('queue');
     await wait(50);

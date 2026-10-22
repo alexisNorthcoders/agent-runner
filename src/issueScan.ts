@@ -1,5 +1,7 @@
-import { classifyReadyIssues, hasLabel } from './cronTracer.js';
+import { classifyReadyIssues, hasLabel } from './cronTracer.ts';
 import { errorText } from './narrow.ts';
+import type { createGithubIssues, OpenIssue } from './issuePipeline/githubIssue.ts';
+import type { NotifyChange } from './stateChanges.ts';
 
 /**
  * The issue scan: the work waiting in each allowlisted workspace's GitHub repo, for the office
@@ -7,85 +9,73 @@ import { errorText } from './narrow.ts';
  * issues with `gh` on startup, every `intervalMs` and after each run, and caches the result for
  * the office feed, so the page never talks to GitHub.
  *
- * `ready-for-agent` issues are split the way the cron issue tracer (src/cronTracer.js) would see
+ * `ready-for-agent` issues are split the way the cron issue tracer (src/cronTracer.ts) would see
  * them, with its own helpers: **parked** (an open agent PR whose current state the cron already
  * attempted), **blocked** (an open native dependency, or a failed lookup), else **runnable**. The
  * scan only reads the cron's PR attempts; it never writes cron state.
  *
  * A repo whose scan fails keeps its last good data, marked `stale` (so does every repo when the
  * allowlist can't be read). Errors are logged here, not put in the feed, which carries no paths.
- *
- * @typedef {{ number: number, title: string, url: string }} OfficeIssue
- * @typedef {OfficeIssue & { prUrl: string }} OfficeParkedIssue
- *
- * @typedef {{
- *   alias: string,
- *   repo: string | null,
- *   scannedAt: string | null,
- *   stale: boolean,
- *   runnable: OfficeIssue[],
- *   blocked: OfficeIssue[],
- *   parked: OfficeParkedIssue[],
- *   readyForHuman: OfficeIssue[],
- *   needsTriage: number,
- *   needsInfo: number,
- * }} OfficeIssueRepo
- *   One workspace's repo. `scannedAt`: when this data was read (null if it never has been).
- *   `stale`: the latest scan of it failed, so this is older data. `runnable`, `blocked` and
- *   `parked` are its `ready-for-agent` issues, and `parked` carries the open PR's link.
- *
- * @typedef {{ scannedAt: string, repos: OfficeIssueRepo[] }} OfficeIssues
- *   `scannedAt`: when the latest scan ended. `repos`: in the allowlist's (alias) order.
  */
+export type OfficeIssue = { number: number; title: string; url: string };
+
+export type OfficeParkedIssue = OfficeIssue & { prUrl: string };
+
+/**
+ * One workspace's repo. `scannedAt`: when this data was read (null if it never has been).
+ * `stale`: the latest scan of it failed, so this is older data. `runnable`, `blocked` and
+ * `parked` are its `ready-for-agent` issues, and `parked` carries the open PR's link.
+ */
+export type OfficeIssueRepo = {
+  alias: string;
+  repo: string | null;
+  scannedAt: string | null;
+  stale: boolean;
+  runnable: OfficeIssue[];
+  blocked: OfficeIssue[];
+  parked: OfficeParkedIssue[];
+  readyForHuman: OfficeIssue[];
+  needsTriage: number;
+  needsInfo: number;
+};
+
+/** `scannedAt`: when the latest scan ended. `repos`: in the allowlist's (alias) order. */
+export type OfficeIssues = { scannedAt: string; repos: OfficeIssueRepo[] };
 
 export const ISSUE_SCAN_INTERVAL_MS = 5 * 60_000;
 
-/** @param {{ number: number }} a @param {{ number: number }} b */
-const byNumber = (a, b) => a.number - b.number;
+const byNumber = (a: { number: number }, b: { number: number }) => a.number - b.number;
 
 const READY_FOR_HUMAN_LABEL = 'ready-for-human';
 const NEEDS_TRIAGE_LABEL = 'needs-triage';
 const NEEDS_INFO_LABEL = 'needs-info';
 
-/**
- * @param {{
- *   workspaces: {
- *     aliases: () => Promise<string[]>,
- *     resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }>,
- *   },
- *   github: Pick<ReturnType<typeof import('./issuePipeline/githubIssue.ts').createGithubIssues>,
- *     'resolveIssueRepo' | 'listOpenIssues' | 'blockedByCount' | 'listOpenAgentPrsByIssue' | 'branchHeadSha'>,
- *   prAttempts: () => Promise<Map<string, string>>,
- *   intervalMs?: number,
- *   now?: () => number,
- *   onChange?: import('./stateChanges.ts').NotifyChange,
- *   logger?: Pick<Console, 'info' | 'warn'>,
- * }} deps
- *   `prAttempts`: the cron's recorded PR attempts (`cronState.prAttempts`), read only.
- */
-export function createIssueScan({ workspaces, github, prAttempts, intervalMs = ISSUE_SCAN_INTERVAL_MS, now = Date.now, onChange = () => {}, logger = console }) {
-  /** @type {OfficeIssues | null} */
-  let result = null;
-  /** @type {Promise<void> | null} */
-  let running = null;
+/** `prAttempts`: the cron's recorded PR attempts (`cronState.prAttempts`), read only. */
+export function createIssueScan({ workspaces, github, prAttempts, intervalMs = ISSUE_SCAN_INTERVAL_MS, now = Date.now, onChange = () => {}, logger = console }: {
+    workspaces: {
+      aliases: () => Promise<string[]>;
+      resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string; root: string }>;
+    };
+    github: Pick<ReturnType<typeof createGithubIssues>, 'resolveIssueRepo' | 'listOpenIssues' | 'blockedByCount' | 'listOpenAgentPrsByIssue' | 'branchHeadSha'>;
+    prAttempts: () => Promise<Map<string, string>>;
+    intervalMs?: number;
+    now?: () => number;
+    onChange?: NotifyChange;
+    logger?: Pick<Console, 'info' | 'warn'>;
+  }) {
+  let result: OfficeIssues | null = null;
+  let running: Promise<void> | null = null;
   let again = false;
-  /** @type {NodeJS.Timeout | null} */
-  let timer = null;
+  let timer: NodeJS.Timeout | null = null;
 
-  /**
-   * @param {string} alias
-   * @param {string} scannedAt
-   * @returns {Promise<OfficeIssueRepo>}
-   */
-  async function scanRepo(alias, scannedAt) {
+  async function scanRepo(alias: string, scannedAt: string): Promise<OfficeIssueRepo> {
     const ws = await workspaces.resolveIssueWorkspace(alias);
     const repo = await github.resolveIssueRepo(ws.root, alias);
     const rows = await github.listOpenIssues(repo);
     const ready = await classifyReadyIssues(github, repo, rows, await prAttempts());
-    /** @param {import('./issuePipeline/githubIssue.ts').OpenIssue} r @returns {OfficeIssue} */
-    const item = (r) => ({ number: r.number, title: r.title, url: `https://github.com/${repo}/issues/${r.number}` });
+    const item = (r: OpenIssue): OfficeIssue => ({ number: r.number, title: r.title, url: `https://github.com/${repo}/issues/${r.number}` });
     const titles = new Map(rows.map((r) => [r.number, r.title]));
-    const labelled = (/** @type {string} */ label) => rows.filter((r) => hasLabel(r, label)).sort(byNumber);
+    const labelled = (label: string) => rows.filter((r) => hasLabel(r, label)).sort(byNumber);
     return {
       alias,
       repo,
@@ -101,8 +91,8 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
     };
   }
 
-  /** @param {string} alias @returns {OfficeIssueRepo} the repo's last good data, marked stale */
-  function staleRepo(alias) {
+  /** @returns the repo's last good data, marked stale */
+  function staleRepo(alias: string): OfficeIssueRepo {
     const last = result?.repos.find((r) => r.alias === alias);
     if (last) return { ...last, stale: true };
     return { alias, repo: null, scannedAt: null, stale: true, runnable: [], blocked: [], parked: [], readyForHuman: [], needsTriage: 0, needsInfo: 0 };
@@ -119,8 +109,7 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
       onChange('issue-scan');
       return;
     }
-    /** @type {OfficeIssueRepo[]} */
-    const repos = [];
+    const repos: OfficeIssueRepo[] = [];
     for (const alias of aliases) {
       try {
         repos.push(await scanRepo(alias, scannedAt));
@@ -136,9 +125,8 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
   /**
    * Scan every workspace's repo. One scan runs at a time: asked for while one runs, it runs once
    * more after it, and the promise settles when that one has.
-   * @returns {Promise<void>}
    */
-  function scan() {
+  function scan(): Promise<void> {
     if (running) {
       again = true;
       return running;
@@ -159,8 +147,8 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
   return {
     scan,
 
-    /** The latest scan, or null before the first one ends. @returns {OfficeIssues | null} */
-    current: () => result,
+    /** The latest scan, or null before the first one ends. */
+    current: (): OfficeIssues | null => result,
 
     /** Scan now, then every `intervalMs`. */
     start() {
