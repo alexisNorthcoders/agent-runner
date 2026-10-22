@@ -1,69 +1,73 @@
 import { readFile } from 'fs/promises';
 import { basename, join } from 'path';
 import { autoMergeAllowedByReviewGate, ghMessageLooksLikePrAlreadyExists, normalizePrReviewComment, parseAutofixNoChanges, pickPrResultAfterGhFlow } from './decisionLogic.ts';
-import { runPostReviewAutofixMergeFlow } from './reviewFollowUp.js';
-import { githubMergeMethodSummaryLabel } from './githubPr.js';
-import { truncate } from './gitWorkspace.js';
+import { runPostReviewAutofixMergeFlow } from './reviewFollowUp.ts';
+import { githubMergeMethodSummaryLabel } from './githubPr.ts';
+import { truncate } from './gitWorkspace.ts';
+import { execErrorText } from './exec.ts';
 import { buildPostCloseChangesEmail } from './mailer.ts';
+import type { CommitResult, createGitWorkspace } from './gitWorkspace.ts';
+import type { MergeResult, PrResult, createGithubPr } from './githubPr.ts';
+import type { AgentResult } from '../agentBackend/index.ts';
+import type { createLlm } from './llm.ts';
+import type { SendMail } from './mailer.ts';
+import type { PipelineSettings } from './settings.ts';
 
 /**
  * Everything after the agent exits on an issue run: commit, push, open (or reuse) the PR, LLM
  * review posted as a PR comment, one autofix pass on `VERDICT: REQUEST_CHANGES`, merge when the
  * review gate passes, wait for the issue to close, the summary email, and back to the default
  * branch. Each step can be turned off with its `CLAUDE_POST_RUN*` flag.
- *
- * @typedef {{
- *   ran: boolean,
- *   note: string,
- *   skipReason?: string,
- *   commit?: import('./gitWorkspace.js').CommitResult,
- *   workBranch?: { didCheckoutNew: boolean, branchName: string, prBase: string },
- *   pushResult?: { ok: boolean, error?: string } | null,
- *   prResult?: { ok: boolean, url?: string, error?: string } | null,
- *   prOutcome?: 'listed' | 'created' | 'recovered' | null,
- *   prCommentResult?: { ok: boolean, error?: string, skipped?: boolean } | null,
- *   reviewOutcome?: string,
- *   review?: string,
- *   reviewVerdict?: string,
- *   postReviewAutofix?: AutofixResult | null,
- *   prAutoMergeResult?: import('./githubPr.js').MergeResult | null,
- *   issueCloseWait?: { closed?: boolean, timedOut?: boolean } | null,
- *   postCloseChangesEmail?: { ok: boolean, to?: string, error?: string, step?: string } | null,
- *   returnToDefaultBranch?: { ok: boolean, defaultBranch?: string, reason?: string, error?: string } | null,
- *   wip?: import('./gitWorkspace.js').CommitResult,
- * }} PostRunResult
- *
- * @typedef {{
- *   ok: boolean,
- *   mergeBlocked: boolean,
- *   noChanges?: boolean,
- *   noChangesReason?: string,
- *   detail: string,
- *   commit?: import('./gitWorkspace.js').CommitResult,
- *   pushResult?: { ok: boolean, error?: string },
- *   agentOutcome?: string,
- *   wip?: import('./gitWorkspace.js').CommitResult,
- * }} AutofixResult
- *   `wip` is the leftover work of an autofix the usage limit cut short, committed but not pushed.
- *
- * @typedef {(p: { prompt: string, label: string }) => Promise<Pick<import('../agentBackend/index.ts').AgentResult, 'outcome' | 'exitCode' | 'text' | 'stderr'>>} RunAgent
- *   Runs a follow-up agent pass in the repo (the autofix). Never rejects.
  */
+export type PostRunResult = {
+  ran: boolean;
+  note: string;
+  skipReason?: string;
+  commit?: CommitResult;
+  workBranch?: { didCheckoutNew: boolean; branchName: string; prBase: string };
+  pushResult?: { ok: boolean; error?: string } | null;
+  prResult?: PrResult | null;
+  prOutcome?: 'listed' | 'created' | 'recovered' | null;
+  prCommentResult?: { ok: boolean; error?: string; skipped?: boolean } | null;
+  reviewOutcome?: string;
+  review?: string;
+  reviewVerdict?: string;
+  postReviewAutofix?: AutofixResult | null;
+  prAutoMergeResult?: MergeResult | null;
+  issueCloseWait?: IssueCloseWait | null;
+  postCloseChangesEmail?: { ok: boolean; to?: string; error?: string; step?: string } | null;
+  returnToDefaultBranch?: { ok: boolean; defaultBranch?: string; reason?: string; error?: string } | null;
+  wip?: CommitResult;
+};
+
+export type IssueCloseWait = { closed?: boolean; timedOut?: boolean };
+
+/** `wip` is the leftover work of an autofix the usage limit cut short, committed but not pushed. */
+export type AutofixResult = {
+  ok: boolean;
+  mergeBlocked: boolean;
+  noChanges?: boolean;
+  noChangesReason?: string;
+  detail: string;
+  commit?: CommitResult;
+  pushResult?: { ok: boolean; error?: string };
+  agentOutcome?: string;
+  wip?: CommitResult;
+};
+
+/** Runs a follow-up agent pass in the repo (the autofix). Never rejects. */
+export type RunAgent = (p: { prompt: string; label: string }) => Promise<Pick<AgentResult, 'outcome' | 'exitCode' | 'text' | 'stderr'>>;
 
 /**
  * True only when the PR is known to have landed: merged directly, or auto-merge queued and the
  * issue then closed. A queued-but-pending auto-merge does not count.
- * @param {{ prAutoMergeResult?: { ok: boolean, mergedDirectly?: boolean } | null, issueCloseWait?: { closed?: boolean } | null }} p
  */
-export function postRunPrLanded({ prAutoMergeResult, issueCloseWait }) {
+export function postRunPrLanded({ prAutoMergeResult, issueCloseWait }: { prAutoMergeResult?: { ok: boolean; mergedDirectly?: boolean } | null; issueCloseWait?: { closed?: boolean } | null }) {
   if (!prAutoMergeResult?.ok) return false;
   return Boolean(prAutoMergeResult.mergedDirectly || issueCloseWait?.closed);
 }
 
-/**
- * @param {{ prompt: string, reviewMaxChars: number, issueNumber: number, prUrl: string, bodyMarkdown: string }} p
- */
-export function buildAutofixPrompt({ prompt, reviewMaxChars, issueNumber, prUrl, bodyMarkdown }) {
+export function buildAutofixPrompt({ prompt, reviewMaxChars, issueNumber, prUrl, bodyMarkdown }: { prompt: string; reviewMaxChars: number; issueNumber: number; prUrl: string; bodyMarkdown: string }) {
   const reviewBody = truncate(String(bodyMarkdown || '').trim(), reviewMaxChars);
   return [
     'You are continuing work on an existing pull request branch in this repository.',
@@ -88,10 +92,9 @@ export function buildAutofixPrompt({ prompt, reviewMaxChars, issueNumber, prUrl,
 }
 
 /**
- * @param {number} issueNumber @param {{ branchName: string, prBase: string }} workBranch @param {string} userPrompt
- * @param {'cron' | 'manual'} [trigger] how the issue run was started; only changes the wording
+ * @param trigger how the issue run was started; only changes the wording
  */
-export function buildPrBody(issueNumber, workBranch, userPrompt, trigger = 'manual') {
+export function buildPrBody(issueNumber: number, workBranch: { branchName: string; prBase: string }, userPrompt: string, trigger: 'cron' | 'manual' = 'manual') {
   return [
     `Fixes #${issueNumber}`,
     '',
@@ -108,23 +111,19 @@ export function buildPrBody(issueNumber, workBranch, userPrompt, trigger = 'manu
   ].join('\n');
 }
 
-/**
- * @param {{
- *   git: ReturnType<typeof import('./gitWorkspace.js').createGitWorkspace>,
- *   prs: ReturnType<typeof import('./githubPr.js').createGithubPr>,
- *   llm: ReturnType<typeof import('./llm.ts').createLlm>,
- *   sendMail: import('./mailer.ts').SendMail,
- *   settings: import('./settings.ts').PipelineSettings,
- *   log?: (message: string, detail?: unknown) => void,
- * }} deps
- */
-export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {} }) {
+export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {} }: {
+    git: ReturnType<typeof createGitWorkspace>;
+    prs: ReturnType<typeof createGithubPr>;
+    llm: ReturnType<typeof createLlm>;
+    sendMail: SendMail;
+    settings: PipelineSettings;
+    log?: (message: string, detail?: unknown) => void;
+  }) {
   /**
    * A pass that didn't finish: commit its leftover work as WIP on the issue branch, so the tree is
    * clean and the next run resumes it. Null when there was nothing to commit or the commit failed.
-   * @param {string} repo @param {number} issueNumber @param {string} what
    */
-  async function commitLeftovers(repo, issueNumber, what) {
+  async function commitLeftovers(repo: string, issueNumber: number, what: string) {
     if (!(await git.statusPorcelain(repo).catch(() => ''))) return null;
     const wip = await git.commitWip(repo, issueNumber);
     if (wip.ok) return wip;
@@ -134,10 +133,8 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
 
   /**
    * Exactly one agent pass after REQUEST_CHANGES, then commit + push on the same branch.
-   * @param {{ repo: string, issueNumber: number, prUrl: string, bodyMarkdown: string, prompt: string, runAgent: RunAgent }} p
-   * @returns {Promise<AutofixResult>}
    */
-  async function runAutofix({ repo, issueNumber, prUrl, bodyMarkdown, prompt, runAgent }) {
+  async function runAutofix({ repo, issueNumber, prUrl, bodyMarkdown, prompt, runAgent }: { repo: string; issueNumber: number; prUrl: string; bodyMarkdown: string; prompt: string; runAgent: RunAgent }): Promise<AutofixResult> {
     log('post-review autofix: starting a single agent pass', { issueNumber });
     const pre = await git.headSha(repo).catch(() => '');
     const agent = await runAgent({
@@ -184,8 +181,7 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
       };
     }
 
-    /** @type {import('./gitWorkspace.js').CommitResult} */
-    let commit;
+    let commit: CommitResult;
     if (wait.dirty) {
       commit = await git.commitWork(repo, `# GitHub issue #${issueNumber}\n\n**Title:** address automated PR review feedback`);
       if (!commit.ok) {
@@ -218,8 +214,7 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
     return { ok: true, mergeBlocked: false, detail: `Autofix applied one pass, committed \`${commit.sha}\`, and pushed to origin.`, commit, pushResult, agentOutcome };
   }
 
-  /** @param {string} repo @param {number} issueNumber @param {string | undefined} prUrl */
-  async function sendIssueClosedEmail(repo, issueNumber, prUrl) {
+  async function sendIssueClosedEmail(repo: string, issueNumber: number, prUrl: string | undefined) {
     const details = await prs.issueDetails(repo, issueNumber);
     if (!details.ok) return { ok: false, step: 'gh_issue_view', error: details.error };
     if (details.state !== 'CLOSED') return { ok: false, step: 'issue_state', error: `Expected GitHub state CLOSED, got "${details.state}".` };
@@ -240,20 +235,16 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
     return mail.ok ? { ok: true, to: mail.to, step: 'sent' } : { ok: false, step: 'smtp', error: mail.error };
   }
 
-  /**
-   * @param {{
-   *   repo: string,
-   *   userPrompt: string,
-   *   agentOk: boolean,
-   *   issueNumber: number,
-   *   preAgentHeadSha?: string | null,
-   *   runAgent: RunAgent,
-   *   trigger?: 'cron' | 'manual',
-   * }} p
-   *   `trigger` (how the issue run was started) only changes the PR description wording.
-   * @returns {Promise<PostRunResult>}
-   */
-  async function runPostRun({ repo, userPrompt, agentOk, issueNumber, preAgentHeadSha = null, runAgent, trigger = 'manual' }) {
+  /** `trigger` (how the issue run was started) only changes the PR description wording. */
+  async function runPostRun({ repo, userPrompt, agentOk, issueNumber, preAgentHeadSha = null, runAgent, trigger = 'manual' }: {
+      repo: string;
+      userPrompt: string;
+      agentOk: boolean;
+      issueNumber: number;
+      preAgentHeadSha?: string | null;
+      runAgent: RunAgent;
+      trigger?: 'cron' | 'manual';
+    }): Promise<PostRunResult> {
     log('start', { repo, agentOk, issueNumber, preAgentHeadSha: preAgentHeadSha ? `${preAgentHeadSha.slice(0, 7)}…` : null });
     if (!settings.postRun) return { ran: false, note: '', skipReason: 'disabled' };
 
@@ -290,12 +281,11 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
     try {
       workBranch = await git.prepareWorkBranch(repo);
     } catch (e) {
-      const err = e?.stderr || e?.message || String(e);
+      const err = execErrorText(e);
       return { ran: true, note: `Could not prepare a feature branch: ${err}. No commit was made.`, skipReason: 'branch_prep_failed' };
     }
 
-    /** @type {import('./gitWorkspace.js').CommitResult} */
-    const commit = wait.dirty
+    const commit: CommitResult = wait.dirty
       ? await git.commitWork(repo, userPrompt)
       : { ok: true, sha: await git.headShaShort(repo), message: await git.lastCommitSubject(repo) };
     log('commit', commit);
@@ -305,10 +295,9 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
       return { ran: true, note: 'Git activity was detected but no diff text could be read for review (try a manual push/PR).', skipReason: 'empty_diff' };
     }
 
-    let pushResult = null;
-    let prResult = null;
-    /** @type {'listed' | 'created' | 'recovered' | null} */
-    let prOutcome = null;
+    let pushResult: PostRunResult['pushResult'] = null;
+    let prResult: PrResult | null = null;
+    let prOutcome: 'listed' | 'created' | 'recovered' | null = null;
     if (commit.ok && settings.push) {
       pushResult = (await git.hasOrigin(repo))
         ? await git.pushHead(repo)
@@ -328,7 +317,7 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
             body: buildPrBody(issueNumber, workBranch, userPrompt, trigger),
           });
           const recoveredUrl = !created.ok && ghMessageLooksLikePrAlreadyExists(created.error) ? await prs.firstOpenPrUrlForHead(repo, workBranch.branchName) : null;
-          const picked = pickPrResultAfterGhFlow({ listedOk: false, createOk: created.ok, createUrl: created.url, createError: created.error, recoveredUrl });
+          const picked = pickPrResultAfterGhFlow({ listedOk: false, createOk: created.ok, createUrl: created.ok ? created.url : undefined, createError: created.ok ? undefined : created.error, recoveredUrl });
           prResult = picked.ok && picked.url ? { ok: true, url: picked.url } : created;
           prOutcome = picked.ok && picked.url ? picked.prOutcome : null;
         }
@@ -342,7 +331,7 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
     const reviewOutcome = llmOut.outcome;
     log('LLM review', { outcome: reviewOutcome, reviewVerdict, model: llmOut.model, tokens: llmOut.usage.total });
 
-    let prCommentResult = null;
+    let prCommentResult: PostRunResult['prCommentResult'] = null;
     if (prResult?.ok) {
       prCommentResult =
         reviewOutcome === 'success'
@@ -370,13 +359,13 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
       logPost: log,
     });
 
-    const postCloseChangesEmail = issueCloseWait?.closed ? await sendIssueClosedEmail(repo, issueNumber, prResult?.url) : null;
+    const postCloseChangesEmail = issueCloseWait?.closed ? await sendIssueClosedEmail(repo, issueNumber, prResult?.ok ? prResult.url : undefined) : null;
     if (postCloseChangesEmail) log('post-close email', postCloseChangesEmail);
 
     // merged → done with the issue branch; otherwise stay on it so the next run resumes it
     const returnToDefaultBranch = postRunPrLanded({ prAutoMergeResult, issueCloseWait }) ? await git.returnToDefaultBranch(repo) : null;
 
-    const parts = [];
+    const parts: string[] = [];
     if (existingPr) parts.push(`The agent made no new changes; re-reviewed the open PR ${existingPr.url} (${existingPr.state}).`);
     else if (unpushedCommits > 0) parts.push(`The agent made no new changes; picked up ${unpushedCommits} commit(s) an earlier run left unpushed.`);
     if (commit.ok) {

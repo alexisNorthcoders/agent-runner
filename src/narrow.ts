@@ -19,8 +19,13 @@ export function parseJsonObject(raw: string): Record<string, unknown> | null {
   }
 }
 
-/** A caught value's message, else the value itself, as text. */
+/** A caught value's non-blank message, else an Error's name, else the value itself, as text. Never throws. */
 export function errorText(err: unknown): string {
-  const message = typeof err === 'object' && err !== null && 'message' in err ? err.message : undefined;
-  return String(message || err);
+  if (err instanceof Error) return typeof err.message === 'string' && err.message.trim() ? err.message : err.name || 'Error';
+  if (isRecord(err) && typeof err.message === 'string' && err.message.trim()) return err.message;
+  try {
+    return String(err);
+  } catch {
+    return 'Unknown error';
+  }
 }

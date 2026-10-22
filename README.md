@@ -128,7 +128,7 @@ ADR), under one lock like any other run:
    has a local branch, the run **resumes** on it, and the prompt says what is already there
    (commits, uncommitted files, an open PR and its conflicts). A prep failure is the HTTP reply.
 3. **Agent**: Claude with the `/implement` skill, in the repo.
-4. **Post-run** (`src/issuePipeline/postRun.js`): commit, push, open or reuse the PR (`Fixes #n`), an
+4. **Post-run** (`src/issuePipeline/postRun.ts`): commit, push, open or reuse the PR (`Fixes #n`), an
    LLM review posted as a PR comment, **one** autofix agent pass on `VERDICT: REQUEST_CHANGES`, then
    merge (auto-merge, or a direct merge when there's no gate) with the repo's allowed method, wait
    for the issue to close, the summary email, and back to the default branch. If the agent didn't
@@ -623,10 +623,10 @@ are told the same rule in their prompt preamble.
 - `src/safeRestart.js` + `bin/safe-restart.js`: restart decision logic and the CLI.
 - `src/joplin.js`: Joplin Data API client.
 - `src/workspaces.ts`: the issue-run workspace allowlist.
-- `src/issuePipeline/`: issue runs. `index.js` is the entry point (`prepare` before the agent,
+- `src/issuePipeline/`: issue runs. `index.ts` is the entry point (`prepare` before the agent,
   `finish` after it, `commitInterruptedWork` for startup recovery), shared by manual runs and the
-  cron. `gitWorkspace.js` (branching, commits), `githubPr.js` (PR, merge), `githubIssue.ts`,
-  `postRun.js`, `llm.ts` (review and summary over `fetch`), `mailer.ts`. All `git`/`gh` calls go
+  cron. `gitWorkspace.ts` (branching, commits), `githubPr.ts` (PR, merge), `githubIssue.ts`,
+  `postRun.ts`, `llm.ts` (review and summary over `fetch`), `mailer.ts`. All `git`/`gh` calls go
   through the injectable `exec.ts`.
 - `src/activeRuns.ts`, `src/runHistory.ts`: the files under `logs/agent-runs/`.
 - `src/statusCollect.js` + `src/statusFormat.js`: the status snapshot and its terminal/WhatsApp

@@ -126,7 +126,7 @@ export function formatJobResult(rec, r, durationMs) {
 /**
  * How an issue run ended, for the cron: its result, and whether an approved PR's merge failed only
  * on a network error (so the cron works the PR again instead of setting it aside).
- * @typedef {{ result: import('./issuePipeline/index.js').IssueRunResult, mergeNetworkError: boolean }} IssueRunOutcome
+ * @typedef {{ result: import('./issuePipeline/index.ts').IssueRunResult, mergeNetworkError: boolean }} IssueRunOutcome
  */
 
 /**
@@ -147,7 +147,7 @@ export function formatJobResult(rec, r, durationMs) {
  *     resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }>,
  *     list?: () => Promise<Array<{ alias: string, root: string }>>,
  *   },
- *   issues?: Pick<import('./issuePipeline/index.js').IssuePipeline, 'prepare' | 'finish' | 'commitInterruptedWork'>,
+ *   issues?: Pick<import('./issuePipeline/index.ts').IssuePipeline, 'prepare' | 'finish' | 'commitInterruptedWork'>,
  *   jobs?: Pick<import('./jobProcess.js').JobLauncher, 'start'>,
  *   jobTimeoutMs?: number,
  *   readUsageFile?: (path: string) => Promise<string>,
@@ -463,7 +463,7 @@ export function createRunner({
    * A follow-up agent pass inside an issue run's post-run (the autofix). It becomes the active
    * agent, so `claude:stop` and status see it; after a stop, no new pass starts.
    * @param {ActiveRun} a
-   * @returns {import('./issuePipeline/postRun.js').RunAgent}
+   * @returns {import('./issuePipeline/postRun.ts').RunAgent}
    */
   const followUpAgent =
     (a, model) =>
@@ -778,7 +778,7 @@ export function createRunner({
     };
   }
 
-  /** The PR a post-run opened or found, if any. @param {import('./issuePipeline/postRun.js').PostRunResult | null | undefined} post */
+  /** The PR a post-run opened or found, if any. @param {import('./issuePipeline/postRun.ts').PostRunResult | null | undefined} post */
   const prUrlOf = (post) => (post?.prResult?.ok ? (post.prResult.url ?? null) : null);
 
   /**

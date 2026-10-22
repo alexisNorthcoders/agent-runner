@@ -2,7 +2,10 @@ import { writeFile, unlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { execErrorText } from './exec.ts';
+import { errorText, isRecord, recordOrEmpty } from '../narrow.ts';
 import { pollGithubIssueClosedOrTimeout } from './issueClosePoll.ts';
+import type { Exec } from './exec.ts';
+import type { PipelineSettings } from './settings.ts';
 
 /**
  * `gh` calls for the PR half of post-run: open or find the PR, comment the review, wait for
@@ -16,17 +19,16 @@ const PULL_URL_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
 /**
  * GitHub rejected a merge because the head/base raced ("head branch is out of date", "Base branch
  * was modified", …).
- * @param {string} combinedMessage
  */
-export function githubPrMergeErrorLooksStaleHead(combinedMessage) {
+export function githubPrMergeErrorLooksStaleHead(combinedMessage: string) {
   const m = String(combinedMessage || '').toLowerCase();
   return (
     m.includes('out of date') || m.includes('head branch is behind') || m.includes('head branch must be') || m.includes('base branch was modified')
   );
 }
 
-/** "Pull Request is not mergeable", common right after a push while GitHub recomputes. @param {string} combinedMessage */
-export function githubPrMergeErrorLooksNotYetMergeable(combinedMessage) {
+/** "Pull Request is not mergeable", common right after a push while GitHub recomputes. */
+export function githubPrMergeErrorLooksNotYetMergeable(combinedMessage: string) {
   const m = String(combinedMessage || '').toLowerCase();
   return m.includes('not mergeable') || m.includes('isnt mergeable') || m.includes("isn't mergeable");
 }
@@ -34,9 +36,8 @@ export function githubPrMergeErrorLooksNotYetMergeable(combinedMessage) {
 /**
  * The call failed on the network rather than on GitHub's answer (e.g. `dial tcp …: i/o timeout`
  * from a flaky Pi connection), so the same call can simply be retried.
- * @param {string} combinedMessage
  */
-export function githubErrorLooksTransientNetwork(combinedMessage) {
+export function githubErrorLooksTransientNetwork(combinedMessage: string) {
   const m = String(combinedMessage || '').toLowerCase();
   if (!m) return false;
   return [
@@ -55,12 +56,14 @@ export function githubErrorLooksTransientNetwork(combinedMessage) {
   ].some((needle) => m.includes(needle));
 }
 
+export type PrMergeability = 'ready' | 'waiting' | 'behind' | 'conflict' | 'blocked' | 'draft' | 'closed';
+
+export type MergeMethod = 'squash' | 'merge' | 'rebase';
+
 /**
  * `gh pr view --json mergeable,mergeStateStatus,state` → merge readiness.
- * @param {{ mergeable?: string, mergeStateStatus?: string, state?: string } | null | undefined} view
- * @returns {'ready' | 'waiting' | 'behind' | 'conflict' | 'blocked' | 'draft' | 'closed'}
  */
-export function classifyGithubPrMergeability(view) {
+export function classifyGithubPrMergeability(view: { mergeable?: string; mergeStateStatus?: string; state?: string } | null | undefined): PrMergeability {
   const state = String(view?.state || '').toUpperCase();
   if (state === 'MERGED' || state === 'CLOSED') return 'closed';
   const mergeable = String(view?.mergeable || '').toUpperCase();
@@ -76,25 +79,22 @@ export function classifyGithubPrMergeability(view) {
 /**
  * `gh pr merge --auto` failed because there is nothing to wait on (no branch protection), so a
  * direct merge is correct.
- * @param {string} combinedMessage
  */
-export function githubPrMergeErrorLooksNoAutoMergeGate(combinedMessage) {
+export function githubPrMergeErrorLooksNoAutoMergeGate(combinedMessage: string) {
   const m = String(combinedMessage || '').toLowerCase();
   return m.includes('protected branch rules not configured') || m.includes('pull request is in clean status');
 }
 
-/** update-branch returns 422 when the branch is already up to date. @param {string} combinedMessage */
-export function githubPrUpdateBranchErrorLooksNoOp(combinedMessage) {
+/** update-branch returns 422 when the branch is already up to date. */
+export function githubPrUpdateBranchErrorLooksNoOp(combinedMessage: string) {
   const m = String(combinedMessage || '').toLowerCase();
   return m.includes('no new commits on the base branch') || m.includes('already up to date');
 }
 
 /**
  * Merge method from the repo's settings: squash, then merge commit, then rebase.
- * @param {{ allow_squash_merge?: boolean, allow_merge_commit?: boolean, allow_rebase_merge?: boolean }} caps
- * @returns {'squash' | 'merge' | 'rebase' | null}
  */
-export function pickGithubMergeStrategy(caps) {
+export function pickGithubMergeStrategy(caps: { allow_squash_merge?: boolean; allow_merge_commit?: boolean; allow_rebase_merge?: boolean }): MergeMethod | null {
   const c = caps || {};
   if (c.allow_squash_merge) return 'squash';
   if (c.allow_merge_commit) return 'merge';
@@ -102,67 +102,72 @@ export function pickGithubMergeStrategy(caps) {
   return null;
 }
 
-/** @param {'squash' | 'merge' | 'rebase'} strategy */
-export function githubMergeMethodSummaryLabel(strategy) {
+export function githubMergeMethodSummaryLabel(strategy: MergeMethod) {
   return strategy === 'merge' ? 'merge commit' : strategy === 'squash' || strategy === 'rebase' ? strategy : 'merge';
 }
 
-/** @param {string} prUrl @returns {{ owner: string, repo: string, number: number } | null} */
-function parsePullUrl(prUrl) {
+function parsePullUrl(prUrl: string): { owner: string; repo: string; number: number } | null {
   const m = String(prUrl || '').trim().match(PULL_URL_RE);
   const n = m ? parseInt(m[3], 10) : NaN;
   return m && n > 0 ? { owner: m[1], repo: m[2], number: n } : null;
 }
 
-const isPullUrl = (u) => PULL_URL_RE.test(String(u || '').trim());
+const isPullUrl = (u: string) => PULL_URL_RE.test(String(u || '').trim());
+
+/** The first PR URL in `gh pr list --json url` output, or null. Invalid JSON throws. */
+function firstPrUrl(stdout: string) {
+  const rows: unknown = JSON.parse(stdout || '[]');
+  const first = Array.isArray(rows) ? recordOrEmpty(rows[0]) : {};
+  const url = first.url ? String(first.url).trim() : '';
+  return isPullUrl(url) ? url : null;
+}
+
+/** `gh … view --json` output as an object. Invalid JSON or a non-object throws. */
+function ghJsonObject(stdout: string): Record<string, unknown> {
+  const data: unknown = JSON.parse(stdout || '{}');
+  if (!isRecord(data)) throw new Error('gh returned a non-object');
+  return data;
+}
 
 /**
- * @typedef {{
- *   ok: boolean,
- *   error?: string,
- *   transientNetwork?: boolean,
- *   staleHeadSynced?: boolean,
- *   mergedDirectly?: boolean,
- *   mergeMethod?: 'squash' | 'merge' | 'rebase',
- * }} MergeResult
- *   `transientNetwork` (set on every failure) says the merge failed only because GitHub could not be
- *   reached, so running it again later may well succeed; false means a real blocker.
+ * `transientNetwork` (set on every failure) says the merge failed only because GitHub could not be
+ * reached, so running it again later may well succeed; false means a real blocker.
  */
+export type MergeResult = {
+  ok: boolean;
+  error?: string;
+  transientNetwork?: boolean;
+  staleHeadSynced?: boolean;
+  mergedDirectly?: boolean;
+  mergeMethod?: MergeMethod;
+};
 
-/**
- * @param {{
- *   exec: import('./exec.ts').Exec,
- *   settings: import('./settings.ts').PipelineSettings,
- *   log?: (message: string, detail?: unknown) => void,
- *   sleep?: (ms: number) => Promise<void>,
- *   now?: () => number,
- * }} deps
- */
-export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now }) {
-  /** @param {string} repo @param {string[]} args */
-  const gh = (repo, args) => exec('gh', args, { cwd: repo, maxBuffer: 10 * 1024 * 1024 });
+export type PrResult = { ok: true; url: string } | { ok: false; error: string };
 
-  /** First open PR URL for `head` (any base), or null. @param {string} repo @param {string} head */
-  async function firstOpenPrUrlForHead(repo, head) {
+export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now }: {
+    exec: Exec;
+    settings: PipelineSettings;
+    log?: (message: string, detail?: unknown) => void;
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+  }) {
+  const gh = (repo: string, args: string[]) => exec('gh', args, { cwd: repo, maxBuffer: 10 * 1024 * 1024 });
+
+  /** First open PR URL for `head` (any base), or null. */
+  async function firstOpenPrUrlForHead(repo: string, head: string) {
     try {
       const { stdout } = await gh(repo, ['pr', 'list', '--head', head, '--state', 'open', '--json', 'url', '--limit', '5']);
-      const arr = JSON.parse(stdout || '[]');
-      const url = Array.isArray(arr) && arr[0]?.url ? String(arr[0].url).trim() : '';
-      return isPullUrl(url) ? url : null;
+      return firstPrUrl(stdout);
     } catch {
       return null;
     }
   }
 
-  /**
-   * @param {string} repo @param {string} prUrl
-   * @returns {Promise<{ ok: boolean, mergeable?: string, mergeStateStatus?: string, state?: string, error?: string }>}
-   */
-  async function viewMergeability(repo, prUrl) {
+  async function viewMergeability(repo: string, prUrl: string): Promise<{ ok: boolean; mergeable?: string; mergeStateStatus?: string; state?: string; error?: string }> {
     if (!isPullUrl(prUrl)) return { ok: false, error: 'Invalid PR URL for mergeability poll' };
     try {
       const { stdout } = await gh(repo, ['pr', 'view', String(prUrl).trim(), '--json', 'mergeable,mergeStateStatus,state']);
-      const j = JSON.parse(String(stdout || '{}'));
+      const j = ghJsonObject(stdout);
       return { ok: true, mergeable: String(j.mergeable || ''), mergeStateStatus: String(j.mergeStateStatus || ''), state: String(j.state || '') };
     } catch (e) {
       return { ok: false, error: execErrorText(e) };
@@ -172,10 +177,8 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
   /**
    * Merge the base into the PR head via the REST API (the UI's "Update branch"; old Debian `gh`
    * lacks `gh pr update-branch`).
-   * @param {string} repo @param {string} prUrl
-   * @returns {Promise<{ ok: boolean, error?: string, noOp?: boolean }>}
    */
-  async function updateBranch(repo, prUrl) {
+  async function updateBranch(repo: string, prUrl: string): Promise<{ ok: boolean; error?: string; noOp?: boolean }> {
     const p = parsePullUrl(prUrl);
     if (!p) return { ok: false, error: 'Invalid PR URL for GitHub update-branch API' };
     try {
@@ -190,15 +193,13 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
   /**
    * Poll until the PR is ready for a direct merge, permanently blocked, or the wait runs out. A PR
    * that is behind its base gets update-branch (when enabled) and keeps polling.
-   * @param {string} repo @param {string} prUrl
    */
-  async function waitForMergeable(repo, prUrl) {
+  async function waitForMergeable(repo: string, prUrl: string) {
     const { pollMs, maxWaitMs } = settings.mergeableWait;
     const start = now();
     let polls = 0;
     let staleHeadSynced = false;
-    /** @type {string | undefined} */
-    let classification;
+    let classification: PrMergeability | undefined;
     let lastViewError = '';
     while (now() - start < maxWaitMs) {
       polls++;
@@ -247,38 +248,35 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
   /**
    * Merge settings of the PR's repo (REST GET /repos/{owner}/{repo}). A network error gets one
    * wait and retry, like the direct merge.
-   * @param {string} repo git cwd for `gh`
-   * @param {string} owner
-   * @param {string} repoSlug
-   * @returns {Promise<{ ok: boolean, allow_squash_merge?: boolean, allow_merge_commit?: boolean, allow_rebase_merge?: boolean, allow_auto_merge?: boolean, error?: string }>}
+   * @param repo git cwd for `gh`
    */
-  async function repoMergeCapabilities(repo, owner, repoSlug) {
+  async function repoMergeCapabilities(repo: string, owner: string, repoSlug: string): Promise<{ ok: boolean; allow_squash_merge?: boolean; allow_merge_commit?: boolean; allow_rebase_merge?: boolean; allow_auto_merge?: boolean; error?: string }> {
     const read = () => gh(repo, ['api', `repos/${owner}/${repoSlug}`, '--jq', '{allow_squash_merge,allow_merge_commit,allow_rebase_merge,allow_auto_merge}']);
-    let raw;
+    let stdout: string;
     try {
-      ({ stdout: raw } = await read());
+      ({ stdout } = await read());
     } catch (e) {
       const err = execErrorText(e);
       if (!githubErrorLooksTransientNetwork(err)) return { ok: false, error: err };
       log('repoMergeCapabilities: network error; wait then retry', err);
       await sleep(settings.mergeableWait.pollMs);
       try {
-        ({ stdout: raw } = await read());
+        ({ stdout } = await read());
       } catch (eRetry) {
         return { ok: false, error: `${execErrorText(eRetry)} (retried once after a network error)` };
       }
     }
-    raw = String(raw ?? '').trim();
-    let j;
+    const raw = stdout.trim();
+    let j: unknown;
     try {
       j = JSON.parse(raw);
     } catch (err) {
       const bit = raw.length > 240 ? `${raw.slice(0, 240)}…` : raw || '(empty stdout)';
-      return { ok: false, error: `Could not parse gh api --jq JSON for merge settings: ${err.message || err}. Output: ${bit}` };
+      return { ok: false, error: `Could not parse gh api --jq JSON for merge settings: ${errorText(err)}. Output: ${bit}` };
     }
-    if (!j || typeof j !== 'object' || Array.isArray(j)) return { ok: false, error: 'gh api --jq returned a non-object for merge settings.' };
+    if (!isRecord(j)) return { ok: false, error: 'gh api --jq returned a non-object for merge settings.' };
     for (const k of ['allow_squash_merge', 'allow_merge_commit', 'allow_rebase_merge', 'allow_auto_merge']) {
-      if (!Object.prototype.hasOwnProperty.call(j, k)) {
+      if (!Object.hasOwn(j, k)) {
         return { ok: false, error: `GitHub repo API jq output missing "${k}"; cannot read merge settings reliably.` };
       }
     }
@@ -303,11 +301,8 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
    * branch) or the repo disallows auto-merge (private Free-plan repos). A stale head gets one
    * update-branch and a retry. Direct merges first wait for GitHub to report the PR mergeable, and
    * retry once on a network error, a stale base or a mergeability race.
-   * @param {string} repo
-   * @param {string} prUrl
-   * @returns {Promise<MergeResult>}
    */
-  async function queueAutoMerge(repo, prUrl) {
+  async function queueAutoMerge(repo: string, prUrl: string): Promise<MergeResult> {
     const url = String(prUrl || '').trim();
     const parsed = parsePullUrl(url);
     if (!parsed) return { ok: false, error: 'Invalid PR URL for gh pr merge', transientNetwork: false };
@@ -332,12 +327,10 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
     const mergeAuto = () => gh(repo, ['pr', 'merge', url, '--auto', flag]);
     const mergeDirect = () => gh(repo, ['pr', 'merge', url, flag]);
     /**
-     * @param {string} error the whole story, for the report
-     * @param {boolean} transientNetwork whether the error that decided the failure was a network error
-     * @param {{ staleHeadSynced?: boolean }} [extra]
-     * @returns {MergeResult}
+     * @param error the whole story, for the report
+     * @param transientNetwork whether the error that decided the failure was a network error
      */
-    const fail = (error, transientNetwork, extra = {}) => ({
+    const fail = (error: string, transientNetwork: boolean, extra: { staleHeadSynced?: boolean } = {}): MergeResult => ({
       ok: false,
       error,
       transientNetwork,
@@ -345,8 +338,7 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
       ...extra,
     });
 
-    /** @param {string} errFromAuto @param {{ staleHeadSynced?: boolean }} [extra] @returns {Promise<MergeResult>} */
-    async function directMergeFallback(errFromAuto, extra = {}) {
+    const directMergeFallback = async (errFromAuto: string, extra: { staleHeadSynced?: boolean } = {}): Promise<MergeResult> => {
       log('queueAutoMerge: no auto-merge gate; falling back to a direct merge', url);
       const why = String(errFromAuto || '').trim();
       const ready = await waitForMergeable(repo, url);
@@ -395,7 +387,7 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
           return fail(`${why}\n\nDirect merge fallback failed: ${errDirect}\n\nAfter wait/retry: ${errRetry}`, githubErrorLooksTransientNetwork(errRetry), synced);
         }
       }
-    }
+    };
 
     if (caps.allow_auto_merge === false) {
       return directMergeFallback('GitHub **Allow auto-merge** is disabled for this repository (common on private Free-plan repos).');
@@ -421,10 +413,9 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
     }
   }
 
-  /** @param {string} repo @param {number} issueNumber @param {string} fields */
-  async function viewIssue(repo, issueNumber, fields) {
+  async function viewIssue(repo: string, issueNumber: number, fields: string) {
     const { stdout } = await exec('gh', ['issue', 'view', String(issueNumber), '--json', fields], { cwd: repo, maxBuffer: 10 * 1024 * 1024 });
-    return JSON.parse(stdout || '{}');
+    return ghJsonObject(stdout);
   }
 
   return {
@@ -436,10 +427,8 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
 
     /**
      * The open PR for `branchName` with its merge readiness, or null (none, or the lookup failed).
-     * @param {string} repo @param {string} branchName
-     * @returns {Promise<{ url: string, branchName: string, state: string } | null>}
      */
-    async findOpenPrForBranch(repo, branchName) {
+    async findOpenPrForBranch(repo: string, branchName: string): Promise<{ url: string; branchName: string; state: string } | null> {
       if (!branchName || branchName === 'HEAD') return null;
       const url = await firstOpenPrUrlForHead(repo, branchName);
       if (!url) return null;
@@ -449,25 +438,18 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
 
     /**
      * Open PR from `head` into `base`: `{ ok: true, url }`, `{ ok: true }` for none, or an error.
-     * @param {string} repo @param {{ head: string, base: string }} p
-     * @returns {Promise<{ ok: boolean, url?: string, error?: string }>}
      */
-    async listOpenPrForHead(repo, { head, base }) {
+    async listOpenPrForHead(repo: string, { head, base }: { head: string; base: string }): Promise<{ ok: true; url?: string } | { ok: false; error: string }> {
       try {
         const { stdout } = await gh(repo, ['pr', 'list', '--head', head, '--base', base, '--state', 'open', '--json', 'url', '--limit', '5']);
-        const arr = JSON.parse(stdout || '[]');
-        const url = Array.isArray(arr) && arr[0]?.url ? String(arr[0].url).trim() : '';
-        return isPullUrl(url) ? { ok: true, url } : { ok: true };
+        const url = firstPrUrl(stdout);
+        return url ? { ok: true, url } : { ok: true };
       } catch (e) {
         return { ok: false, error: execErrorText(e) };
       }
     },
 
-    /**
-     * @param {string} repo @param {{ base: string, title: string, body: string }} p
-     * @returns {Promise<{ ok: boolean, url?: string, error?: string }>}
-     */
-    async createPr(repo, { base, title, body }) {
+    async createPr(repo: string, { base, title, body }: { base: string; title: string; body: string }): Promise<PrResult> {
       try {
         const { stdout, stderr } = await gh(repo, ['pr', 'create', '--base', base, '--title', title, '--body', body]);
         const url = `${stdout || ''}\n${stderr || ''}`
@@ -482,10 +464,8 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
 
     /**
      * One top-level PR comment (not an inline review), via a temp file to dodge argv limits.
-     * @param {string} repo @param {string} prUrl @param {string} body
-     * @returns {Promise<{ ok: boolean, error?: string }>}
      */
-    async comment(repo, prUrl, body) {
+    async comment(repo: string, prUrl: string, body: string): Promise<{ ok: boolean; error?: string }> {
       if (!isPullUrl(prUrl)) return { ok: false, error: 'Invalid PR URL for gh pr comment' };
       let text = String(body || '');
       if (text.length > GITHUB_PR_COMMENT_MAX_CHARS) {
@@ -503,11 +483,7 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
       }
     },
 
-    /**
-     * @param {string} repo @param {number} issueNumber
-     * @returns {Promise<{ ok: boolean, title?: string, body?: string, state?: string, url?: string, error?: string }>}
-     */
-    async issueDetails(repo, issueNumber) {
+    async issueDetails(repo: string, issueNumber: number): Promise<{ ok: true; title: string; body: string; state: string; url: string } | { ok: false; error: string }> {
       try {
         const j = await viewIssue(repo, issueNumber, 'title,body,state,url');
         return {
@@ -524,9 +500,8 @@ export function createGithubPr({ exec, settings, log = () => {}, sleep = (ms) =>
 
     /**
      * Poll until the issue is CLOSED (the merged PR's `Fixes #n` closed it) or the wait runs out.
-     * @param {string} repo @param {number} issueNumber
      */
-    waitForIssueClosed(repo, issueNumber) {
+    waitForIssueClosed(repo: string, issueNumber: number) {
       return pollGithubIssueClosedOrTimeout({
         ...settings.issueCloseWait,
         sleep,

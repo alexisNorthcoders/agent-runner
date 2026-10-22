@@ -10,12 +10,12 @@ import {
   pickGithubMergeStrategy,
   githubMergeMethodSummaryLabel,
   classifyGithubPrMergeability,
-} from '../src/issuePipeline/githubPr.js';
+} from '../src/issuePipeline/githubPr.ts';
 import { loadPipelineSettings } from '../src/issuePipeline/settings.ts';
 import { callbackExec } from './helpers/fakeExec.ts';
+import type { CallbackHandler, ExecCallback, ExecError } from './helpers/fakeExec.ts';
 
-/** @type {(cmd: string, args: string[], opts: object, cb: Function) => void} */
-let handler = () => {
+let handler: CallbackHandler = (): void => {
   throw new Error('no gh handler set');
 };
 
@@ -27,9 +27,9 @@ const prs = () =>
   });
 
 /** Kept from the original tests, where it wrapped the env tuning now done in `prs()`. */
-const withFastMergeablePoll = (fn) => fn;
+const withFastMergeablePoll = <T>(fn: T) => fn;
 
-function replyMergeableReady(_cmd, args, _opts, cb) {
+function replyMergeableReady(_cmd: string, args: string[], _opts: object, cb: ExecCallback) {
   if (args[0] === 'pr' && args[1] === 'view') {
     cb(null, JSON.stringify({ mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', state: 'OPEN' }), '');
     return true;
@@ -174,6 +174,20 @@ describe('PR merge / update-branch error heuristics', () => {
   });
 });
 
+describe('gh view output that is not an object', () => {
+  afterEach(() => {
+    handler = () => {};
+  });
+
+  it('fails the PR and issue views instead of reading empty fields', async () => {
+    handler = (_cmd, _args, _opts, cb) => cb(null, '[]', '');
+    const view = await prs().viewMergeability('/repo', 'https://github.com/o/r/pull/1');
+    assert.deepEqual(view, { ok: false, error: 'gh returned a non-object' });
+    const issue = await prs().issueDetails('/repo', 7);
+    assert.deepEqual(issue, { ok: false, error: 'gh returned a non-object' });
+  });
+});
+
 describe('tryGhRepoMergeCapabilities (mocked gh)', () => {
   afterEach(() => {
     handler = () => {};
@@ -186,7 +200,7 @@ describe('tryGhRepoMergeCapabilities (mocked gh)', () => {
     };
     const r = await prs().repoMergeCapabilities('/repo', 'o', 'r');
     assert.equal(r.ok, false);
-    assert.match(r.error, /Could not parse gh api --jq JSON/);
+    assert.match(r.error ?? '', /Could not parse gh api --jq JSON/);
   });
 
   it('rejects jq output missing a required key', async () => {
@@ -203,7 +217,7 @@ describe('tryGhRepoMergeCapabilities (mocked gh)', () => {
     };
     const r = await prs().repoMergeCapabilities('/repo', 'o', 'r');
     assert.equal(r.ok, false);
-    assert.match(r.error, /missing "allow_auto_merge"/);
+    assert.match(r.error ?? '', /missing "allow_auto_merge"/);
   });
 
   it('rejects non-boolean allow_auto_merge (e.g. JSON null)', async () => {
@@ -221,7 +235,7 @@ describe('tryGhRepoMergeCapabilities (mocked gh)', () => {
     };
     const r = await prs().repoMergeCapabilities('/repo', 'o', 'r');
     assert.equal(r.ok, false);
-    assert.match(r.error, /non-boolean allow_auto_merge/);
+    assert.match(r.error ?? '', /non-boolean allow_auto_merge/);
   });
 
   it('accepts exact GitHub REST-style boolean shape', async () => {
@@ -257,8 +271,7 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
   });
 
   it('falls back to merge commit when squash is disabled but merge + auto-merge are allowed', async () => {
-    /** @type {{ cmd: string, args: string[] }[]} */
-    const calls = [];
+    const calls: { cmd: string; args: string[] }[] = [];
     handler = (cmd, args, opts, cb) => {
       calls.push({ cmd, args: [...args] });
       const sub = args[0];
@@ -296,8 +309,7 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
   it(
     'falls back to direct merge when allow_auto_merge is false (e.g. private Free-plan repo)',
     withFastMergeablePoll(async () => {
-      /** @type {{ cmd: string, args: string[] }[]} */
-      const calls = [];
+      const calls: { cmd: string; args: string[] }[] = [];
       handler = (cmd, args, _opts, cb) => {
         calls.push({ cmd, args: [...args] });
         if (replyMergeableReady(cmd, args, _opts, cb)) return;
@@ -337,8 +349,7 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
   it(
     'retries direct merge after update-branch when base was modified (private repo path)',
     withFastMergeablePoll(async () => {
-      /** @type {{ cmd: string, args: string[] }[]} */
-      const calls = [];
+      const calls: { cmd: string; args: string[] }[] = [];
       let mergeAttempts = 0;
       handler = (cmd, args, _opts, cb) => {
         calls.push({ cmd, args: [...args] });
@@ -365,9 +376,9 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
           mergeAttempts += 1;
           assert.ok(!args.includes('--auto'));
           if (mergeAttempts === 1) {
-            const err = /** @type {any} */ (new Error('gh failed'));
-            err.stderr =
-              'Message: Base branch was modified. Review and try the merge again., Locations: [{Line:1 Column:58}]';
+            const err = Object.assign(new Error('gh failed'), {
+              stderr: 'Message: Base branch was modified. Review and try the merge again., Locations: [{Line:1 Column:58}]',
+            });
             cb(err, '', err.stderr);
             return;
           }
@@ -478,9 +489,9 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
         if (args[0] === 'pr' && args[1] === 'merge') {
           mergeAttempts += 1;
           if (mergeAttempts === 1) {
-            const err = /** @type {any} */ (new Error('gh failed'));
-            err.stderr =
-              'Message: Pull Request is not mergeable, Locations: [{Line:1 Column:58}]';
+            const err = Object.assign(new Error('gh failed'), {
+              stderr: 'Message: Pull Request is not mergeable, Locations: [{Line:1 Column:58}]',
+            });
             cb(err, '', err.stderr);
             return;
           }
@@ -513,8 +524,9 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
         if (args[0] === 'pr' && args[1] === 'merge') {
           mergeAttempts += 1;
           if (mergeAttempts === 1) {
-            const err = /** @type {any} */ (new Error('gh failed'));
-            err.stderr = 'Post "https://api.github.com/graphql": dial tcp 20.26.156.210:443: i/o timeout';
+            const err = Object.assign(new Error('gh failed'), {
+              stderr: 'Post "https://api.github.com/graphql": dial tcp 20.26.156.210:443: i/o timeout',
+            });
             cb(err, '', err.stderr);
             return;
           }
@@ -547,8 +559,9 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
         }
         if (args[0] === 'pr' && args[1] === 'merge') {
           mergeAttempts += 1;
-          const err = /** @type {any} */ (new Error('gh failed'));
-          err.stderr = 'Post "https://api.github.com/graphql": dial tcp 20.26.156.210:443: i/o timeout';
+          const err = Object.assign(new Error('gh failed'), {
+            stderr: 'Post "https://api.github.com/graphql": dial tcp 20.26.156.210:443: i/o timeout',
+          });
           cb(err, '', err.stderr);
           return;
         }
@@ -565,8 +578,7 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
   it(
     'falls back to direct merge when --auto fails with unprotected-branch gate error',
     withFastMergeablePoll(async () => {
-      /** @type {{ cmd: string, args: string[] }[]} */
-      const calls = [];
+      const calls: { cmd: string; args: string[] }[] = [];
       handler = (cmd, args, opts, cb) => {
         calls.push({ cmd, args: [...args] });
         if (replyMergeableReady(cmd, args, opts, cb)) return;
@@ -586,9 +598,9 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
         }
         if (sub === 'pr' && args[1] === 'merge') {
           if (args.includes('--auto')) {
-            const err = /** @type {any} */ (new Error('gh failed'));
-            err.stderr =
-              'Message: Pull request Protected branch rules not configured for this branch, Locations: [{Line:1 Column:72}]\n';
+            const err = Object.assign(new Error('gh failed'), {
+              stderr: 'Message: Pull request Protected branch rules not configured for this branch, Locations: [{Line:1 Column:72}]\n',
+            });
             cb(err, '', err.stderr);
             return;
           }
@@ -618,15 +630,13 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
 describe('queueAutoMerge: merge-settings read on a network error (issue #5)', () => {
   const PR = 'https://github.com/acme/widget/pull/17';
   const CAPS = JSON.stringify({ allow_squash_merge: true, allow_merge_commit: false, allow_rebase_merge: false, allow_auto_merge: true });
-  const isCapsRead = (args) => args[0] === 'api' && String(args[1] || '').startsWith('repos/') && !args.includes('-X');
-  /** @param {string} stderr @returns {any} */
-  const ghError = (stderr) => Object.assign(new Error('gh failed'), { stderr });
+  const isCapsRead = (args: string[]) => args[0] === 'api' && String(args[1] || '').startsWith('repos/') && !args.includes('-X');
+  const ghError = (stderr: string) => Object.assign(new Error('gh failed'), { stderr });
   const TIMEOUT = 'Get "https://api.github.com/repos/acme/widget": dial tcp 20.26.156.210:443: i/o timeout';
 
-  /** @param {(attempt: number) => any} capsError a `gh` error for this 1-based read, or null to answer */
-  function setup(capsError) {
-    /** @type {number[]} */
-    const sleeps = [];
+  /** @param capsError a `gh` error for this 1-based read, or null to answer */
+  function setup(capsError: (attempt: number) => ExecError | null) {
+    const sleeps: number[] = [];
     let capsReads = 0;
     let merges = 0;
     const exec = callbackExec(() => (_cmd, args, _opts, cb) => {
@@ -661,8 +671,8 @@ describe('queueAutoMerge: merge-settings read on a network error (issue #5)', ()
     const { prs, sleeps, counts } = setup(() => ghError('read tcp: connection reset by peer'));
     const r = await prs.queueAutoMerge('/repo', PR);
     assert.equal(r.ok, false);
-    assert.match(r.error, /Could not read repository merge settings/);
-    assert.match(r.error, /retried/);
+    assert.match(r.error ?? '', /Could not read repository merge settings/);
+    assert.match(r.error ?? '', /retried/);
     assert.deepEqual(counts(), { capsReads: 2, merges: 0 });
     assert.equal(sleeps.length, 1);
   });
@@ -686,8 +696,8 @@ describe('queueAutoMerge: merge-settings read on a network error (issue #5)', ()
     const { prs, sleeps, counts } = setup(() => ghError('HTTP 401: Bad credentials (https://api.github.com/repos/acme/widget)'));
     const r = await prs.queueAutoMerge('/repo', PR);
     assert.equal(r.ok, false);
-    assert.match(r.error, /Could not read repository merge settings \(GitHub API\): HTTP 401: Bad credentials/);
-    assert.doesNotMatch(r.error, /retried/);
+    assert.match(r.error ?? '', /Could not read repository merge settings \(GitHub API\): HTTP 401: Bad credentials/);
+    assert.doesNotMatch(r.error ?? '', /retried/);
     assert.deepEqual(counts(), { capsReads: 1, merges: 0 });
     assert.equal(sleeps.length, 0);
   });
@@ -696,14 +706,10 @@ describe('queueAutoMerge: merge-settings read on a network error (issue #5)', ()
 describe('queueAutoMerge: says whether a failed merge was only a network error (issue #6)', () => {
   const PR = 'https://github.com/alexisNorthcoders/home-manuals/pull/10';
   const TIMEOUT = 'Post "https://api.github.com/graphql": dial tcp 20.26.156.210:443: i/o timeout';
-  /** @param {string} stderr @returns {any} */
-  const ghError = (stderr) => Object.assign(new Error('gh failed'), { stderr });
+  const ghError = (stderr: string) => Object.assign(new Error('gh failed'), { stderr });
 
-  /**
-   * @param {{ autoMerge?: boolean, caps?: (n: number) => any, view?: object, merge: (args: string[], n: number) => any }} o
-   *   `caps` / `merge` return a `gh` error for that call, or null to succeed
-   */
-  function setup({ autoMerge = false, caps = () => null, view = { mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', state: 'OPEN' }, merge }) {
+  /** `caps` / `merge` return a `gh` error for that call, or null to succeed. */
+  function setup({ autoMerge = false, caps = () => null, view = { mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', state: 'OPEN' }, merge }: { autoMerge?: boolean; caps?: (n: number) => ExecError | null; view?: object; merge: (args: string[], n: number) => ExecError | null }) {
     let capsReads = 0;
     let merges = 0;
     const exec = callbackExec(() => (_cmd, args, _opts, cb) => {

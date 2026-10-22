@@ -10,7 +10,7 @@ import { loadConfig } from '../src/config.ts';
 import { createRedisStore } from '../src/redisStore.ts';
 import { createCronState } from '../src/cronState.ts';
 import { createWorkspaceAllowlist } from '../src/workspaces.ts';
-import { createIssuePipeline } from '../src/issuePipeline/index.js';
+import { createIssuePipeline } from '../src/issuePipeline/index.ts';
 import { createReadOnlySessionLauncher } from '../src/agentBackend/claude.ts';
 import { createRepoInsightCursor, createRepoInsightLookups, runRepoInsight, sweepRepoInsight } from '../src/repoInsight.js';
 

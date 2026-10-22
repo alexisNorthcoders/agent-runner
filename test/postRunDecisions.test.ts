@@ -9,7 +9,7 @@ import {
   parseAutofixNoChanges,
 } from '../src/issuePipeline/decisionLogic.ts';
 import { pollGithubIssueClosedOrTimeout } from '../src/issuePipeline/issueClosePoll.ts';
-import { runPostReviewAutofixMergeFlow } from '../src/issuePipeline/reviewFollowUp.js';
+import { runPostReviewAutofixMergeFlow } from '../src/issuePipeline/reviewFollowUp.ts';
 
 describe('post-run decision logic', () => {
   it('VERDICT: APPROVE with successful review enables auto-merge gate without autofix', () => {
@@ -318,7 +318,7 @@ describe('post-close changes email', () => {
 
 describe('PR description', () => {
   it('says whether the cron or a claude issue: command opened it', async () => {
-    const { buildPrBody } = await import('../src/issuePipeline/postRun.js');
+    const { buildPrBody } = await import('../src/issuePipeline/postRun.ts');
     const wb = { branchName: 'claude/issue-3-x', prBase: 'main' };
     assert.match(buildPrBody(3, wb, 'p', 'cron'), /^Fixes #3\n\nOpened automatically by the cron issue tracer \(`ready-for-agent` label\)/);
     assert.match(buildPrBody(3, wb, 'p'), /^Fixes #3\n\nOpened automatically after a `claude issue:…` run/);

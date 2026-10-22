@@ -1,5 +1,5 @@
 import { VERDICT_APPROVE, VERDICT_REQUEST_CHANGES } from './decisionLogic.ts';
-import { truncate } from './gitWorkspace.js';
+import { truncate } from './gitWorkspace.ts';
 import { errorText, isRecord, numberOrNull, recordOrEmpty, stringOrNull } from '../narrow.ts';
 import type { PipelineSettings } from './settings.ts';
 
@@ -144,7 +144,7 @@ export function createLlm({ settings, fetchFn = globalThis.fetch, log = () => {}
     /**
      * "What we shipped" email body from the closed issue's text.
      */
-    async issueClosedSummary(issueBlock: string): Promise<{ ok: boolean; text?: string; error?: string; usage: Usage }> {
+    async issueClosedSummary(issueBlock: string): Promise<{ ok: true; text: string; usage: Usage } | { ok: false; error: string; usage: Usage }> {
       const usage: Usage = { prompt: 0, completion: 0, total: 0 };
       if (!summary.apiKey) return { ok: false, error: 'DEEPINFRA_API_KEY is not set.', usage };
       try {
