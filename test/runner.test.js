@@ -2,10 +2,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRunner } from '../src/runner.js';
 import { createRunLock } from '../src/runLock.js';
-import { createPauseFlag } from '../src/pauseFlag.js';
+import { createPauseFlag } from '../src/pauseFlag.ts';
 import { createRunQueue } from '../src/runQueue.js';
 import { createManualPause } from '../src/manualPause.js';
-import { createOutbox, OUTBOX_KEY } from '../src/outbox.js';
+import { createOutbox, OUTBOX_KEY } from '../src/outbox.ts';
 import { createUsageLimitPause } from '../src/usageLimitPause.js';
 import { createMemoryStore } from './helpers/memoryStore.js';
 

@@ -3,16 +3,16 @@ import { readFile, stat } from 'fs/promises';
 import { join } from 'path';
 import { parseCommand } from './commands.js';
 import { ALL, applyPauseCommand, describeManualPause } from './manualPause.js';
-import { OWNER } from './outbox.js';
+import { OWNER } from './outbox.ts';
 import { DEFAULT_JOB_TIMEOUT_MINUTES } from './scheduledJobs.js';
 import { decideSafeRestart } from './safeRestart.js';
 import { describeRun, UNKNOWN_RUN_ID } from './runLock.js';
 import { describeUsageLimitPause } from './usageLimitPause.js';
-import { pidAlive } from './pidAlive.js';
+import { pidAlive } from './pidAlive.ts';
 import { createWorkspaceInference } from './workspaceInference.js';
 import { formatDuration, renderHistoryText, renderStatusText } from './statusFormat.js';
 import { REQUEUED_NOTE } from './runQueue.js';
-import { modelFromLabels } from './modelLabel.js';
+import { modelFromLabels } from './modelLabel.ts';
 import { sumJobUsage, USAGE_FILE_ENV } from './jobUsage.js';
 
 /**
@@ -132,11 +132,11 @@ export function formatJobResult(rec, r, durationMs) {
 /**
  * @param {{
  *   lock: ReturnType<typeof import('./runLock.js').createRunLock>,
- *   pause: ReturnType<typeof import('./pauseFlag.js').createPauseFlag>,
+ *   pause: ReturnType<typeof import('./pauseFlag.ts').createPauseFlag>,
  *   manualPause: ReturnType<typeof import('./manualPause.js').createManualPause>,
  *   usageLimit: ReturnType<typeof import('./usageLimitPause.js').createUsageLimitPause>,
  *   queue: ReturnType<typeof import('./runQueue.js').createRunQueue>,
- *   outbox: ReturnType<typeof import('./outbox.js').createOutbox>,
+ *   outbox: ReturnType<typeof import('./outbox.ts').createOutbox>,
  *   backend: import('./agentBackend/index.js').AgentBackend,
  *   history: Pick<ReturnType<typeof import('./runHistory.js').createRunHistory>, 'append' | 'read'>,
  *   activeRuns: Pick<ReturnType<typeof import('./activeRuns.js').createActiveRuns>, 'track'>,

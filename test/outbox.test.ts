@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createOutbox, OWNER, OUTBOX_KEY } from '../src/outbox.js';
+import { createOutbox, OWNER, OUTBOX_KEY } from '../src/outbox.ts';
+import type { Store } from '../src/redisStore.js';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -12,6 +13,7 @@ describe('outbox', () => {
     const outbox = createOutbox({ store, now: () => now });
     const id = await outbox.send({ replyTo: '4479@s.whatsapp.net', text: 'done', runId: 'run-1' });
     const entries = store.streams.get(OUTBOX_KEY);
+    assert.ok(entries);
     assert.equal(OUTBOX_KEY, 'agent-runner:outbox');
     assert.equal(entries.length, 1);
     assert.equal(entries[0].id, id);
@@ -28,15 +30,14 @@ describe('outbox', () => {
     await createOutbox({ store }).send({ replyTo: OWNER, text: 'hello' });
     assert.equal(OWNER, 'owner');
     assert.deepEqual(
-      { ...store.streams.get(OUTBOX_KEY)[0].fields, ts: undefined },
+      { ...store.streams.get(OUTBOX_KEY)?.[0]?.fields, ts: undefined },
       { replyTo: 'owner', text: 'hello', runId: '', ts: undefined }
     );
   });
 
   it('trims entries older than ~7 days on every write', async () => {
-    /** @type {any[]} */
-    const calls = [];
-    const store = { ...createMemoryStore(), appendToStream: async (key, fields, opts) => (calls.push({ key, opts }), '1-0') };
+    const calls: { key: string; opts: { minIdMs: number } }[] = [];
+    const store: Store = { ...createMemoryStore(), appendToStream: async (key, _fields, opts) => (calls.push({ key, opts }), '1-0') };
     const now = 30 * DAY;
     await createOutbox({ store, now: () => now }).send({ replyTo: OWNER, text: 'x' });
     assert.deepEqual(calls, [{ key: OUTBOX_KEY, opts: { minIdMs: now - 7 * DAY } }]);

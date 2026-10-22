@@ -1,12 +1,12 @@
 import { open } from 'fs/promises';
 import { StringDecoder } from 'string_decoder';
-import { maskSecrets } from './maskSecrets.js';
+import { maskSecrets } from './maskSecrets.ts';
 
 /**
  * Follows the active run's log for the office feed's live tail. It polls `current()` (the run this
  * process is executing and the log its agent writes now: the first pass, then an autofix pass's
  * own file) and reads what was appended since the last poll. Every line is masked
- * (src/maskSecrets.js) and capped before anyone sees it, and the last `tailLines` are kept so a
+ * (src/maskSecrets.ts) and capped before anyone sees it, and the last `tailLines` are kept so a
  * client that connects mid-run gets the recent tail, not the whole log.
  *
  * Listeners get `reset: true` with the whole tail when a new run starts (the pane clears) or its log

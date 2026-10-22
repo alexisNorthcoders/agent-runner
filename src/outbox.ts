@@ -4,20 +4,16 @@
  * to the logical `owner`.
  */
 
+import type { Store } from './redisStore.js';
+
 export const OUTBOX_KEY = 'agent-runner:outbox';
 export const OWNER = 'owner';
 export const OUTBOX_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
-/**
- * @param {{ store: import('./redisStore.js').Store, key?: string, retentionMs?: number, now?: () => number }} p
- */
-export function createOutbox({ store, key = OUTBOX_KEY, retentionMs = OUTBOX_RETENTION_MS, now = Date.now }) {
+export function createOutbox({ store, key = OUTBOX_KEY, retentionMs = OUTBOX_RETENTION_MS, now = Date.now }: { store: Store; key?: string; retentionMs?: number; now?: () => number }) {
   return {
-    /**
-     * @param {{ replyTo: string, text: string, runId?: string | null }} msg
-     * @returns {Promise<string>} stream entry id
-     */
-    async send({ replyTo, text, runId }) {
+    /** @returns stream entry id */
+    async send({ replyTo, text, runId }: { replyTo: string; text: string; runId?: string | null }): Promise<string> {
       if (!replyTo) throw new Error('outbox: replyTo is required');
       const t = now();
       return store.appendToStream(

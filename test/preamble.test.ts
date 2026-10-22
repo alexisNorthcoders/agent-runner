@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildFreeformPreamble, buildPreamble } from '../src/preamble.js';
+import { buildFreeformPreamble, buildPreamble } from '../src/preamble.ts';
 
 describe('preamble', () => {
   it('points agent restarts at safe-restart in the runner repo', () => {

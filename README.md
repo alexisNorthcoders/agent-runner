@@ -24,7 +24,7 @@ WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-resta
 
 | Text | Effect |
 | --- | --- |
-| `claude <instructions>` | Run the agent in `~/Projects` (`AGENT_WORKSPACE`). If it changes a git repo, its preamble has it branch, commit, push, open a PR, review it, merge it and return to the default branch (`src/preamble.js`). The runner infers which allowlisted workspace it works in (see [Freeform runs' workspace](#freeform-runs-workspace)). |
+| `claude <instructions>` | Run the agent in `~/Projects` (`AGENT_WORKSPACE`). If it changes a git repo, its preamble has it branch, commit, push, open a PR, review it, merge it and return to the default branch (`src/preamble.ts`). The runner infers which allowlisted workspace it works in (see [Freeform runs' workspace](#freeform-runs-workspace)). |
 | `claude joplin:<note title or id>` | Use a note from the `WhatsApp Bot` notebook as the instructions (Joplin Data API). |
 | `claude issue:<alias>:<n> [extra instructions]` | Implement GitHub issue `n` in the allowlisted `<alias>` workspace, then commit, PR, review and merge. See [Issue runs](#issue-runs). |
 | `claude issue:<n> [extra instructions]` | The same, in the `CLAUDE_ISSUE_DEFAULT_ALIAS` workspace. |
@@ -289,7 +289,7 @@ with its lines, so the pane clears. Lines over 2000 characters are cut. Only the
 streamed; past runs stay history rows. A scheduled job's `logFile`, which every run appends to,
 is streamed from where the job started, so earlier runs' output doesn't show.
 
-Before a line leaves the runner, obvious secrets are masked (`src/maskSecrets.js`): GitHub tokens
+Before a line leaves the runner, obvious secrets are masked (`src/maskSecrets.ts`): GitHub tokens
 (`ghp_…`, `gho_…`, `github_pat_…`), `sk-…` API keys, bearer tokens, and the value of
 `…_KEY=` / `_TOKEN=` / `_SECRET=` / `_PASSWORD=` assignments (and of such keys in JSON). **This is best effort.** It catches
 the common shapes, not every secret, so treat the page as seeing the raw log and keep it on the LAN.
@@ -612,10 +612,10 @@ are told the same rule in their prompt preamble.
 - `src/main.js`: wiring (Redis, HTTP on 127.0.0.1, startup recovery).
 - `src/runner.js`: command handling, the run lifecycle and status.
 - `src/commands.js`: parses `claude…` text.
-- `src/preamble.js`: the rules prepended to every agent prompt. Freeform and Joplin runs add the git rules, and issue runs don't, since their post-run commits and merges.
+- `src/preamble.ts`: the rules prepended to every agent prompt. Freeform and Joplin runs add the git rules, and issue runs don't, since their post-run commits and merges.
 - `src/agentBackend/`: the `AgentBackend` seam. `claude.js` holds everything Claude-specific (CLI
   flags, stream-json parsing, cost/tokens, `/implement`).
-- `src/runLock.js`, `src/runQueue.js`, `src/pauseFlag.js`, `src/manualPause.js`, `src/outbox.js`, `src/cronState.js`: Redis state over
+- `src/runLock.js`, `src/runQueue.js`, `src/pauseFlag.ts`, `src/manualPause.js`, `src/outbox.ts`, `src/cronState.js`: Redis state over
   `src/redisStore.js`.
 - `src/cronTracer.js`: the cron issue tracer (picking, parking, progress), over `runner.startIssueRun`.
 - `src/scheduledJobs.js`: scheduled jobs' config and once-a-day scheduler, over `runner.submitJob`.
@@ -633,7 +633,7 @@ are told the same rule in their prompt preamble.
   rendering. `bin/agent-cli.js` is the terminal CLI.
 - `src/stateChanges.js`: the runner's "state changed" notification, and the Redis store that raises it.
 - `src/officeSnapshot.js` + `src/officeFeed.js`: the office snapshot and the SSE feed that pushes it.
-- `src/logTail.js` + `src/maskSecrets.js`: the feed's live log of the active run, masked.
+- `src/logTail.js` + `src/maskSecrets.ts`: the feed's live log of the active run, masked.
 - `dashboard/`: the office dashboard page (static, no build). `docs/nginx/office.conf` serves it.
 - `logs/agent-runs/`: one `<runId>.log` per run (plus `<runId>-autofix.log`), `active/<runId>.json`
   per in-flight run (live progress), `runs.jsonl` history (an issue run's `costUsd` includes its
@@ -642,6 +642,6 @@ are told the same rule in their prompt preamble.
 ## Tests
 
 ```sh
-npm test            # node:test with injected fakes; the Redis contract test uses DB 15 if Redis is up
-npm run typecheck   # tsc --checkJs
+npm test            # typecheck, then node:test with injected fakes; the Redis contract test uses DB 15 if Redis is up
+npm run typecheck   # strict tsc over .ts, then the checkJs pass over the remaining .js
 ```

@@ -1,6 +1,6 @@
 import { readFile } from 'fs/promises';
 import { isAbsolute } from 'path';
-import { OWNER } from './outbox.js';
+import { OWNER } from './outbox.ts';
 
 /**
  * Scheduled jobs: commands the runner runs at a fixed UTC time, once a day or on a set weekday or day of the month, in place of crontab
@@ -186,7 +186,7 @@ export async function jobSchedule({ loadJobs, store, now = Date.now }) {
  *   store: import('./redisStore.js').Store,
  *   loadJobs: () => Promise<{ jobs: ScheduledJob[], errors: string[] }>,
  *   submitJob: (job: ScheduledJob) => Promise<{ accepted: boolean, reply: string }>,
- *   outbox: Pick<ReturnType<typeof import('./outbox.js').createOutbox>, 'send'>,
+ *   outbox: Pick<ReturnType<typeof import('./outbox.ts').createOutbox>, 'send'>,
  *   now?: () => number,
  *   intervalMs?: number,
  *   logger?: Pick<Console, 'error' | 'warn' | 'info'>,

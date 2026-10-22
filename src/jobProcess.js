@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { closeSync, openSync } from 'fs';
 import { mkdir } from 'fs/promises';
 import { dirname } from 'path';
-import { augmentedPathEnv } from './processPath.js';
+import { augmentedPathEnv } from './processPath.ts';
 
 /**
  * Runs a scheduled job's command as-is: `sh -c <command>` in its directory, with stdout and stderr

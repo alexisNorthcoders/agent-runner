@@ -7,8 +7,8 @@
   "main": "src/main.js",
   "scripts": {
     "start": "node --no-deprecation src/main.js",
-    "test": "node --test 'test/**/*.test.js'",
-    "typecheck": "tsc -p jsconfig.json",
+    "test": "npm run typecheck && node --test 'test/**/*.test.js' 'test/**/*.test.ts'",
+    "typecheck": "tsc -p . && node scripts/typecheckJs.ts",
     "safe-restart": "node bin/safe-restart.js",
     "agent:status": "node bin/agent-cli.js status",
     "agent:watch": "node bin/agent-cli.js watch",
@@ -21,7 +21,7 @@
     "repo-insight:bootstrap": "node bin/repo-insight-bootstrap.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24.2"
   },
   "license": "ISC",
   "dependencies": {

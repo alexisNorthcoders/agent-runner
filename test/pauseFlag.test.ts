@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPauseFlag } from '../src/pauseFlag.js';
+import { createPauseFlag } from '../src/pauseFlag.ts';
 import { createMemoryStore } from './helpers/memoryStore.js';
 
 describe('pauseFlag', () => {
@@ -21,6 +21,7 @@ describe('pauseFlag', () => {
   it('clear only removes a pause with the matching token', async () => {
     const pause = createPauseFlag({ store: createMemoryStore() });
     const token = await pause.set('mine');
+    assert.ok(token);
     assert.equal(await pause.clear('someone-else'), false);
     assert.ok(await pause.get());
     assert.equal(await pause.clear(token), true);
