@@ -427,7 +427,7 @@ export function reduceScene(snap, prev, { up, now, config, log }) {
   /** The workspaces with a run started in the last QUIET_MS, or running now. */
   const busy = new Set(
     [...snap.history, ...(r ? [r] : [])]
-      .filter((h) => !(now - Date.parse(h.startedAt) > QUIET_MS))
+      .filter((h) => !(now - Date.parse(h.startedAt ?? '') > QUIET_MS))
       .map((h) => (h.kind === 'issue' ? h.workspaceAlias : h.kind === 'freeform' ? h.inferredWorkspace : null))
   );
   const cubicles = withJobRooms(cubicleOrder(snap.workspaces, config), snap.jobs).map((c) => {

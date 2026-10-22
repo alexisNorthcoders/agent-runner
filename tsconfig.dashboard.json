@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "module": "nodenext",
+    "target": "es2024",
+    "lib": ["dom", "es2024"],
+    "types": [],
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["dashboard/**/*.js"]
+}
