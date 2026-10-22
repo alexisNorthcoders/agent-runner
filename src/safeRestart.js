@@ -1,4 +1,4 @@
-import { describeRun } from './runLock.js';
+import { describeRun } from './runLock.ts';
 
 const CLEAR_ATTEMPTS = 3;
 
@@ -10,7 +10,7 @@ const CLEAR_ATTEMPTS = 3;
  */
 
 /**
- * @param {{ activeRun: import('./runLock.js').RunRecord | null, pause: import('./pauseFlag.ts').PauseRecord | null }} s
+ * @param {{ activeRun: import('./runLock.ts').RunRecord | null, pause: import('./pauseFlag.ts').PauseRecord | null }} s
  * @returns {{ ok: true } | { ok: false, reason: string }}
  */
 export function decideSafeRestart({ activeRun, pause }) {
@@ -31,7 +31,7 @@ export function decideSafeRestart({ activeRun, pause }) {
 
 /**
  * @param {{
- *   lock: Pick<ReturnType<typeof import('./runLock.js').createRunLock>, 'current'>,
+ *   lock: Pick<ReturnType<typeof import('./runLock.ts').createRunLock>, 'current'>,
  *   pause: Pick<ReturnType<typeof import('./pauseFlag.ts').createPauseFlag>, 'get' | 'set' | 'clear'>,
  *   restartProcess: () => Promise<void>,
  *   waitForReady: () => Promise<void>,

@@ -1,13 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createUsageLimitPause, describeUsageLimitPause } from '../src/usageLimitPause.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createUsageLimitPause, describeUsageLimitPause } from '../src/usageLimitPause.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 describe('usage-limit pause', () => {
   const setup = () => {
     let t = Date.parse('2026-09-26T05:10:00Z');
     const pause = createUsageLimitPause({ store: createMemoryStore(), now: () => t });
-    return { pause, advance: (ms) => void (t += ms) };
+    return { pause, advance: (ms: number) => void (t += ms) };
   };
 
   it('is absent until set, then holds until its end time and expires on its own', async () => {
@@ -28,7 +28,7 @@ describe('usage-limit pause', () => {
     await pause.extend({ resetsAt: '2026-09-26T06:02:00.000Z', note: 'resets 7am Europe/London', timeZone: 'Europe/London' });
     const r = await pause.extend({ resetsAt: '2026-09-26T05:40:00.000Z', note: null, timeZone: null });
     assert.equal(r.extended, false);
-    assert.equal(r.pause.until, '2026-09-26T06:02:00.000Z');
+    assert.equal(r.pause?.until, '2026-09-26T06:02:00.000Z');
     assert.equal((await pause.get())?.until, '2026-09-26T06:02:00.000Z');
     const later = await pause.extend({ resetsAt: '2026-09-26T07:00:00.000Z', note: null, timeZone: null });
     assert.equal(later.extended, true);

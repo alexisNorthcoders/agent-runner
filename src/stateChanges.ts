@@ -1,3 +1,6 @@
+import { errorText } from './narrow.ts';
+import type { Store } from './redisStore.ts';
+
 /**
  * The runner's one internal "state changed" notification. Anything that changes what the status
  * views would show calls `notify`, and the office feed (src/officeFeed.js) subscribes so it pushes
@@ -7,30 +10,24 @@
  * Sources: every Redis state write (lock, queue, pauses, cron state) through `notifyingStore`, the
  * runner's in-memory changes (agent progress, phase, a run starting and ending), and writes by
  * other processes (the `agent:pause` CLI, safe-restart), which publish them on a Redis channel
- * (`STATE_CHANNEL` in src/redisStore.js) the runner subscribes to.
- *
- * @typedef {(reason: string) => void} NotifyChange
+ * (`STATE_CHANNEL` in src/redisStore.ts) the runner subscribes to.
  */
+export type NotifyChange = (reason: string) => void;
 
-/**
- * @param {{ logger?: Pick<Console, 'warn'> }} [p]
- */
-export function createStateChanges({ logger = console } = {}) {
-  /** @type {Set<NotifyChange>} */
-  const subscribers = new Set();
+export function createStateChanges({ logger = console }: { logger?: Pick<Console, 'warn'> } = {}) {
+  const subscribers: Set<NotifyChange> = new Set();
   return {
-    /** @type {NotifyChange} */
-    notify(reason) {
+    notify(reason: string) {
       for (const fn of subscribers) {
         try {
           fn(reason);
         } catch (err) {
-          logger.warn(`state change subscriber failed: ${err?.message || err}`);
+          logger.warn(`state change subscriber failed: ${errorText(err)}`);
         }
       }
     },
-    /** @param {NotifyChange} fn @returns {() => void} unsubscribe */
-    subscribe(fn) {
+    /** @returns unsubscribe */
+    subscribe(fn: NotifyChange): () => void {
       subscribers.add(fn);
       return () => subscribers.delete(fn);
     },
@@ -41,26 +38,16 @@ export function createStateChanges({ logger = console } = {}) {
  * `store` with `notify(key)` after each write that changed something. Reads and the outbox stream
  * (messages, not state) stay quiet, and so do conditional writes that didn't apply. A write
  * settles once `notify` has (so a CLI's publish goes out before it exits).
- * @param {import('./redisStore.js').Store} store
- * @param {(key: string) => void | Promise<void>} notify
- * @returns {import('./redisStore.js').Store}
  */
-export function notifyingStore(store, notify) {
-  /**
-   * @template {(key: string, ...rest: any[]) => Promise<any>} F
-   * @param {F} write
-   * @param {(result: Awaited<ReturnType<F>>) => boolean} [changed]
-   * @returns {F}
-   */
-  const wrap = (write, changed = () => true) =>
-    /** @type {F} */ (
-      async (key, ...rest) => {
-        const r = await write(key, ...rest);
-        if (changed(r)) await notify(key);
-        return r;
-      }
-    );
-  const applied = (/** @type {boolean} */ ok) => ok;
+export function notifyingStore(store: Store, notify: (key: string) => void | Promise<void>): Store {
+  const wrap =
+    <A extends unknown[], R>(write: (key: string, ...rest: A) => Promise<R>, changed: (result: R) => boolean = () => true) =>
+    async (key: string, ...rest: A): Promise<R> => {
+      const r = await write(key, ...rest);
+      if (changed(r)) await notify(key);
+      return r;
+    };
+  const applied = (ok: boolean) => ok;
   return {
     ...store,
     set: wrap(store.set),

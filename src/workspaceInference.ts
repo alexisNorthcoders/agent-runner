@@ -1,5 +1,7 @@
 import { realpath as fsRealpath } from 'fs/promises';
 import { basename, dirname, join } from 'path';
+import { errorText } from './narrow.ts';
+import type { AgentTouch } from './agentBackend/index.js';
 
 /**
  * A freeform run's inferred workspace: the allowlisted workspace its first edit or command works
@@ -10,11 +12,9 @@ import { basename, dirname, join } from 'path';
 /**
  * `p` with symlinks resolved. A path that doesn't exist yet (a file an edit creates) resolves
  * through its nearest existing ancestor.
- * @param {string} p absolute
- * @param {(p: string) => Promise<string>} realpath
- * @returns {Promise<string>}
+ * @param p absolute
  */
-export async function canonicalPath(p, realpath) {
+export async function canonicalPath(p: string, realpath: (p: string) => Promise<string>): Promise<string> {
   const rest = [];
   let cur = p;
   for (;;) {
@@ -32,12 +32,10 @@ export async function canonicalPath(p, realpath) {
 /**
  * The workspace the touched paths are in: the first path that is inside one decides (the deepest
  * root, if workspaces nest). Null when none is.
- * @param {string[]} paths absolute
- * @param {Array<{ alias: string, root: string }>} workspaces canonical roots
- * @param {(p: string) => Promise<string>} [realpath]
- * @returns {Promise<string | null>}
+ * @param paths absolute
+ * @param workspaces canonical roots
  */
-export async function workspaceOfPaths(paths, workspaces, realpath = fsRealpath) {
+export async function workspaceOfPaths(paths: string[], workspaces: Array<{ alias: string; root: string }>, realpath: (p: string) => Promise<string> = fsRealpath): Promise<string | null> {
   for (const p of paths) {
     const c = await canonicalPath(p, realpath);
     const inside = workspaces.filter((w) => c === w.root || c.startsWith(`${w.root}/`));
@@ -49,22 +47,19 @@ export async function workspaceOfPaths(paths, workspaces, realpath = fsRealpath)
 /**
  * Infers one run's workspace from its touches, in the order they come. `onInferred` is called at
  * most once. Lookups never throw: a run that can't be placed stays unplaced.
- * @param {{
- *   workspaces: () => Promise<Array<{ alias: string, root: string }>>,
- *   onInferred: (alias: string) => void | Promise<void>,
- *   realpath?: (p: string) => Promise<string>,
- *   logger?: Pick<Console, 'warn'>,
- * }} p `workspaces`: the allowlist, read on the first touch.
+ * @param p `workspaces`: the allowlist, read on the first touch.
  */
-export function createWorkspaceInference({ workspaces, onInferred, realpath = fsRealpath, logger = console }) {
-  /** @type {Promise<Array<{ alias: string, root: string }>> | null} */
-  let roots = null;
-  /** @type {string | null} */
-  let inferred = null;
+export function createWorkspaceInference({ workspaces, onInferred, realpath = fsRealpath, logger = console }: {
+    workspaces: () => Promise<Array<{ alias: string; root: string }>>;
+    onInferred: (alias: string) => void | Promise<void>;
+    realpath?: (p: string) => Promise<string>;
+    logger?: Pick<Console, 'warn'>;
+  }) {
+  let roots: Promise<Array<{ alias: string; root: string }>> | null = null;
+  let inferred: string | null = null;
   let chain = Promise.resolve();
   return {
-    /** @param {import('./agentBackend/index.js').AgentTouch} t */
-    touch(t) {
+    touch(t: AgentTouch) {
       chain = chain.then(async () => {
         if (inferred) return;
         try {
@@ -76,7 +71,7 @@ export function createWorkspaceInference({ workspaces, onInferred, realpath = fs
         } catch (err) {
           // read the allowlist again on the next touch
           roots = null;
-          logger.warn(`workspace inference: ${err?.message || err}`);
+          logger.warn(`workspace inference: ${errorText(err)}`);
         }
       });
       return chain;

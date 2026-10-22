@@ -94,7 +94,7 @@ and searches don't count. Paths are compared by realpath. Once set, it doesn't c
 of the run.
 
 The agent backend turns its tool calls into agent-neutral touches (`AgentTouch`; Claude's parsing is
-`src/agentBackend/claudeToolTouch.js`), and `src/workspaceInference.js` matches them to the
+`src/agentBackend/claudeToolTouch.js`), and `src/workspaceInference.ts` matches them to the
 allowlist. The workspace is recorded as `inferredWorkspace` on the lock record and the active-run
 file, in the history row and the office snapshot, and shows in `claude:status` and
 `claude:history` as `fix the login bug → whatsapp-bot`. Joplin runs don't infer one.
@@ -254,7 +254,7 @@ read-only: it takes no input and there is no control route beside it.
 
 - On connect it sends a full snapshot, then a new one after every state change: a run starting or
   ending, agent progress, the phase, the queue, a pause, a cron tick, the lock.
-- Changes come from the runner's one internal change notification (`src/stateChanges.js`): every
+- Changes come from the runner's one internal change notification (`src/stateChanges.ts`): every
   Redis state write goes through a notifying store, and the runner reports progress, phase and runs
   ending. Changes are coalesced, so pushes are at least 1s apart and a change shows within ~1.3s.
 - Writes by other processes (`npm run agent:pause` / `agent:resume`, safe-restart's pause flag)
@@ -615,23 +615,23 @@ are told the same rule in their prompt preamble.
 - `src/preamble.ts`: the rules prepended to every agent prompt. Freeform and Joplin runs add the git rules, and issue runs don't, since their post-run commits and merges.
 - `src/agentBackend/`: the `AgentBackend` seam. `claude.js` holds everything Claude-specific (CLI
   flags, stream-json parsing, cost/tokens, `/implement`).
-- `src/runLock.js`, `src/runQueue.js`, `src/pauseFlag.ts`, `src/manualPause.js`, `src/outbox.ts`, `src/cronState.js`: Redis state over
-  `src/redisStore.js`.
+- `src/runLock.ts`, `src/runQueue.ts`, `src/pauseFlag.ts`, `src/manualPause.ts`, `src/outbox.ts`, `src/cronState.ts`: Redis state over
+  `src/redisStore.ts`.
 - `src/cronTracer.js`: the cron issue tracer (picking, parking, progress), over `runner.startIssueRun`.
 - `src/scheduledJobs.js`: scheduled jobs' config and once-a-day scheduler, over `runner.submitJob`.
   `src/jobProcess.js` runs a job's command with its output appended to the log file.
 - `src/safeRestart.js` + `bin/safe-restart.js`: restart decision logic and the CLI.
 - `src/joplin.js`: Joplin Data API client.
-- `src/workspaces.js`: the issue-run workspace allowlist.
+- `src/workspaces.ts`: the issue-run workspace allowlist.
 - `src/issuePipeline/`: issue runs. `index.js` is the entry point (`prepare` before the agent,
   `finish` after it, `commitInterruptedWork` for startup recovery), shared by manual runs and the
   cron. `gitWorkspace.js` (branching, commits), `githubPr.js` (PR, merge), `githubIssue.js`,
   `postRun.js`, `llm.js` (review and summary over `fetch`), `mailer.js`. All `git`/`gh` calls go
   through the injectable `exec.js`.
-- `src/activeRuns.js`, `src/runHistory.js`: the files under `logs/agent-runs/`.
+- `src/activeRuns.ts`, `src/runHistory.ts`: the files under `logs/agent-runs/`.
 - `src/statusCollect.js` + `src/statusFormat.js`: the status snapshot and its terminal/WhatsApp
   rendering. `bin/agent-cli.js` is the terminal CLI.
-- `src/stateChanges.js`: the runner's "state changed" notification, and the Redis store that raises it.
+- `src/stateChanges.ts`: the runner's "state changed" notification, and the Redis store that raises it.
 - `src/officeSnapshot.js` + `src/officeFeed.js`: the office snapshot and the SSE feed that pushes it.
 - `src/logTail.js` + `src/maskSecrets.ts`: the feed's live log of the active run, masked.
 - `dashboard/`: the office dashboard page (static, no build). `docs/nginx/office.conf` serves it.

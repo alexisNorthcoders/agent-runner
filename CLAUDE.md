@@ -25,7 +25,7 @@ merge, in `src/issuePipeline/`), `claude:stop`, `claude:restart` / `npm run safe
 `claude:status` / `claude:history` and the `npm run agent:*` CLIs, the Redis single-flight lock, run queue,
 pause flag and manual pauses (`claude:pause` / `npm run agent:pause`, general or per workspace), startup recovery (with a WIP commit for issue runs), and the cron issue tracer
 (`src/cronTracer.js`, over `runner.startIssueRun`, with its state in Redis), and the office
-dashboard's feed (`GET /office/feed`, SSE, pushed from `src/stateChanges.js`, with the active run's masked live log from `src/logTail.js`) and plain panel
+dashboard's feed (`GET /office/feed`, SSE, pushed from `src/stateChanges.ts`, with the active run's masked live log from `src/logTail.js`) and plain panel
 (`dashboard/`), with each repo's pending issues from the issue scan (`src/issueScan.js`). Layout, Redis keys and the office snapshot shape are in `README.md`; dashboard terms
 are in `GLOSSARY.md`.
 
@@ -37,10 +37,12 @@ are in `GLOSSARY.md`.
 - Entry modules (`src/main.js`, `bin/*`) start work only inside `if (import.meta.main)`;
   `test/entryGuards.test.ts` checks that importing one does nothing. PM2 loads `src/main.js` with
   `import()`, where `import.meta.main` is false, so its guard also accepts an exact `pm_exec_path`.
+  Agent runs inherit `pm_exec_path` from PM2, so inside a run in the live checkout, importing
+  `src/main.js` starts a second runner. Never import or run an entry module to check that it loads.
 - Modules say "agent", not "claude". Claude-specific code stays in `src/agentBackend/claude.js`
   (and its stream parser). User-facing commands stay `claude*`.
-- Redis access goes through the `Store` interface (`src/redisStore.js`). Tests use
-  `test/helpers/memoryStore.js`, kept honest by `test/store.contract.test.js`.
+- Redis access goes through the `Store` interface (`src/redisStore.ts`). Tests use
+  `test/helpers/memoryStore.ts`, kept honest by `test/store.contract.test.ts`.
 
 ## Agent skills
 

@@ -1,3 +1,7 @@
+import { errorText, parseJsonObject } from './narrow.ts';
+import type { Store } from './redisStore.ts';
+import type { createUsageLimitPause } from './usageLimitPause.ts';
+
 /**
  * Pauses the owner sets by hand (`claude:pause` / `npm run agent:pause`) before working in a repo
  * themselves. Separate from the safe-restart pause flag (`pauseFlag.ts`), so a restart still works
@@ -9,10 +13,9 @@
  *
  * A run that is already going is not stopped. Each pause is a field of one Redis hash with its end
  * time inside; an expired one reads as absent and is deleted lazily.
- *
- * @typedef {{ scope: string, reason: string, pausedAt: string, until: string }} ManualPause
- *   `scope` is `all` for the general pause, else the workspace alias.
  */
+/** `scope` is `all` for the general pause, else the workspace alias. */
+export type ManualPause = { scope: string; reason: string; pausedAt: string; until: string };
 
 export const MANUAL_PAUSE_KEY = 'agent-runner:manual-pause';
 export const ALL = 'all';
@@ -22,16 +25,16 @@ export const MAX_MANUAL_PAUSE_SECONDS = 7 * 24 * 60 * 60;
 const DURATION_RE = /^(\d+)(m|h|d)$/i;
 const UNIT_SECONDS = { m: 60, h: 60 * 60, d: 24 * 60 * 60 };
 
-/** `30m`, `2h`, `1d` → seconds, or null when `s` isn't a duration. @param {string} s */
-export function parseDuration(s) {
+/** `30m`, `2h`, `1d` → seconds, or null when `s` isn't a duration. */
+export function parseDuration(s: string) {
   const m = DURATION_RE.exec(String(s).trim());
   if (!m) return null;
   const n = parseInt(m[1], 10);
-  return n > 0 ? n * UNIT_SECONDS[/** @type {'m' | 'h' | 'd'} */ (m[2].toLowerCase())] : null;
+  return n > 0 ? n * UNIT_SECONDS[(m[2].toLowerCase() as 'm' | 'h' | 'd')] : null;
 }
 
-/** Compact remaining time, e.g. `1h20m`, `45m`, `2d3h`. @param {number} ms */
-export function formatRemaining(ms) {
+/** Compact remaining time, e.g. `1h20m`, `45m`, `2d3h`. */
+export function formatRemaining(ms: number) {
   const mins = Math.max(1, Math.ceil(ms / 60_000));
   const d = Math.floor(mins / 1440);
   const h = Math.floor((mins % 1440) / 60);
@@ -41,26 +44,22 @@ export function formatRemaining(ms) {
   return `${m}m`;
 }
 
-/** @param {string} raw @returns {ManualPause | null} */
-function parse(raw) {
-  try {
-    const p = JSON.parse(raw);
-    if (p && typeof p.scope === 'string' && typeof p.until === 'string') return { reason: '', pausedAt: p.until, ...p };
-  } catch {
-    /* fall through */
-  }
-  return null;
+function parse(raw: string): ManualPause | null {
+  const p = parseJsonObject(raw);
+  if (typeof p?.scope !== 'string' || typeof p.until !== 'string') return null;
+  return {
+    scope: p.scope,
+    reason: typeof p.reason === 'string' ? p.reason : '',
+    pausedAt: typeof p.pausedAt === 'string' ? p.pausedAt : p.until,
+    until: p.until,
+  };
 }
 
-/**
- * @param {{ store: import('./redisStore.js').Store, key?: string, now?: () => number }} p
- */
-export function createManualPause({ store, key = MANUAL_PAUSE_KEY, now = Date.now }) {
-  /** @returns {Promise<ManualPause[]>} live pauses, the general one first, then by alias */
-  async function list() {
+export function createManualPause({ store, key = MANUAL_PAUSE_KEY, now = Date.now }: { store: Store; key?: string; now?: () => number }) {
+  /** @returns live pauses, the general one first, then by alias */
+  async function list(): Promise<ManualPause[]> {
     const all = await store.hashGetAll(key);
-    /** @type {ManualPause[]} */
-    const live = [];
+    const live: ManualPause[] = [];
     for (const [field, raw] of Object.entries(all)) {
       const p = parse(raw);
       if (p && Date.parse(p.until) > now()) live.push(p);
@@ -72,36 +71,35 @@ export function createManualPause({ store, key = MANUAL_PAUSE_KEY, now = Date.no
   return {
     list,
     /**
-     * Set (or replace) a pause. @param {{ scope: string, seconds: number, reason?: string }} p
-     * @returns {Promise<ManualPause>}
+     * Set (or replace) a pause.
      */
-    async set({ scope, seconds, reason = '' }) {
+    async set({ scope, seconds, reason = '' }: { scope: string; seconds: number; reason?: string }): Promise<ManualPause> {
       const t = now();
       const p = { scope, reason, pausedAt: new Date(t).toISOString(), until: new Date(t + seconds * 1000).toISOString() };
       await store.hashSet(key, scope, JSON.stringify(p));
       return p;
     },
-    /** @param {string} scope @returns {Promise<boolean>} whether a live pause was cleared */
-    async clear(scope) {
+    /** @returns whether a live pause was cleared */
+    async clear(scope: string): Promise<boolean> {
       const had = (await list()).some((p) => p.scope === scope);
       await store.hashDelete(key, scope);
       return had;
     },
-    /** @returns {Promise<number>} how many live pauses were cleared */
-    async clearAll() {
+    /** @returns how many live pauses were cleared */
+    async clearAll(): Promise<number> {
       const live = await list();
       for (const p of live) await store.hashDelete(key, p.scope);
       return live.length;
     },
     /** The general pause, if set. */
     general: async () => (await list()).find((p) => p.scope === ALL) ?? null,
-    /** The pause covering `alias`: its own, else null (the general one is checked separately). @param {string} alias */
-    forWorkspace: async (alias) => (await list()).find((p) => p.scope === alias) ?? null,
+    /** The pause covering `alias`: its own, else null (the general one is checked separately). */
+    forWorkspace: async (alias: string) => (await list()).find((p) => p.scope === alias) ?? null,
   };
 }
 
-/** One line for a pause, e.g. `chess-trainer for 1h20m (fixing lessons)`. @param {ManualPause} p @param {number} nowMs */
-export function describeManualPause(p, nowMs) {
+/** One line for a pause, e.g. `chess-trainer for 1h20m (fixing lessons)`. */
+export function describeManualPause(p: ManualPause, nowMs: number) {
   const what = p.scope === ALL ? 'everything' : p.scope;
   return `${what} for ${formatRemaining(Date.parse(p.until) - nowMs)}${p.reason ? ` (${p.reason})` : ''}`;
 }
@@ -110,15 +108,14 @@ export function describeManualPause(p, nowMs) {
  * Apply a parsed `pause` / `resume` command. Shared by `claude:pause` and the `agent:pause` CLI.
  * A resume with no scope also ends the usage-limit pause. `ok` is false when nothing was applied
  * (an unknown workspace alias).
- * @param {{
- *   manualPause: ReturnType<typeof createManualPause>,
- *   usageLimit?: Pick<ReturnType<typeof import('./usageLimitPause.js').createUsageLimitPause>, 'clear'>,
- *   workspaces?: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
- *   cmd: { kind: 'pause', scope: string, seconds: number, reason: string } | { kind: 'resume', scope: string | null },
- *   now?: () => number,
- * }} p
  */
-export async function applyPauseCommand(p) {
+export async function applyPauseCommand(p: {
+    manualPause: ReturnType<typeof createManualPause>;
+    usageLimit?: Pick<ReturnType<typeof createUsageLimitPause>, 'clear'>;
+    workspaces?: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string; root: string }> };
+    cmd: { kind: 'pause'; scope: string; seconds: number; reason: string } | { kind: 'resume'; scope: string | null };
+    now?: () => number;
+  }) {
   try {
     return { ok: true, reply: await apply(p) };
   } catch (err) {
@@ -129,15 +126,14 @@ export async function applyPauseCommand(p) {
 
 class UnknownScope extends Error {}
 
-/** @param {Parameters<typeof applyPauseCommand>[0]} p */
-async function apply({ manualPause, usageLimit, workspaces, cmd, now = Date.now }) {
+async function apply({ manualPause, usageLimit, workspaces, cmd, now = Date.now }: Parameters<typeof applyPauseCommand>[0]) {
   let scope = cmd.scope;
   if (scope && scope !== ALL) {
     if (!workspaces) throw new UnknownScope('Workspace pauses need CLAUDE_WORKSPACE_MAP.');
     try {
       scope = (await workspaces.resolveIssueWorkspace(scope)).alias;
     } catch (err) {
-      throw new UnknownScope(String(err?.message || err));
+      throw new UnknownScope(errorText(err));
     }
   }
   if (cmd.kind === 'pause') {

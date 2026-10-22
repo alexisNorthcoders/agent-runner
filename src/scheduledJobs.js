@@ -172,7 +172,7 @@ export function nextDueAt(job, now, lastFiredDay) {
 
 /**
  * The configured jobs and when each is next due, in config order.
- * @param {{ loadJobs: () => Promise<{ jobs: ScheduledJob[] }>, store: Pick<import('./redisStore.js').Store, 'hashGetAll'>, now?: () => number }} p
+ * @param {{ loadJobs: () => Promise<{ jobs: ScheduledJob[] }>, store: Pick<import('./redisStore.ts').Store, 'hashGetAll'>, now?: () => number }} p
  * @returns {Promise<JobScheduleEntry[]>}
  */
 export async function jobSchedule({ loadJobs, store, now = Date.now }) {
@@ -183,7 +183,7 @@ export async function jobSchedule({ loadJobs, store, now = Date.now }) {
 
 /**
  * @param {{
- *   store: import('./redisStore.js').Store,
+ *   store: import('./redisStore.ts').Store,
  *   loadJobs: () => Promise<{ jobs: ScheduledJob[], errors: string[] }>,
  *   submitJob: (job: ScheduledJob) => Promise<{ accepted: boolean, reply: string }>,
  *   outbox: Pick<ReturnType<typeof import('./outbox.ts').createOutbox>, 'send'>,

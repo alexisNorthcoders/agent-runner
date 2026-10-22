@@ -1,5 +1,5 @@
 import { OWNER } from './outbox.ts';
-import { issueKey, prAttemptStateKey } from './cronState.js';
+import { issueKey, prAttemptStateKey } from './cronState.ts';
 import { classifyGithubPrMergeability } from './issuePipeline/githubPr.js';
 import { errorMessageFromUnknown } from './issuePipeline/index.js';
 
@@ -8,7 +8,7 @@ import { errorMessageFromUnknown } from './issuePipeline/index.js';
  * workspaces (in alias order, one issue per tick) and run it through `runner.startIssueRun`, the
  * same pipeline as `claude issue:…`. It skips the tick while the lock is held or agent-runner is
  * paused. Its state (last-started issue per repo, PR attempts, parked-PR notices, the last tick)
- * is in Redis, see `cronState.js`. Its own messages go to `owner`; the run's report goes there too.
+ * is in Redis, see `cronState.ts`. Its own messages go to `owner`; the run's report goes there too.
  *
  * - A run counts as progress only when it pushed, opened a PR or merged. After that, the issue is
  *   not picked again in its repo, even while still open. A failed, empty or timed-out run is
@@ -30,7 +30,7 @@ import { errorMessageFromUnknown } from './issuePipeline/index.js';
  *
  * @typedef {import('./issuePipeline/githubIssue.js').OpenIssue} OpenIssue
  * @typedef {import('./issuePipeline/githubIssue.js').OpenAgentPr} OpenAgentPr
- * @typedef {import('./cronState.js').CronTickOutcome} CronTickOutcome
+ * @typedef {import('./cronState.ts').CronTickOutcome} CronTickOutcome
  */
 
 const READY_FOR_AGENT_LABEL = 'ready-for-agent';
@@ -155,12 +155,12 @@ function truncate(s, max = 1500) {
 /**
  * @param {{
  *   startIssueRun: ReturnType<typeof import('./runner.js').createRunner>['startIssueRun'],
- *   lock: Pick<ReturnType<typeof import('./runLock.js').createRunLock>, 'current'>,
+ *   lock: Pick<ReturnType<typeof import('./runLock.ts').createRunLock>, 'current'>,
  *   pause: Pick<ReturnType<typeof import('./pauseFlag.ts').createPauseFlag>, 'get'>,
- *   manualPause: Pick<ReturnType<typeof import('./manualPause.js').createManualPause>, 'general' | 'forWorkspace'>,
- *   usageLimit: Pick<ReturnType<typeof import('./usageLimitPause.js').createUsageLimitPause>, 'get'>,
+ *   manualPause: Pick<ReturnType<typeof import('./manualPause.ts').createManualPause>, 'general' | 'forWorkspace'>,
+ *   usageLimit: Pick<ReturnType<typeof import('./usageLimitPause.ts').createUsageLimitPause>, 'get'>,
  *   sweepStale?: () => Promise<unknown>,
- *   state: import('./cronState.js').CronStateStore,
+ *   state: import('./cronState.ts').CronStateStore,
  *   workspaces: { resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string, root: string }> },
  *   github: Pick<ReturnType<typeof import('./issuePipeline/githubIssue.js').createGithubIssues>,
  *     'resolveIssueRepo' | 'listOpenIssues' | 'blockedByCount' | 'listOpenAgentPrsByIssue' | 'branchHeadSha'>,

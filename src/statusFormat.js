@@ -5,8 +5,8 @@
  * `claudeAgentCliFormat.js`. `c` is a colorizer so tests can pass identity functions.
  */
 
-import { describeManualPause } from './manualPause.js';
-import { describeUsageLimitPause } from './usageLimitPause.js';
+import { describeManualPause } from './manualPause.ts';
+import { describeUsageLimitPause } from './usageLimitPause.ts';
 /** @typedef {import('./statusCollect.js').StatusSnapshot} StatusSnapshot */
 
 /** The owner's pauses, e.g. `by hand: everything for 1h20m (reason); chess-trainer for 45m`, or ''. @param {StatusSnapshot} d */
@@ -17,8 +17,8 @@ function byHandText(d) {
 
 /** The usage-limit pause, e.g. `usage limit hit, until 07:02 (resets 7am Europe/London)`, or ''. @param {StatusSnapshot} d */
 export const usageLimitText = (d) => (d.usageLimit ? `usage limit hit, ${describeUsageLimitPause(d.usageLimit, d.now)}` : '');
-/** @typedef {import('./runHistory.js').HistoryEntry} HistoryEntry */
-/** @typedef {import('./activeRuns.js').ActiveRun} ActiveRun */
+/** @typedef {import('./runHistory.ts').HistoryEntry} HistoryEntry */
+/** @typedef {import('./activeRuns.ts').ActiveRun} ActiveRun */
 /** @typedef {Record<'dim' | 'green' | 'red' | 'yellow' | 'bold' | 'cyan', (s: string) => string>} Colors */
 
 /** @type {Colors} */
@@ -105,7 +105,7 @@ export function boxTable(headers, rows, c = plain, colorRow = () => (s) => s) {
   return [rule('┌', '┬', '┐'), line(headers, c.bold), rule('├', '┼', '┤'), ...rows.map((r, i) => line(r, colorRow(i))), rule('└', '┴', '┘')];
 }
 
-/** @param {import('./cronState.js').CronTickOutcome | null} o */
+/** @param {import('./cronState.ts').CronTickOutcome | null} o */
 function describeCronOutcome(o) {
   if (!o) return 'starting (no tick finished yet)';
   switch (o.kind) {

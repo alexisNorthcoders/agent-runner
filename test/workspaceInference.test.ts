@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'fs/promises';
 import { createStreamAccumulator } from '../src/agentBackend/claudeStreamParser.js';
 import { createToolTouchReader, splitCommand } from '../src/agentBackend/claudeToolTouch.js';
-import { canonicalPath, createWorkspaceInference, workspaceOfPaths } from '../src/workspaceInference.js';
+import type { AgentTouch } from '../src/agentBackend/index.js';
+import { canonicalPath, createWorkspaceInference, workspaceOfPaths } from '../src/workspaceInference.ts';
 
 const HOME = '/home/alexis';
 const PROJECTS = `${HOME}/Projects`;
@@ -14,24 +15,24 @@ const WORKSPACES = [
 
 /** A filesystem where these directories exist, and `link` is a symlink to WhatsappBot. */
 const EXISTING = new Set([HOME, PROJECTS, `${PROJECTS}/WhatsappBot`, `${PROJECTS}/WhatsappBot/src`, `${PROJECTS}/chess-trainer`, '/', '/home', '/tmp']);
-const fakeRealpath = async (p) => {
+const fakeRealpath = async (p: string) => {
   if (p === `${PROJECTS}/link`) return `${PROJECTS}/WhatsappBot`;
   if (EXISTING.has(p)) return p;
   throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
 };
 
-/** The touches a recorded stream-json run makes, fed through the Claude parser. @param {string} name */
-async function touchesOf(name) {
-  const touches = [];
+/** The touches a recorded stream-json run makes, fed through the Claude parser. */
+async function touchesOf(name: string) {
+  const touches: AgentTouch[] = [];
   const acc = createStreamAccumulator({ cwd: PROJECTS, onTouch: (t) => touches.push(t) });
   acc.push(await readFile(new URL(`./fixtures/${name}`, import.meta.url)));
   acc.flush();
   return touches;
 }
 
-/** The workspace a recorded run is inferred to, and how often it was set. @param {string} name */
-async function inferFixture(name) {
-  const set = [];
+/** The workspace a recorded run is inferred to, and how often it was set. */
+async function inferFixture(name: string) {
+  const set: string[] = [];
   const inference = createWorkspaceInference({ workspaces: async () => WORKSPACES, onInferred: (a) => void set.push(a), realpath: fakeRealpath });
   let last;
   for (const t of await touchesOf(name)) last = inference.touch(t);
@@ -65,7 +66,7 @@ describe('claude tool touches', () => {
 
   it('finds the paths a command targets: absolute, home, globbed, -C and --prefix', () => {
     const r = createToolTouchReader({ cwd: PROJECTS, home: HOME });
-    const paths = (command) => r.read('Bash', { command })?.paths.slice(1);
+    const paths = (command: string) => r.read('Bash', { command })?.paths.slice(1);
     assert.deepEqual(paths('git -C chess-trainer log'), [`${PROJECTS}/chess-trainer`]);
     assert.deepEqual(paths('npm --prefix "WhatsappBot" test'), [`${PROJECTS}/WhatsappBot`]);
     assert.deepEqual(paths("sed -i 's/a/b/' '~/Projects/WhatsappBot/src/x.js'"), [`${PROJECTS}/WhatsappBot/src/x.js`]);
@@ -115,8 +116,8 @@ describe('workspace inference', () => {
   });
 
   it('keeps going when the allowlist lookup fails', async () => {
-    const set = [];
-    const warnings = [];
+    const set: string[] = [];
+    const warnings: string[] = [];
     let calls = 0;
     const inference = createWorkspaceInference({
       workspaces: async () => {

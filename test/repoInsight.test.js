@@ -9,7 +9,7 @@ import {
   runRepoInsight,
   sweepRepoInsight,
 } from '../src/repoInsight.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 const allIdle = Object.fromEntries(ORDER.map((a) => [a, true]));
 const only = (...aliases) => Object.fromEntries(ORDER.map((a) => [a, aliases.includes(a)]));
@@ -119,7 +119,7 @@ describe('repo insight lookups', () => {
 
   it('stays idle when the only ready issue is parked behind an attempted open PR', async () => {
     const pr = { url: 'p', headSha: 'h', baseRefName: 'main', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' };
-    const { prAttemptStateKey } = await import('../src/cronState.js');
+    const { prAttemptStateKey } = await import('../src/cronState.ts');
     const attempts = new Map([['o/bot#1', prAttemptStateKey(pr, 'm')]]);
     const l = await setup({ issues: [issue(1, 'ready-for-agent')], prs: new Map([[1, pr]]), attempts });
     assert.equal(await l.isIdle('bot'), true);

@@ -142,10 +142,17 @@ function markOptionalParams(file: string, text: string): string {
   return applyEdits(text, edits);
 }
 
-function propertyDocs(file: string, text: string): Map<string, Map<string, string>> {
+type TypedefDocs = { props: Map<string, Map<string, string>>; typedefs: Map<string, string> };
+
+function typedefDocs(file: string, text: string): TypedefDocs {
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const docs = new Map<string, Map<string, string>>();
+  const typedefs = new Map<string, string>();
   const visit = (node: ts.Node) => {
+    if (ts.isJSDocTypedefTag(node) && node.name) {
+      const comment = ts.getTextOfJSDocComment(node.comment)?.trim();
+      if (comment) typedefs.set(node.name.text, comment);
+    }
     if (ts.isJSDocTypedefTag(node) && node.name && node.typeExpression && ts.isJSDocTypeLiteral(node.typeExpression)) {
       const props = new Map<string, string>();
       for (const tag of node.typeExpression.jsDocPropertyTags ?? []) {
@@ -161,7 +168,18 @@ function propertyDocs(file: string, text: string): Map<string, Map<string, strin
     ts.forEachChild(node, walk);
   };
   walk(source);
-  return docs;
+  return { props: docs, typedefs };
+}
+
+// The typedef code fix keeps property comments but drops the typedef's own, so put it back above
+// the type it became.
+function restoreTypedefDocs(text: string, typedefs: Map<string, string>): string {
+  for (const [name, comment] of typedefs) {
+    const lines = comment.split('\n').map((l) => l.trim());
+    const doc = lines.length === 1 ? `/** ${lines[0]} */\n` : `/**\n${lines.map((l) => ` * ${l}`.trimEnd()).join('\n')}\n */\n`;
+    text = text.replace(new RegExp(`^export type ${name.replace(/\$/g, '\\$')}\\b`, 'm'), (m) => doc + m);
+  }
+  return text;
 }
 
 function interfacesToTypes(file: string, text: string, docs: Map<string, Map<string, string>>): string {
@@ -186,11 +204,13 @@ function interfacesToTypes(file: string, text: string, docs: Map<string, Map<str
 
 function stripJsDocTypes(text: string): string {
   return hoistTypeImports(stripTypeBraces(text))
+    .replace(/@param[ \t]+[\w.$]+[ \t]+(?=@)/g, '')
+    .replace(/[ \t]+@param[ \t]+[\w.$]+[ \t]*(?=\*\/)/g, ' ')
+    .replace(/(?<=[^\s*])[ \t]+@param[ \t]+[\w.$]+[ \t]*$(?!\n[ \t]*\*[ \t]{2,}[^\s@*/])/gm, '')
     .replace(/(@returns?)[ \t]*\n[ \t]*\*[ \t]{2,}(?=[^\s@*\/])/g, '$1 ')
     .replace(/^[ \t]*\*[ \t]*@(?:param|returns?|type)[ \t]*(?:\[[\w.$]+(?:=[^\]]*)?\]|[\w.$]+)?[ \t]*\n(?![ \t]*\*[ \t]{2,}[^\s@*/])/gm, '')
     .replace(/[ \t]*\/\*\*[ \t]*@(?:param|returns?|type)[ \t]*(?:[\w.$]+)?[ \t]*\*\/[ \t]*\n/g, '')
     .replace(/\/\*\*[ \t]*@(?:param|returns?|type)[ \t]*(?:[\w.$]+)?[ \t]*\*\/[ \t]*/g, '')
-    .replace(/@param[ \t]+[\w.$]+[ \t]+(?=@)/g, '')
     .replace(/[ \t]*@returns?[ \t]*(?=\*\/)/g, ' ')
     .replace(/^[ \t]*\/\*\*[ \t]*\*\/[ \t]*\n/gm, '')
     .replace(/(@param[ \t]+)\[([\w.$]+)\]/g, '$1$2')
@@ -201,7 +221,7 @@ function stripJsDocTypes(text: string): string {
 }
 
 for (const file of files) texts.set(file, convertCasts(texts.get(file)!));
-const docs = new Map(files.map((f) => [f, propertyDocs(f, texts.get(f)!)]));
+const docs = new Map(files.map((f) => [f, typedefDocs(f, texts.get(f)!)]));
 for (const file of files) texts.set(file, markOptionalParams(file, texts.get(file)!));
 
 for (const fixId of FIX_IDS) {
@@ -223,7 +243,8 @@ for (const fixId of FIX_IDS) {
 }
 
 for (const file of files) {
-  const text = stripJsDocTypes(interfacesToTypes(file, texts.get(file)!, docs.get(file)!));
+  const { props, typedefs } = docs.get(file)!;
+  const text = restoreTypedefDocs(stripJsDocTypes(interfacesToTypes(file, texts.get(file)!, props)), typedefs);
   if (text !== readFileSync(file, 'utf8')) {
     writeFileSync(file, text);
     console.log(`converted ${path.relative(process.cwd(), file)}`);

@@ -6,7 +6,7 @@ import { createGithubPr } from './githubPr.js';
 import { createLlm } from './llm.js';
 import { createGmailSender } from './mailer.js';
 import { createPostRun } from './postRun.js';
-import { REQUEUED_NOTE } from '../runQueue.js';
+import { REQUEUED_NOTE } from '../runQueue.ts';
 
 /**
  * The GitHub issue pipeline behind `claude issue:<alias>:<n>` and the cron tracer: the two

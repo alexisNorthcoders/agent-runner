@@ -2,7 +2,7 @@ import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'http';
 import { createOfficeFeed } from '../src/officeFeed.js';
-import { createStateChanges } from '../src/stateChanges.js';
+import { createStateChanges } from '../src/stateChanges.ts';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 

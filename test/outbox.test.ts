@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createOutbox, OWNER, OUTBOX_KEY } from '../src/outbox.ts';
-import type { Store } from '../src/redisStore.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import type { Store } from '../src/redisStore.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
 

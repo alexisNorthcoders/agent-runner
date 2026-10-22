@@ -1,17 +1,17 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from 'redis';
-import { createRedisStore } from '../src/redisStore.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createRedisStore } from '../src/redisStore.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
+import type { RedisClient, Store } from '../src/redisStore.ts';
 
 /**
  * The same contract runs against the in-memory fake (used by every other test) and a real Redis,
  * so the fake cannot silently drift. The Redis half is skipped when no server is reachable.
  */
 
-/** @param {() => { store: import('../src/redisStore.js').Store, readStream: (key: string) => Promise<Array<{ id: string, fields: Record<string, string> }>> }} setup */
-function contract(setup) {
-  const k = (name) => `agent-runner:test:${process.pid}:${name}`;
+function contract(setup: () => { store: Store; readStream: (key: string) => Promise<Array<{ id: string; fields: Record<string, string> }>> }) {
+  const k = (name: string) => `agent-runner:test:${process.pid}:${name}`;
 
   it('setIfAbsent only sets a missing key', async () => {
     const { store } = setup();
@@ -118,16 +118,14 @@ function contract(setup) {
 }
 
 describe('store contract: memory fake', () => {
-  let mem;
   contract(() => {
-    mem = createMemoryStore();
+    const mem = createMemoryStore();
     return { store: mem, readStream: async (key) => mem.streams.get(key) ?? [] };
   });
 });
 
 describe('store contract: redis', async () => {
-  /** @type {import('redis').RedisClientType} */
-  let client;
+  let client: RedisClient;
   let reachable = false;
   const url = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
   try {

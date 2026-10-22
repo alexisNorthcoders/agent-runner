@@ -1,28 +1,28 @@
 import { spawn } from 'child_process';
-import { mkdirSync } from 'fs';
+import { mkdirSync, realpathSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
-import { loadConfig } from './config.js';
-import { connectRedis, createRedisStore, subscribeStateChanges } from './redisStore.js';
-import { createRunLock } from './runLock.js';
+import { loadConfig } from './config.ts';
+import { connectRedis, createRedisStore, subscribeStateChanges } from './redisStore.ts';
+import { createRunLock } from './runLock.ts';
 import { createPauseFlag } from './pauseFlag.ts';
-import { createRunQueue } from './runQueue.js';
-import { createManualPause } from './manualPause.js';
-import { createUsageLimitPause } from './usageLimitPause.js';
+import { createRunQueue } from './runQueue.ts';
+import { createManualPause } from './manualPause.ts';
+import { createUsageLimitPause } from './usageLimitPause.ts';
 import { createOutbox } from './outbox.ts';
 import { createAgentBackend } from './agentBackend/index.js';
-import { createRunHistory } from './runHistory.js';
-import { createActiveRuns } from './activeRuns.js';
-import { createCronState } from './cronState.js';
+import { createRunHistory } from './runHistory.ts';
+import { createActiveRuns } from './activeRuns.ts';
+import { createCronState } from './cronState.ts';
 import { createCronTracer } from './cronTracer.js';
 import { collectStatus } from './statusCollect.js';
 import { createJoplinClient } from './joplin.js';
 import { buildFreeformPreamble, buildPreamble } from './preamble.ts';
 import { createRunner } from './runner.js';
 import { createHttpServer } from './http.js';
-import { createWorkspaceAllowlist } from './workspaces.js';
+import { createWorkspaceAllowlist } from './workspaces.ts';
 import { createIssuePipeline } from './issuePipeline/index.js';
-import { createStateChanges, notifyingStore } from './stateChanges.js';
+import { createStateChanges, notifyingStore } from './stateChanges.ts';
 import { collectOfficeSnapshot } from './officeSnapshot.js';
 import { createOfficeFeed } from './officeFeed.js';
 import { createLogTail } from './logTail.js';
@@ -219,5 +219,15 @@ async function main() {
 }
 
 // PM2 loads this file with import() from its own wrapper, so import.meta.main is false there. Its
-// pm_exec_path names the script; agent runs inherit it, so the match has to be exact.
-if (import.meta.main || process.env.pm_exec_path === fileURLToPath(import.meta.url)) await main();
+// pm_exec_path names the script; agent runs inherit it, so the match has to be exact. PM2 keeps the
+// path as given while ESM resolves symlinks, so compare real paths.
+function startedByPm2() {
+  if (!process.env.pm_exec_path) return false;
+  try {
+    return realpathSync(process.env.pm_exec_path) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (import.meta.main || startedByPm2()) await main();

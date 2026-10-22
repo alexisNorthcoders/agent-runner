@@ -50,8 +50,20 @@ describe('entry modules', () => {
     const { res } = runSandboxed(
       t,
       ['-e', "import(require('url').pathToFileURL(process.env.pm_exec_path))"],
-      { pm_exec_path: main },
-      3_000
+      { pm_exec_path: main }
+    );
+    assert.match(res.stderr, /agent-runner redis: connect ECONNREFUSED 127\.0\.0\.1:1/);
+  });
+
+  it('src/main.js starts when PM2 names it through a symlink', (t) => {
+    const linkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'entry-guard-link-'));
+    t.after(() => fs.rmSync(linkDir, { recursive: true, force: true }));
+    const link = path.join(linkDir, 'main.js');
+    fs.symlinkSync(path.join(repoRoot, 'src/main.js'), link);
+    const { res } = runSandboxed(
+      t,
+      ['-e', "import(require('url').pathToFileURL(process.env.pm_exec_path))"],
+      { pm_exec_path: link }
     );
     assert.match(res.stderr, /agent-runner redis: connect ECONNREFUSED 127\.0\.0\.1:1/);
   });

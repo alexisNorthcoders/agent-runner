@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCronState, prAttemptStateKey } from '../src/cronState.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createCronState, prAttemptStateKey } from '../src/cronState.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
 
 const REPO = 'alexisNorthcoders/WhatsappBot';
 
@@ -22,6 +22,15 @@ describe('cronState', () => {
       lastTickEndedAt: '2026-01-01T00:00:05.000Z',
       outcome: { kind: 'no_eligible' },
     });
+  });
+
+  it('reads a value without a numeric pid and interval as absent, and a bad outcome as none', async () => {
+    const store = createMemoryStore();
+    const state = createCronState({ store });
+    store.kv.set('agent-runner:cron:state', JSON.stringify({ pid: '1', intervalMs: 60_000 }));
+    assert.equal(await state.read(), null);
+    store.kv.set('agent-runner:cron:state', JSON.stringify({ pid: 1, intervalMs: 60_000, lastTickStartedAt: 5, outcome: { repo: REPO } }));
+    assert.deepEqual(await state.read(), { pid: 1, intervalMs: 60_000, lastTickStartedAt: null, lastTickEndedAt: null, outcome: null });
   });
 
   it('forgets the last tick on clear', async () => {

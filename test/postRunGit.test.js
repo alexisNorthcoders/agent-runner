@@ -8,7 +8,7 @@ import { describe, it } from 'node:test';
 import { createIssuePipeline } from '../src/issuePipeline/index.js';
 import { postRunPrLanded } from '../src/issuePipeline/postRun.js';
 import { loadPipelineSettings } from '../src/issuePipeline/settings.js';
-import { realGitFakeGh } from './helpers/fakeExec.js';
+import { realGitFakeGh } from './helpers/fakeExec.ts';
 
 const execFileAsync = promisify(execFile);
 

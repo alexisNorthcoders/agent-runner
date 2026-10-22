@@ -7,7 +7,7 @@ import { dirname, join } from 'path';
 import { createStreamAccumulator, resultUsage } from './claudeStreamParser.js';
 import { usageLimitFrom } from './claudeUsageLimit.js';
 import { augmentedPathEnv } from '../processPath.ts';
-import { USAGE_FILE_ENV } from '../jobUsage.js';
+import { USAGE_FILE_ENV } from '../jobUsage.ts';
 
 /**
  * The Claude Code CLI implementation of `AgentBackend` (see ./index.js). Everything Claude-specific
@@ -326,7 +326,7 @@ export function readOnlySessionArgs({ prompt, model = process.env.REPO_INSIGHT_M
 }
 
 /**
- * Append a session's usage to the scheduled job's usage file (./jobUsage.js), when the runner set
+ * Append a session's usage to the scheduled job's usage file (./jobUsage.ts), when the runner set
  * one. A failed write is logged, not thrown: it must not fail the session.
  * @param {any} out the CLI's JSON result
  * @param {{ usageFile?: string, appendFileFn?: typeof appendFile }} deps

@@ -1,10 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRunQueue } from '../src/runQueue.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
+import { createRunQueue } from '../src/runQueue.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
+import type { QueuedRun } from '../src/runQueue.ts';
 
-/** @param {string} id @returns {import('../src/runQueue.js').QueuedRun} */
-const item = (id) => ({ id, cmd: { kind: 'freeform', prompt: id }, replyTo: 'jid', label: id, queuedAt: '2026-09-24T12:00:00.000Z' });
+const item = (id: string): QueuedRun => ({ id, cmd: { kind: 'freeform', prompt: id }, replyTo: 'jid', label: id, queuedAt: '2026-09-24T12:00:00.000Z' });
 
 describe('runQueue.update', () => {
   it('rewrites a waiting item in place, keeping its position', async () => {

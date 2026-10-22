@@ -1,19 +1,17 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createStateChanges, notifyingStore } from '../src/stateChanges.js';
-import { createMemoryStore } from './helpers/memoryStore.js';
-import { createRunLock } from '../src/runLock.js';
-import { createRunQueue } from '../src/runQueue.js';
-import { createManualPause } from '../src/manualPause.js';
+import { createStateChanges, notifyingStore } from '../src/stateChanges.ts';
+import { createMemoryStore } from './helpers/memoryStore.ts';
+import { createRunLock } from '../src/runLock.ts';
+import { createRunQueue } from '../src/runQueue.ts';
+import { createManualPause } from '../src/manualPause.ts';
 import { createOutbox } from '../src/outbox.ts';
 
 describe('state changes', () => {
   it('tells every subscriber, with the reason, until it unsubscribes', () => {
     const changes = createStateChanges();
-    /** @type {string[]} */
-    const a = [];
-    /** @type {string[]} */
-    const b = [];
+    const a: string[] = [];
+    const b: string[] = [];
     const offA = changes.subscribe((r) => a.push(r));
     changes.subscribe((r) => b.push(r));
     changes.notify('progress');
@@ -25,8 +23,7 @@ describe('state changes', () => {
 
   it('keeps notifying the others when a subscriber throws', () => {
     const changes = createStateChanges({ logger: { warn() {} } });
-    /** @type {string[]} */
-    const seen = [];
+    const seen: string[] = [];
     changes.subscribe(() => {
       throw new Error('boom');
     });
@@ -39,8 +36,7 @@ describe('state changes', () => {
 describe('notifyingStore', () => {
   function setup() {
     const changes = createStateChanges();
-    /** @type {string[]} */
-    const seen = [];
+    const seen: string[] = [];
     changes.subscribe((r) => seen.push(r));
     const store = notifyingStore(createMemoryStore(), changes.notify);
     return { store, seen };
@@ -68,8 +64,7 @@ describe('notifyingStore', () => {
   });
 
   it('settles a write only once an async notify has (a CLI publishes before it exits)', async () => {
-    /** @type {string[]} */
-    const published = [];
+    const published: string[] = [];
     const store = notifyingStore(createMemoryStore(), async (key) => {
       await new Promise((r) => setTimeout(r, 5));
       published.push(key);
