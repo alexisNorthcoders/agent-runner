@@ -61,7 +61,7 @@ The active run's log (its autofix pass's too) as the **Office feed** streams it 
 _Avoid_: log tail, log pane (for the concept)
 
 **Office snapshot**:
-The one JSON document the office is drawn from (`OfficeSnapshot` in `src/officeSnapshot.js`), built from the same status snapshot as `agent:status`.
+The one JSON document the office is drawn from (`OfficeSnapshot` in `src/officeSnapshot.ts`), built from the same status snapshot as `agent:status`.
 
 **Scene**:
 The office floor drawn on the page's canvas: the **Bullpen** and the rooms around it. The scene reducer (`dashboard/scene.js`) works it out from each **Office snapshot** and the scene before it, then it is drawn.

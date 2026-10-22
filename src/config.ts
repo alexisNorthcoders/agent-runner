@@ -52,7 +52,7 @@ export function loadConfig(env = process.env) {
     },
     // the office's issue scan (src/issueScan.js)
     issueScan: { intervalMs: int(env.ISSUE_SCAN_INTERVAL_MS, 5 * 60 * 1000) },
-    // the session watch (src/sessionWatch.js): interactive Claude sessions, read from their transcripts
+    // the session watch (src/sessionWatch.ts): interactive Claude sessions, read from their transcripts
     sessionWatch: {
       enabled: !['1', 'true', 'yes'].includes(String(env.SESSION_WATCH_DISABLE || '').trim().toLowerCase()),
       root: env.CLAUDE_PROJECTS_DIR?.trim() || join(homedir(), '.claude', 'projects'),

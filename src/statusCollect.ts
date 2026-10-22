@@ -18,7 +18,7 @@ import { pidAlive } from './pidAlive.ts';
  *   manualPauses?: import('./manualPause.ts').ManualPause[],
  *   usageLimit?: import('./usageLimitPause.ts').UsageLimitPause | null,
  *   lock?: import('./runLock.ts').RunRecord | null,
- *   sessions?: import('./sessionWatch.js').OfficeSession[],
+ *   sessions?: import('./sessionWatch.ts').OfficeSession[],
  * }} StatusSnapshot
  *   `history` covers the last 7 days, newest first. `lock` is the lock holder (null when free or
  *   unreadable).
@@ -53,7 +53,7 @@ function timeBoxed(read, fallback, ms) {
  *   readQueue?: () => Promise<import('./runQueue.ts').QueuedRun[]>,
  *   readManualPauses?: () => Promise<import('./manualPause.ts').ManualPause[]>,
  *   readUsageLimit?: () => Promise<import('./usageLimitPause.ts').UsageLimitPause | null>,
- *   readSessions?: () => Promise<import('./sessionWatch.js').OfficeSession[]>,
+ *   readSessions?: () => Promise<import('./sessionWatch.ts').OfficeSession[]>,
  *   isAlive?: (pid: number) => boolean,
  *   now?: () => number,
  *   pauseTimeoutMs?: number,

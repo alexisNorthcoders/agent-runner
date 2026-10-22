@@ -1,6 +1,6 @@
 /**
  * The office feed: a read-only Server-Sent Events stream of office snapshots
- * (src/officeSnapshot.js) for the dashboard page. Each client gets a full snapshot on connect, then
+ * (src/officeSnapshot.ts) for the dashboard page. Each client gets a full snapshot on connect, then
  * a new one after each state change (src/stateChanges.ts). Changes are coalesced: the first one
  * schedules a push `coalesceMs` later, and pushes are at least `minIntervalMs` apart, so a stream
  * of agent progress costs one snapshot build per interval for every client together, and a change
@@ -10,7 +10,7 @@
  * up what changed in another process (a pause from `npm run agent:pause`, safe-restart's pause
  * flag), which this process isn't told about.
  *
- * With a `logTail` (src/logTail.js), the feed also carries the active run's live log: the tail is
+ * With a `logTail` (src/logTail.ts), the feed also carries the active run's live log: the tail is
  * followed while anyone is connected, a client that connects mid-run gets its recent lines right
  * after its first snapshot, and new lines go to every client as they are read. The lines are
  * already masked by the tail, so nothing unmasked leaves the runner.
@@ -32,7 +32,7 @@ export const FEED_MAX_CLIENTS = 20;
  *   minIntervalMs?: number,
  *   heartbeatMs?: number,
  *   maxClients?: number,
- *   logTail?: Pick<ReturnType<typeof import('./logTail.js').createLogTail>, 'start' | 'stop' | 'tail' | 'onLines'>,
+ *   logTail?: Pick<ReturnType<typeof import('./logTail.ts').createLogTail>, 'start' | 'stop' | 'tail' | 'onLines'>,
  *   logger?: Pick<Console, 'warn'>,
  * }} p
  */
@@ -60,7 +60,7 @@ export function createOfficeFeed({
 
   /** @param {unknown} snap */
   const event = (snap) => `event: snapshot\ndata: ${JSON.stringify(snap)}\n\n`;
-  /** @param {import('./logTail.js').LogLines} e */
+  /** @param {import('./logTail.ts').LogLines} e */
   const logEvent = (e) => `event: log\ndata: ${JSON.stringify(e)}\n\n`;
 
   /** @returns {Promise<{ seq: number, text: string } | null>} */

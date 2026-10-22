@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectStatus } from '../src/statusCollect.js';
+import { collectStatus } from '../src/statusCollect.ts';
 
 const NOW = Date.parse('2026-09-24T12:00:00Z');
 

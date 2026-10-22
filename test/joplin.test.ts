@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createJoplinClient } from '../src/joplin.js';
+import { createJoplinClient } from '../src/joplin.ts';
 
 /** Fake Joplin Data API: routes by path, records every URL requested. */
 function fakeApi({ folders, notes, bodies }) {

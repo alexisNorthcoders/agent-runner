@@ -9,7 +9,7 @@ import {
   renderStatus,
   renderStatusText,
   shortModel,
-} from '../src/statusFormat.js';
+} from '../src/statusFormat.ts';
 
 const NOW = Date.parse('2026-09-24T12:00:00Z');
 const ago = (ms) => new Date(NOW - ms).toISOString();

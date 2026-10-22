@@ -1,11 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildOfficeSnapshot, collectOfficeSnapshot } from '../src/officeSnapshot.js';
-import { spend } from '../src/statusFormat.js';
+import { buildOfficeSnapshot, collectOfficeSnapshot } from '../src/officeSnapshot.ts';
+import { spend } from '../src/statusFormat.ts';
 
 const NOW = Date.parse('2026-09-24T12:00:00Z');
 
-/** @returns {import('../src/statusCollect.js').StatusSnapshot} */
+/** @returns {import('../src/statusCollect.ts').StatusSnapshot} */
 function status(overrides = {}) {
   return {
     now: NOW,
@@ -242,7 +242,7 @@ describe('buildOfficeSnapshot', () => {
 });
 
 describe('sessions', () => {
-  /** @returns {import('../src/sessionWatch.js').OfficeSession} */
+  /** @returns {import('../src/sessionWatch.ts').OfficeSession} */
   const session = (extra = {}) => ({ id: 's1', workspaceAlias: 'bot', cwd: '/p/bot', branch: 'main', state: /** @type {const} */ ('working'), activity: 'Bash: npm test', subagents: 1, since: '2026-09-24T11:00:00.000Z', lastEntryAt: '2026-09-24T11:59:00.000Z', ...extra });
   const base = { statusSnapshot: async () => status(), liveRun: async () => ({ activeRun: null }), workspaceAliases: async () => ['bot'] };
 

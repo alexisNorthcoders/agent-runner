@@ -1,5 +1,5 @@
 /**
- * Pure text rendering of a status snapshot (src/statusCollect.js): a pm2-style dashboard for the
+ * Pure text rendering of a status snapshot (src/statusCollect.ts): a pm2-style dashboard for the
  * terminal CLI, and compact plain text for `claude:status` / `claude:history` replies (a single
  * WhatsApp message each, with no log paths or excerpts). Ported from WhatsappBot's
  * `claudeAgentCliFormat.js`. `c` is a colorizer so tests can pass identity functions.
@@ -7,7 +7,7 @@
 
 import { describeManualPause } from './manualPause.ts';
 import { describeUsageLimitPause } from './usageLimitPause.ts';
-/** @typedef {import('./statusCollect.js').StatusSnapshot} StatusSnapshot */
+/** @typedef {import('./statusCollect.ts').StatusSnapshot} StatusSnapshot */
 
 /** The owner's pauses, e.g. `by hand: everything for 1h20m (reason); chess-trainer for 45m`, or ''. @param {StatusSnapshot} d */
 function byHandText(d) {
@@ -289,7 +289,7 @@ function subagentsText(r) {
 function sessionsText(d) {
   const list = d.sessions ?? [];
   if (!list.length) return '';
-  const one = (/** @type {import('./sessionWatch.js').OfficeSession} */ s) => {
+  const one = (/** @type {import('./sessionWatch.ts').OfficeSession} */ s) => {
     const where = s.workspaceAlias ?? (s.cwd.split('/').filter(Boolean).pop() || s.cwd);
     return `${where}, ${s.state === 'waiting' ? 'waiting for you' : `working${s.activity ? ` (${clip(s.activity, 40)})` : ''}`}`;
   };

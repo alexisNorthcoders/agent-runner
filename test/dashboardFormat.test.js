@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import * as page from '../dashboard/format.js';
-import * as cli from '../src/statusFormat.js';
+import * as cli from '../src/statusFormat.ts';
 import { formatRemaining } from '../src/manualPause.ts';
 
 describe('dashboard formatting matches agent:status', () => {

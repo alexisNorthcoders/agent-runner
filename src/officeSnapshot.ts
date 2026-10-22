@@ -1,9 +1,9 @@
 import { ALL } from './manualPause.ts';
-import { spend, totalTokens, usageLimitText } from './statusFormat.js';
+import { spend, totalTokens, usageLimitText } from './statusFormat.ts';
 
 /**
- * The office snapshot: what the office feed (src/officeFeed.js) sends to the dashboard. It is the
- * status snapshot `agent:status` renders (src/statusCollect.js), plus the live phase and progress
+ * The office snapshot: what the office feed (src/officeFeed.ts) sends to the dashboard. It is the
+ * status snapshot `agent:status` renders (src/statusCollect.ts), plus the live phase and progress
  * this process holds in memory, reshaped into an explicit contract for the page. Every later
  * dashboard feature builds on this shape, so change it by adding fields, and bump `version` on a
  * breaking change.
@@ -124,7 +124,7 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  *   workspaces: string[],
  *   issues: import('./issueScan.js').OfficeIssues | null,
  *   jobs: import('./scheduledJobs.js').JobScheduleEntry[],
- *   sessions: import('./sessionWatch.js').OfficeSession[],
+ *   sessions: import('./sessionWatch.ts').OfficeSession[],
  * }} OfficeSnapshot
  *   `at`: when the snapshot was taken (ISO). `activeRun`: the run this runner is executing, if any.
  *   `active`: every in-flight run `agent:status` lists, including orphaned and stale ones, oldest
@@ -132,7 +132,7 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  *   local midnight) and the last 7 days. `workspaces`: the allowlisted aliases, sorted. `issues`:
  *   the issue scan's latest result (src/issueScan.js), null before its first scan ends. `jobs`: the
  *   scheduled jobs' config (src/scheduledJobs.js) with each one's next due time, in config order.
- *   `sessions`: the interactive agent sessions open on the machine (src/sessionWatch.js), oldest
+ *   `sessions`: the interactive agent sessions open on the machine (src/sessionWatch.ts), oldest
  *   first, with the allowlisted workspace each is in (null outside any); `[]` when the watch is off
  *   or fails. They carry no prompt or reply text.
  *
@@ -141,7 +141,7 @@ import { spend, totalTokens, usageLimitText } from './statusFormat.js';
  *   the throttled active-run file.
  */
 
-/** The sessions, or none if reading them fails. @param {() => import('./sessionWatch.js').OfficeSession[]} read */
+/** The sessions, or none if reading them fails. @param {() => import('./sessionWatch.ts').OfficeSession[]} read */
 const safely = (read) => {
   try {
     return read();
@@ -230,12 +230,12 @@ const manualPause = (p) => ({ reason: p.reason, pausedAt: p.pausedAt, until: p.u
 
 /**
  * @param {{
- *   status: import('./statusCollect.js').StatusSnapshot,
+ *   status: import('./statusCollect.ts').StatusSnapshot,
  *   live: LiveRun | null,
  *   workspaces: string[],
  *   issues?: import('./issueScan.js').OfficeIssues | null,
  *   jobs?: import('./scheduledJobs.js').JobScheduleEntry[],
- *   sessions?: import('./sessionWatch.js').OfficeSession[],
+ *   sessions?: import('./sessionWatch.ts').OfficeSession[],
  * }} p
  * @returns {OfficeSnapshot}
  */
@@ -297,12 +297,12 @@ export function buildOfficeSnapshot({ status: d, live, workspaces, issues = null
  * Read everything a snapshot needs and build it. The allowlist and the job schedule are config, so
  * a broken file shows as no workspaces or no jobs instead of failing the feed.
  * @param {{
- *   statusSnapshot: () => Promise<import('./statusCollect.js').StatusSnapshot>,
+ *   statusSnapshot: () => Promise<import('./statusCollect.ts').StatusSnapshot>,
  *   liveRun: () => Promise<{ activeRun: LiveRun | null }>,
  *   workspaceAliases: () => Promise<string[]>,
  *   issues?: () => import('./issueScan.js').OfficeIssues | null,
  *   jobs?: () => Promise<import('./scheduledJobs.js').JobScheduleEntry[]>,
- *   sessions?: () => import('./sessionWatch.js').OfficeSession[],
+ *   sessions?: () => import('./sessionWatch.ts').OfficeSession[],
  * }} deps
  * @returns {Promise<OfficeSnapshot>}
  */

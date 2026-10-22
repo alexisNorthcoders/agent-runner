@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_READ_BYTES, TAIL_BYTES, createSessionWatch } from '../src/sessionWatch.js';
+import { MAX_READ_BYTES, TAIL_BYTES, createSessionWatch } from '../src/sessionWatch.ts';
 
 const T0 = Date.parse('2026-10-06T10:00:00Z');
 const MIN = 60_000;

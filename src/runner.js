@@ -10,7 +10,7 @@ import { describeRun, UNKNOWN_RUN_ID } from './runLock.ts';
 import { describeUsageLimitPause } from './usageLimitPause.ts';
 import { pidAlive } from './pidAlive.ts';
 import { createWorkspaceInference } from './workspaceInference.ts';
-import { formatDuration, renderHistoryText, renderStatusText } from './statusFormat.js';
+import { formatDuration, renderHistoryText, renderStatusText } from './statusFormat.ts';
 import { REQUEUED_NOTE } from './runQueue.ts';
 import { modelFromLabels } from './modelLabel.ts';
 import { sumJobUsage, USAGE_FILE_ENV } from './jobUsage.ts';
@@ -140,7 +140,7 @@ export function formatJobResult(rec, r, durationMs) {
  *   backend: import('./agentBackend/index.ts').AgentBackend,
  *   history: Pick<ReturnType<typeof import('./runHistory.ts').createRunHistory>, 'append' | 'read'>,
  *   activeRuns: Pick<ReturnType<typeof import('./activeRuns.ts').createActiveRuns>, 'track'>,
- *   statusSnapshot: () => Promise<import('./statusCollect.js').StatusSnapshot>,
+ *   statusSnapshot: () => Promise<import('./statusCollect.ts').StatusSnapshot>,
  *   joplin: { getNote: (query: string) => Promise<{ id: string, title: string, body: string }> },
  *   launchSafeRestart: (replyTo: string) => void,
  *   workspaces?: {
@@ -1072,7 +1072,7 @@ export function createRunner({
     /**
      * The run this process is executing and the log it is writing now (an autofix pass's own log
      * once that starts), for the office feed's live tail. Null when idle.
-     * @returns {import('./logTail.js').ActiveLog | null}
+     * @returns {import('./logTail.ts').ActiveLog | null}
      */
     activeLog() {
       if (!active?.record.logPath) return null;

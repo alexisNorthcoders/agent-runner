@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { appendFile, mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createLogTail } from '../src/logTail.js';
+import { createLogTail } from '../src/logTail.ts';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -19,7 +19,7 @@ async function until(ok, ms = 1000) {
 describe('log tail', () => {
   /** @type {string} */
   let dir;
-  /** @type {import('../src/logTail.js').ActiveLog | null} */
+  /** @type {import('../src/logTail.ts').ActiveLog | null} */
   let current;
   /** @type {ReturnType<typeof createLogTail> | null} */
   let tail;
