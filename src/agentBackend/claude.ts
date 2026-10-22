@@ -8,11 +8,27 @@ import { createStreamAccumulator, resultUsage } from './claudeStreamParser.ts';
 import { usageLimitFrom } from './claudeUsageLimit.ts';
 import { augmentedPathEnv } from '../processPath.ts';
 import { USAGE_FILE_ENV } from '../jobUsage.ts';
+import { errorText, isRecord, parseJsonObject, recordOrEmpty } from '../narrow.ts';
+import type { ExecFileException, ExecFileOptionsWithStringEncoding, SpawnOptionsWithStdioTuple, StdioNull, StdioPipe } from 'child_process';
+import type { Readable } from 'stream';
+import type { AgentBackend, AgentModelChoice, AgentResult, AgentOutcome } from './index.ts';
 
 /**
  * The Claude Code CLI implementation of `AgentBackend` (see ./index.ts). Everything Claude-specific
  * lives here: binary lookup, CLI flags, stream-json parsing, token/cost extraction and `/implement`.
  */
+
+/** The part of the spawned CLI process the backend uses. */
+export type AgentChild = {
+  pid?: number;
+  stdout: Readable;
+  stderr: Readable;
+  kill(signal: NodeJS.Signals): boolean;
+  on(event: 'error', listener: (err: Error) => void): unknown;
+  on(event: 'close', listener: (code: number | null) => void): unknown;
+};
+
+export type SpawnAgent = (bin: string, args: string[], opts: SpawnOptionsWithStdioTuple<StdioNull, StdioPipe, StdioPipe>) => AgentChild;
 
 const MAX_STDERR_BYTES = 256 * 1024;
 const KILL_GRACE_MS = 5000;
@@ -37,33 +53,32 @@ export function resolveClaudeBin(env = process.env) {
 /**
  * Slash commands are only recognized as the very first characters of the message, so the
  * `/implement` skill goes before the preamble.
- * @param {{ prompt: string, preamble?: string, implement?: boolean }} p
  */
-export function buildClaudePrompt({ prompt, preamble, implement }) {
+export function buildClaudePrompt({ prompt, preamble, implement }: { prompt: string; preamble?: string; implement?: boolean }) {
   const lead = implement ? '/implement\n\n' : '';
   return preamble ? `${lead}${preamble}\n\n---\n\n${prompt}` : `${lead}${prompt}`;
 }
 
 /** Kill the agent's whole process group (it was spawned detached), so tool subprocesses die too. */
-function killProcessGroup(child, signal) {
+function killProcessGroup(child: AgentChild, signal: NodeJS.Signals) {
   try {
-    process.kill(-child.pid, signal);
+    if (child.pid !== undefined) return void process.kill(-child.pid, signal);
   } catch {
-    try {
-      child.kill(signal);
-    } catch {
-      /* already gone */
-    }
+    /* no such group: kill the child alone */
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    /* already gone */
   }
 }
 
-/** @param {number} pid */
-function alive(pid) {
+function alive(pid: number) {
   try {
     process.kill(pid, 0);
     return true;
   } catch (e) {
-    return e.code === 'EPERM';
+    return isRecord(e) && e.code === 'EPERM';
   }
 }
 
@@ -71,23 +86,21 @@ function alive(pid) {
  * Stop an agent left running by a runner that died (it runs in its own process group, so it can
  * outlive the runner). Only a process whose command line is a headless Claude run is touched, so
  * a recycled pid is left alone.
- * @param {number} pid
- * @param {{ readCmdline?: (pid: number) => Promise<string>, kill?: (pid: number, signal: NodeJS.Signals) => void, isAlive?: (pid: number) => boolean, sleep?: (ms: number) => Promise<void> }} [deps]
- * @returns {Promise<boolean>} true once it's gone
+ * @returns true once it's gone
  */
 export async function stopOrphanClaude(
-  pid,
+  pid: number,
   {
     readCmdline = async (p) => (await readFile(`/proc/${p}/cmdline`, 'utf8')).split('\0').join(' '),
     kill = (p, sig) => process.kill(-p, sig),
     isAlive = alive,
     sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
-  } = {}
-) {
+  }: { readCmdline?: (pid: number) => Promise<string>; kill?: (pid: number, signal: NodeJS.Signals) => void; isAlive?: (pid: number) => boolean; sleep?: (ms: number) => Promise<void> } = {}
+): Promise<boolean> {
   if (!isAlive(pid)) return true;
   const cmd = await readCmdline(pid).catch(() => '');
   if (!cmd.includes('--output-format stream-json') || !cmd.includes('-p')) return false;
-  for (const signal of /** @type {const} */ (['SIGTERM', 'SIGKILL'])) {
+  for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
     try {
       kill(pid, signal);
     } catch {
@@ -102,13 +115,11 @@ export async function stopOrphanClaude(
 /**
  * The `model` a repo sets for itself in `.claude/settings.local.json`, else `.claude/settings.json`
  * (Claude Code's own precedence). Missing or unreadable files don't count.
- * @param {string} cwd
- * @returns {Promise<string | null>}
  */
-export async function repoSettingsModel(cwd) {
+export async function repoSettingsModel(cwd: string): Promise<string | null> {
   for (const name of ['settings.local.json', 'settings.json']) {
     try {
-      const model = JSON.parse(await readFile(join(cwd, '.claude', name), 'utf8'))?.model;
+      const model = parseJsonObject(await readFile(join(cwd, '.claude', name), 'utf8'))?.model;
       if (typeof model === 'string' && model.trim()) return model.trim();
     } catch {
       /* missing or malformed: try the next one */
@@ -117,18 +128,6 @@ export async function repoSettingsModel(cwd) {
   return null;
 }
 
-/**
- * @param {{
- *   bin?: string,
- *   model?: string,
- *   timeoutMs: number,
- *   resultExitGraceMs?: number,
- *   spawnFn?: typeof spawn,
- *   killProcess?: (child: import('child_process').ChildProcess, signal: NodeJS.Signals) => void,
- *   now?: () => number,
- * }} p
- * @returns {import('./index.ts').AgentBackend}
- */
 export function createClaudeBackend({
   bin = resolveClaudeBin(),
   // Pinned so runs don't silently follow the interactive CLI default in ~/.claude/settings.json.
@@ -139,15 +138,22 @@ export function createClaudeBackend({
   spawnFn = spawn,
   killProcess = killProcessGroup,
   now = Date.now,
-}) {
+}: {
+    bin?: string;
+    model?: string;
+    timeoutMs: number;
+    resultExitGraceMs?: number;
+    spawnFn?: SpawnAgent;
+    killProcess?: (child: AgentChild, signal: NodeJS.Signals) => void;
+    now?: () => number;
+  }): AgentBackend {
   return {
     name: 'claude',
     stopOrphan: (pid) => stopOrphanClaude(pid),
     async start({ prompt, preamble, implement, model: requested, modelSource = 'prefix', cwd, logPath, onProgress, onTouch, resume }) {
       await mkdir(dirname(logPath), { recursive: true });
       const workspaceModel = requested ? null : await repoSettingsModel(cwd);
-      /** @type {import('./index.ts').AgentModelChoice} */
-      const choice = requested
+      const choice: AgentModelChoice = requested
         ? { name: requested, source: modelSource }
         : workspaceModel
           ? { name: workspaceModel, source: 'workspace' }
@@ -176,10 +182,8 @@ export function createClaudeBackend({
       let closed = false;
       /** ended by the result grace: its final result came, but it didn't exit */
       let endedAfterResult = false;
-      /** @type {NodeJS.Timeout | null} */
-      let killTimer = null;
-      /** @type {NodeJS.Timeout | null} */
-      let resultTimer = null;
+      let killTimer: NodeJS.Timeout | null = null;
+      let resultTimer: NodeJS.Timeout | null = null;
 
       const terminate = () => {
         if (closed) return;
@@ -195,14 +199,12 @@ export function createClaudeBackend({
       }, timeoutMs);
       timer.unref();
 
-      const logLines = (lines) => {
+      const logLines = (lines: string[]) => {
         for (const l of lines) log.write(`[out] ${l}\n`);
       };
 
-      /** @type {Promise<import('./index.ts').AgentResult>} */
-      const done = new Promise((resolve) => {
-        /** @param {{ exitCode: number | null, spawnError?: string }} p */
-        const finish = ({ exitCode, spawnError }) => {
+      const done: Promise<AgentResult> = new Promise((resolve) => {
+        const finish = ({ exitCode, spawnError }: { exitCode: number | null; spawnError?: string }) => {
           if (closed) return;
           closed = true;
           clearTimeout(timer);
@@ -217,8 +219,7 @@ export function createClaudeBackend({
           // the run failed (the CLI may still exit 0 with an error result) and the stream signalled the
           // usage limit; the text only supplies the reset time
           const hitLimit = failed && snap.rateLimited;
-          /** @type {import('./index.ts').AgentOutcome} */
-          const outcome = spawnError
+          const outcome: AgentOutcome = spawnError
             ? 'spawn_error'
             : stopped
               ? 'stopped'
@@ -275,7 +276,7 @@ export function createClaudeBackend({
         });
         child.on('error', (err) => {
           const hint =
-            /** @type {NodeJS.ErrnoException} */ (err).code === 'ENOENT'
+            'code' in err && err.code === 'ENOENT'
               ? `${err.message}: no "claude" on the runner's PATH. Run \`which claude\` in a shell where it works and set CLAUDE_AGENT_BIN in .env to that path.`
               : err.message;
           finish({ exitCode: null, spawnError: hint });
@@ -308,10 +309,9 @@ export const READ_ONLY_DISALLOWED_TOOLS = ['Edit', 'Write', 'MultiEdit', 'Notebo
 export const READ_ONLY_DEFAULT_MODEL = 'claude-opus-5-5';
 
 /**
- * @param {{ prompt: string, model?: string }} p
- * @returns {string[]} argv for a one-shot, read-only `claude -p` session
+ * @returns argv for a one-shot, read-only `claude -p` session
  */
-export function readOnlySessionArgs({ prompt, model = process.env.REPO_INSIGHT_MODEL?.trim() || READ_ONLY_DEFAULT_MODEL }) {
+export function readOnlySessionArgs({ prompt, model = process.env.REPO_INSIGHT_MODEL?.trim() || READ_ONLY_DEFAULT_MODEL }: { prompt: string; model?: string }): string[] {
   return [
     '-p',
     '--model', model,
@@ -325,18 +325,26 @@ export function readOnlySessionArgs({ prompt, model = process.env.REPO_INSIGHT_M
   ];
 }
 
+export type ExecFileAgent = (
+  bin: string,
+  args: string[],
+  opts: ExecFileOptionsWithStringEncoding,
+  cb: (err: ExecFileException | null, stdout: string, stderr: string) => void
+) => { stdin: { end(): unknown } | null } | void;
+
+type AppendFile = (path: string, data: string) => Promise<void>;
+
 /**
  * Append a session's usage to the scheduled job's usage file (./jobUsage.ts), when the runner set
  * one. A failed write is logged, not thrown: it must not fail the session.
- * @param {any} out the CLI's JSON result
- * @param {{ usageFile?: string, appendFileFn?: typeof appendFile }} deps
+ * @param out the CLI's JSON result
  */
-async function reportJobUsage(out, { usageFile, appendFileFn = appendFile }) {
+async function reportJobUsage(out: unknown, { usageFile, appendFileFn = appendFile }: { usageFile?: string; appendFileFn?: AppendFile }) {
   if (!usageFile) return;
   try {
     await appendFileFn(usageFile, `${JSON.stringify(resultUsage(out))}\n`);
   } catch (err) {
-    console.warn(`cannot write usage file ${usageFile}:`, /** @type {any} */ (err)?.message || err);
+    console.warn(`cannot write usage file ${usageFile}:`, errorText(err));
   }
 }
 
@@ -345,14 +353,6 @@ async function reportJobUsage(out, { usageFile, appendFileFn = appendFile }) {
  * as `repoInsight`'s `launchSession`; tests inject a fake instead of spawning the CLI. Its model,
  * cost and tokens go to `AGENT_RUNNER_USAGE_FILE` (even for a session that reports an error), so
  * the scheduled job's history row shows them.
- * @param {{
- *   bin?: string,
- *   timeoutMs?: number,
- *   execFileFn?: typeof import('child_process').execFile,
- *   usageFile?: string,
- *   appendFileFn?: typeof appendFile,
- * }} [deps]
- * @returns {(p: { cwd: string, prompt: string }) => Promise<{ text: string }>}
  */
 export function createReadOnlySessionLauncher({
   bin = resolveClaudeBin(),
@@ -360,7 +360,13 @@ export function createReadOnlySessionLauncher({
   execFileFn = execFile,
   usageFile = process.env[USAGE_FILE_ENV]?.trim(),
   appendFileFn,
-} = {}) {
+}: {
+    bin?: string;
+    timeoutMs?: number;
+    execFileFn?: ExecFileAgent;
+    usageFile?: string;
+    appendFileFn?: AppendFile;
+  } = {}): (p: { cwd: string; prompt: string }) => Promise<{ text: string }> {
   return ({ cwd, prompt }) =>
     new Promise((resolve, reject) => {
       const child = execFileFn(
@@ -369,15 +375,16 @@ export function createReadOnlySessionLauncher({
         { cwd, env: { ...process.env, PATH: augmentedPathEnv() }, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' },
         (err, stdout, stderr) => {
           if (err) return reject(new Error(`exploration session failed: ${String(stderr || '').trim().slice(0, 300) || err.message}`));
-          let out;
+          let out: unknown;
           try {
             out = JSON.parse(stdout);
           } catch {
             return reject(new Error('exploration session printed no JSON result'));
           }
+          const result = recordOrEmpty(out);
           reportJobUsage(out, { usageFile, appendFileFn }).then(() => {
-            if (out?.is_error) return reject(new Error(`exploration session reported an error: ${String(out.result ?? '').slice(0, 300)}`));
-            resolve({ text: String(out?.result ?? '') });
+            if (result.is_error) return reject(new Error(`exploration session reported an error: ${String(result.result ?? '').slice(0, 300)}`));
+            resolve({ text: String(result.result ?? '') });
           });
         }
       );

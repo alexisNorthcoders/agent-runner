@@ -6,38 +6,41 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createClaudeBackend } from '../src/agentBackend/claude.ts';
+import type { AgentChild, ExecFileAgent, SpawnAgent } from '../src/agentBackend/claude.ts';
+import type { AgentProgress } from '../src/agentBackend/index.ts';
 
-const line = (o) => `${JSON.stringify(o)}\n`;
+const line = (o: unknown) => `${JSON.stringify(o)}\n`;
 
-function fakeChild(pid = 4242) {
-  const child = /** @type {any} */ (new EventEmitter());
-  child.pid = pid;
-  child.stdout = new PassThrough();
-  child.stderr = new PassThrough();
-  return child;
+class FakeChild extends EventEmitter implements AgentChild {
+  pid = 4242;
+  stdout = new PassThrough();
+  stderr = new PassThrough();
+  kill() {
+    return true;
+  }
 }
+const fakeChild = () => new FakeChild();
 
 /** Wait for queued stream 'data' events to be delivered. */
 const tick = () => new Promise((r) => setImmediate(r));
 
 describe('claude AgentBackend', () => {
-  let dir;
-  /** @type {any[]} */
-  let spawned;
-  /** @type {Array<[number, string]>} */
-  let kills;
-  let child;
+  let dir: string;
+  let spawned: { bin: string; args: string[]; o: Parameters<SpawnAgent>[2] }[];
+  let kills: Array<[number | undefined, string]>;
+  let child: FakeChild;
+  const lastArgs = () => spawned[spawned.length - 1].args;
 
-  const backend = (opts = {}) =>
+  const backend = (opts: Partial<Parameters<typeof createClaudeBackend>[0]> = {}) =>
     createClaudeBackend({
       bin: '/bin/claude',
       model: 'sonnet',
       timeoutMs: 60_000,
-      spawnFn: /** @type {any} */ ((bin, args, o) => {
+      spawnFn: (bin, args, o) => {
         spawned.push({ bin, args, o });
         return child;
-      }),
-      killProcess: (c, sig) => kills.push([c.pid, sig]),
+      },
+      killProcess: (c, sig) => void kills.push([c.pid, sig]),
       ...opts,
     });
 
@@ -79,7 +82,7 @@ describe('claude AgentBackend', () => {
       const run = await b.start({ prompt: 'P', cwd: repo, logPath: join(dir, 'm.log') });
       child.emit('close', 0, null);
       await run.done;
-      const { args } = spawned.at(-1);
+      const args = lastArgs();
       return args[args.indexOf('--model') + 1];
     };
 
@@ -98,12 +101,12 @@ describe('claude AgentBackend', () => {
     const repo = join(dir, 'repo');
     await mkdir(join(repo, '.claude'), { recursive: true });
     const b = backend();
-    const start = async (extra = {}) => {
+    const start = async (extra: { model?: string } = {}) => {
       child = fakeChild();
       const run = await b.start({ prompt: 'P', cwd: repo, logPath: join(dir, 's.log'), ...extra });
       child.emit('close', 0, null);
       await run.done;
-      const { args } = spawned.at(-1);
+      const args = lastArgs();
       return { arg: args[args.indexOf('--model') + 1], model: run.model };
     };
     assert.deepEqual(await start(), { arg: 'sonnet', model: { name: 'sonnet', source: 'default' } });
@@ -159,8 +162,7 @@ describe('claude AgentBackend', () => {
   });
 
   it('reports the final result text, usage and live progress', async () => {
-    /** @type {any[]} */
-    const progress = [];
+    const progress: AgentProgress[] = [];
     const logPath = join(dir, 'r.log');
     const run = await backend().start({ prompt: 'x', cwd: '/w', logPath, onProgress: (s) => progress.push(s) });
     child.stdout.write(line({ type: 'system', subtype: 'init', model: 'claude-sonnet-5', session_id: 's' }));
@@ -278,8 +280,7 @@ describe('claude AgentBackend', () => {
   // and turns from logs/agent-runs/2026-09-26T05-07-24-746Z.log, the rejected event's fields from a
   // limited session's transcript (`quotaLimits: { status: 'rejected', resetsAt }`).
   describe('the usage limit (fixtures rebuilt from real limited runs)', () => {
-    /** @param {string} name @param {number} exitCode */
-    async function runFixture(name, exitCode, now) {
+    async function runFixture(name: string, exitCode: number, now: number) {
       const run = await backend({ now: () => now }).start({ prompt: 'P', cwd: '/w', logPath: join(dir, 'l.log') });
       child.stdout.write(await readFile(new URL(`./fixtures/${name}`, import.meta.url)));
       await tick();
@@ -350,8 +351,7 @@ describe('stopOrphanClaude', () => {
 
   it('stops a leftover headless claude process group, escalating to SIGKILL', async () => {
     const { stopOrphanClaude } = await import('../src/agentBackend/claude.ts');
-    /** @type {string[]} */
-    const signals = [];
+    const signals: string[] = [];
     let aliveUntilKill = true;
     const gone = await stopOrphanClaude(77, {
       readCmdline: async () => CMD,
@@ -383,16 +383,16 @@ describe('stopOrphanClaude', () => {
 describe('read-only exploration session', () => {
   it('disables editing and shell tools by CLI flag, not just the prompt', async () => {
     const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.ts');
-    let seen;
+    let seen = { args: [] as string[], cwd: undefined as unknown };
     const launch = createReadOnlySessionLauncher({
       bin: 'claude',
-      execFileFn: /** @type {any} */ ((bin, args, opts, cb) => {
-        seen = { bin, args, opts };
+      execFileFn: (_bin, args, opts, cb) => {
+        seen = { args, cwd: opts.cwd };
         cb(null, JSON.stringify({ result: 'idea' }), '');
-      }),
+      },
     });
     assert.deepEqual(await launch({ cwd: '/ws/x', prompt: 'explore' }), { text: 'idea' });
-    assert.equal(seen.opts.cwd, '/ws/x');
+    assert.equal(seen.cwd, '/ws/x');
     assert.equal(seen.args[seen.args.indexOf('--tools') + 1], 'Read,Grep,Glob');
     const denied = seen.args[seen.args.indexOf('--disallowedTools') + 1].split(',');
     for (const t of ['Edit', 'Write', 'NotebookEdit', 'Bash']) assert.ok(denied.includes(t), t);
@@ -416,7 +416,7 @@ describe('read-only exploration session', () => {
       args = readOnlySessionArgs({ prompt: 'p' });
       assert.equal(args[args.indexOf('--model') + 1], 'haiku');
     } finally {
-      for (const [k, v] of [['CLAUDE_AGENT_MODEL', saved.agent], ['REPO_INSIGHT_MODEL', saved.insight]]) {
+      for (const [k, v] of [['CLAUDE_AGENT_MODEL', saved.agent], ['REPO_INSIGHT_MODEL', saved.insight]] as const) {
         if (v === undefined) delete process.env[k];
         else process.env[k] = v;
       }
@@ -426,8 +426,7 @@ describe('read-only exploration session', () => {
   it("appends the session's model, cost and tokens to the job's usage file, even when it reports an error", async () => {
     const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.ts');
     const { sumJobUsage } = await import('../src/jobUsage.ts');
-    /** @type {string[]} */
-    const written = [];
+    const written: string[] = [];
     const result = {
       result: 'idea',
       num_turns: 12,
@@ -437,12 +436,12 @@ describe('read-only exploration session', () => {
         'claude-opus-5-5': { inputTokens: 100, outputTokens: 50, cacheReadInputTokens: 1000, cacheCreationInputTokens: 200, costUSD: 1.2 },
       },
     };
-    const launcher = (/** @type {object} */ out) =>
+    const launcher = (out: object) =>
       createReadOnlySessionLauncher({
         bin: 'claude',
         usageFile: '/logs/run.usage.jsonl',
-        appendFileFn: /** @type {any} */ (async (file, text) => void written.push(`${file}|${text}`)),
-        execFileFn: /** @type {any} */ ((_bin, _args, _opts, cb) => cb(null, JSON.stringify(out), '')),
+        appendFileFn: async (file, text) => void written.push(`${file}|${text}`),
+        execFileFn: (_bin, _args, _opts, cb) => cb(null, JSON.stringify(out), ''),
       });
     assert.deepEqual(await launcher(result)({ cwd: '/ws/x', prompt: 'explore' }), { text: 'idea' });
     await assert.rejects(launcher({ ...result, is_error: true })({ cwd: '/ws/x', prompt: 'explore' }), /reported an error/);
@@ -454,16 +453,18 @@ describe('read-only exploration session', () => {
 
   it('still returns the text when the usage file cannot be written, and writes none without one', async () => {
     const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.ts');
-    const execFileFn = /** @type {any} */ ((_bin, _args, _opts, cb) => cb(null, JSON.stringify({ result: 'idea', total_cost_usd: 1 }), ''));
+    const execFileFn: ExecFileAgent = (_bin, _args, _opts, cb) => cb(null, JSON.stringify({ result: 'idea', total_cost_usd: 1 }), '');
     const failing = createReadOnlySessionLauncher({
       bin: 'claude',
       usageFile: '/nope/usage.jsonl',
-      appendFileFn: /** @type {any} */ (async () => { throw new Error('EACCES'); }),
+      appendFileFn: async () => {
+        throw new Error('EACCES');
+      },
       execFileFn,
     });
     assert.deepEqual(await failing({ cwd: '/ws/x', prompt: 'explore' }), { text: 'idea' });
     let called = false;
-    const none = createReadOnlySessionLauncher({ bin: 'claude', usageFile: '', appendFileFn: /** @type {any} */ (async () => void (called = true)), execFileFn });
+    const none = createReadOnlySessionLauncher({ bin: 'claude', usageFile: '', appendFileFn: async () => void (called = true), execFileFn });
     assert.deepEqual(await none({ cwd: '/ws/x', prompt: 'explore' }), { text: 'idea' });
     assert.equal(called, false);
   });
@@ -473,10 +474,10 @@ describe('read-only exploration session', () => {
     let ended = false;
     const launch = createReadOnlySessionLauncher({
       bin: 'claude',
-      execFileFn: /** @type {any} */ ((_bin, _args, _opts, cb) => {
+      execFileFn: (_bin, _args, _opts, cb) => {
         setImmediate(() => cb(null, JSON.stringify({ result: 'idea' }), ''));
         return { stdin: { end: () => void (ended = true) } };
-      }),
+      },
     });
     await launch({ cwd: '/ws/x', prompt: 'explore' });
     assert.equal(ended, true);

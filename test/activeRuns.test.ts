@@ -82,6 +82,20 @@ describe('activeRuns', () => {
     assert.deepEqual(await active.removeStale({ ownersGone: true }), ['old']);
   });
 
+  it('reads back every field it wrote, and drops the ones of the wrong type', async () => {
+    const active = createActiveRuns({ dir, isAlive: () => true, throttleMs: 0, now: () => Date.parse('2026-01-01T00:00:09Z') });
+    const record = rec('r1', { workspaceAlias: 'bot', trigger: 'cron', issueNumber: 7 });
+    const progress = { model: 'm', turns: 3, outputTokens: 40, contextTokens: 900, lastActivity: null, subagents: [{ id: 'a1', description: 'Explore', type: null, activity: 'Read: x' }] };
+    const t = active.track(record);
+    await t.update(progress);
+    assert.deepEqual(await active.list(), [{ ...record, ...progress, updatedAt: '2026-01-01T00:00:09.000Z', health: 'running' }]);
+    await t.finish();
+
+    const odd = { runId: 'r2', label: 7, turns: '3', model: 'm', subagents: [{ id: 'a1', description: 'ok', type: 'Explore', activity: null }, { id: 2 }, null] };
+    await writeFile(join(dir, 'active', 'r2.json'), JSON.stringify(odd));
+    assert.deepEqual(await active.list(), [{ runId: 'r2', model: 'm', subagents: [{ id: 'a1', description: 'ok', type: 'Explore', activity: null }], health: 'running' }]);
+  });
+
   it('is empty without a directory and skips corrupt files', async () => {
     assert.deepEqual(await createActiveRuns({ dir: join(dir, 'nope') }).list(), []);
     await mkdir(join(dir, 'active'), { recursive: true });

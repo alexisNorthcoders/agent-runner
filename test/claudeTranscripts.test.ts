@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { SUBAGENT_RECENT_MS, applyTranscriptLines, emptyTranscript, subagentCount } from '../src/agentBackend/claudeTranscripts.ts';
 
 const T0 = Date.parse('2026-10-06T10:00:00Z');
-const at = (s) => new Date(T0 + s * 1000).toISOString();
-const base = (s, extra) => ({ sessionId: 's1', cwd: '/home/a/bot', gitBranch: 'main', entrypoint: 'cli', isSidechain: false, timestamp: at(s), ...extra });
-const prompt = (s) => JSON.stringify(base(s, { type: 'user', message: { role: 'user', content: 'SECRET prompt text' } }));
-const block = (s, b, extra) => JSON.stringify(base(s, { type: 'assistant', message: { role: 'assistant', content: [b] }, ...extra }));
-const toolUse = (s, name, input, extra) => block(s, { type: 'tool_use', id: 't', name, input }, extra);
-const toolResult = (s) => JSON.stringify(base(s, { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'SECRET output' }] } }));
-const run = (lines) => applyTranscriptLines(emptyTranscript(), lines);
+type Fields = Record<string, unknown>;
+const at = (s: number) => new Date(T0 + s * 1000).toISOString();
+const base = (s: number, extra: Fields) => ({ sessionId: 's1', cwd: '/home/a/bot', gitBranch: 'main', entrypoint: 'cli', isSidechain: false, timestamp: at(s), ...extra });
+const prompt = (s: number) => JSON.stringify(base(s, { type: 'user', message: { role: 'user', content: 'SECRET prompt text' } }));
+const block = (s: number, b: Fields, extra: Fields = {}) => JSON.stringify(base(s, { type: 'assistant', message: { role: 'assistant', content: [b] }, ...extra }));
+const toolUse = (s: number, name: string, input: Fields, extra?: Fields) => block(s, { type: 'tool_use', id: 't', name, input }, extra);
+const toolResult = (s: number) => JSON.stringify(base(s, { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'SECRET output' }] } }));
+const run = (lines: string[]) => applyTranscriptLines(emptyTranscript(), lines);
 
 describe('applyTranscriptLines', () => {
   it('works on a prompt, thinking, a tool call and its result', () => {

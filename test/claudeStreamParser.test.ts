@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createStreamAccumulator, describeToolUse } from '../src/agentBackend/claudeStreamParser.ts';
 
-const line = (o) => `${JSON.stringify(o)}\n`;
+const line = (o: unknown) => `${JSON.stringify(o)}\n`;
 
 describe('claudeStreamParser', () => {
   it('tracks model, turns, activity, tokens and the final result', () => {
@@ -49,9 +49,9 @@ describe('claudeStreamParser', () => {
     assert.equal(s.contextTokens, 115);
     assert.deepEqual(s.rateLimits, { fiveHour: 0.4, sevenDay: 0.7 });
     assert.equal(s.model, 'claude-opus-5');
-    assert.equal(s.result.text, 'All done');
-    assert.equal(s.result.costUsd, 1.25);
-    assert.deepEqual(s.result.tokens, { input: 11, output: 21, cacheRead: 30, cacheCreate: 40 });
+    assert.equal(s.result?.text, 'All done');
+    assert.equal(s.result?.costUsd, 1.25);
+    assert.deepEqual(s.result?.tokens, { input: 11, output: 21, cacheRead: 30, cacheCreate: 40 });
   });
 
   it('remembers a rejected rate-limit event and its reset epoch', () => {
@@ -88,7 +88,7 @@ describe('claudeStreamParser', () => {
     acc.push('{"type":"result","result":"tail","subtype":"success"}');
     assert.equal(acc.snapshot().result, null);
     acc.flush();
-    assert.equal(acc.snapshot().result.text, 'tail');
+    assert.equal(acc.snapshot().result?.text, 'tail');
   });
 
   it('describes tool uses compactly', () => {
@@ -100,15 +100,15 @@ describe('claudeStreamParser', () => {
 
 describe('claudeStreamParser: subagents', () => {
   /** The main agent spawning a subagent by tool call `id`. */
-  const spawn = (msg, id, description) => ({
+  const spawn = (msg: string, id: string, description: string) => ({
     type: 'assistant',
     parent_tool_use_id: null,
     message: { id: msg, usage: { input_tokens: 10, cache_read_input_tokens: 1000, output_tokens: 5 }, content: [{ type: 'tool_use', id, name: 'Agent', input: { description, prompt: 'p', subagent_type: 'general-purpose' } }] },
   });
-  const started = (taskId, id, description) => ({ type: 'system', subtype: 'task_started', task_id: taskId, tool_use_id: id, description, subagent_type: 'general-purpose', is_backgrounded: true, task_type: 'local_agent' });
-  const launched = (id) => ({ type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: id }] }, tool_use_result: { isAsync: true, status: 'async_launched' } });
+  const started = (taskId: string, id: string, description: string) => ({ type: 'system', subtype: 'task_started', task_id: taskId, tool_use_id: id, description, subagent_type: 'general-purpose', is_backgrounded: true, task_type: 'local_agent' });
+  const launched = (id: string) => ({ type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: id }] }, tool_use_result: { isAsync: true, status: 'async_launched' } });
   /** A subagent's message: its own tool call or text. */
-  const says = (parent, msg, block, description) => ({
+  const says = (parent: string, msg: string, block: Record<string, unknown>, description: string) => ({
     type: 'assistant',
     parent_tool_use_id: parent,
     task_description: description,
@@ -175,7 +175,7 @@ describe('claudeStreamParser: subagents', () => {
 describe('claudeStreamParser: a run resumed by its background tasks', () => {
   it('adds up the turns of every result, and keeps the last result for the rest', () => {
     const acc = createStreamAccumulator();
-    const result = (turns, cost, text) => line({ type: 'result', subtype: 'success', is_error: false, num_turns: turns, total_cost_usd: cost, duration_ms: 10, result: text });
+    const result = (turns: number, cost: number, text: string) => line({ type: 'result', subtype: 'success', is_error: false, num_turns: turns, total_cost_usd: cost, duration_ms: 10, result: text });
     // the segment that spawned the subagents, the CLI's bookkeeping one, then the final answer
     acc.push(result(4, 0.0655, 'Both agents are now running') + result(0, 0.0655, '') + result(1, 0.0701, 'Both agents have completed'));
     const r = acc.snapshot().result;

@@ -4,6 +4,11 @@ export const isRecord = (x: unknown): x is Record<string, unknown> => typeof x =
 
 export const stringOrNull = (v: unknown) => (typeof v === 'string' ? v : null);
 
+export const numberOrNull = (v: unknown) => (typeof v === 'number' ? v : null);
+
+/** `v` when it is an object, else `{}`: for reading optional fields of untrusted JSON. */
+export const recordOrEmpty = (v: unknown): Record<string, unknown> => (isRecord(v) ? v : {});
+
 /** `raw` parsed as a JSON object, or null when it isn't JSON or isn't an object. */
 export function parseJsonObject(raw: string): Record<string, unknown> | null {
   try {
