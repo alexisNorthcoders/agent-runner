@@ -20,8 +20,8 @@ Preconditions:
 - A fresh sandbox with no run started.
 
 - **HTTP status.** Run `curl -s 127.0.0.1:$PORT/status`. The body is `{"busy":false,"activeRun":null,"paused":false,"queued":0}`.
-- **Status command.** Post `claude:status`. The reply starts with `Agent: idle`, then `Paused: no`, `Cron: not started (no ticks recorded)`, and `Recent:` with `no finished runs recorded yet`.
-- **History command.** After a freeform run or a job, post `claude:history 5`. The reply starts `Last <n> runs:`, with one line per run, such as `scheduled job verify_echo — success, 0s`.
+- **Status command.** Post `claude:status`. The reply starts with `Agent: idle`, then `Paused: no`, `Cron: not started (no ticks recorded)`, `Today: 0 runs · $0.00 · 0 tok`, and `Recent:` with `no finished runs recorded yet`.
+- **History command.** After a freeform run or a job, post `claude:history 5`. The reply starts `Last <n> runs:`, with one line per run, such as `scheduled job verify_echo_<NONCE> — success, 0s`.
 
 ## Gotchas
 

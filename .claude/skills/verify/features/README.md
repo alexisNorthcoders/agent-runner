@@ -5,7 +5,7 @@ The maintained source for verifying agent-runner's user-facing behavior. Read th
 ## Baseline preconditions
 
 - A sandbox from `.claude/skills/verify/sandbox.sh up`, and `sandbox.sh doctor` prints no `FAIL`.
-- `. /tmp/agent-runner-verify/state.env` gives `PID`, `PORT`, `JOB_AT` and `DB` (paths here assume the default `AGENT_RUNNER_VERIFY_DIR`).
+- `. /tmp/agent-runner-verify/state.env` gives `DB`, `NONCE`, `JOB`, `PID`, `PORT` and `JOB_AT` (paths here assume the default `AGENT_RUNNER_VERIFY_DIR`).
 - Redis DB `$DB` (14 by default) holds only what this sandbox wrote. The workspace allowlist is empty, and the cron is off.
 - Never drive production (port 3790, DB 0) or an instance this run didn't start.
 

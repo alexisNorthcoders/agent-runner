@@ -18,7 +18,6 @@ LIVE_REDIS=redis://127.0.0.1:6379
 LIVE_LOGS=${AGENT_RUNNER_LIVE_LOGS:-$HOME/Projects/agent-runner/logs/agent-runs}
 STATE=$DIR/state.env
 EVIDENCE=$DIR/evidence
-JOB=verify_echo
 # up refuses a $DIR that has files but not this marker, so a wrong AGENT_RUNNER_VERIFY_DIR is never emptied
 OWNED=$DIR/.agent-runner-verify
 MARK=agent-runner-verify-sandbox
@@ -26,11 +25,13 @@ MARK=agent-runner-verify-sandbox
 die() { echo "sandbox: $*" >&2; exit 1; }
 say() { echo "sandbox: $*"; }
 rcli() { redis-cli -n "$DB" "$@"; }
+# After a failed SELECT (say DB 99 of 16), redis-cli prints an error and runs the command on DB 0 anyway.
+db_ok() { [[ $(redis-cli -n "$DB" PING 2>&1) == PONG ]]; }
 
 [[ $DB =~ ^[0-9]+$ ]] && ((DB != 0)) || die "AGENT_RUNNER_VERIFY_DB must be a number other than 0 (production)"
-[[ $DIR == /* && $DIR != / ]] || die "AGENT_RUNNER_VERIFY_DIR must be an absolute path"
+[[ $DIR =~ ^/[A-Za-z0-9/_.-]+$ ]] || die "AGENT_RUNNER_VERIFY_DIR must be an absolute path of letters, digits and / _ . -"
 
-# Sets PID, PORT, JOB_AT and DB (the DB up used, whatever AGENT_RUNNER_VERIFY_DB says now).
+# Sets DB (the DB up used, whatever AGENT_RUNNER_VERIFY_DB says now), NONCE, JOB, PID, PORT and JOB_AT.
 load_state() {
   [[ -f $STATE ]] || die "no sandbox state at $STATE (run up first)"
   # shellcheck source=/dev/null
@@ -47,7 +48,7 @@ sandbox_pids() {
   for env in /proc/[0-9]*/environ; do
     p=${env#/proc/}; p=${p%/environ}
     [[ $p == "$$" ]] && continue
-    tr '\0' '\n' 2>/dev/null <"$env" | grep -qx "AGENT_RUNNER_VERIFY_SANDBOX=$DIR" && echo "$p"
+    tr '\0' '\n' 2>/dev/null <"$env" | grep -qxF "AGENT_RUNNER_VERIFY_SANDBOX=$DIR" && echo "$p"
   done
   return 0
 }
@@ -57,13 +58,20 @@ stub() { printf '%s\n' '#!/bin/sh' "$2" >"$DIR/stubs/$1"; chmod +x "$DIR/stubs/$
 preflight() {
   [[ -f $STATE ]] && die "$STATE exists, so a sandbox is running or was not cleaned up; run down first"
   if [[ -d $DIR && -n $(ls -A "$DIR") ]]; then owned; fi
-  ! git -C "$(dirname "$DIR")" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "$DIR is inside a git work tree; pick a scratch AGENT_RUNNER_VERIFY_DIR"
+  local p=$DIR
+  while [[ ! -e $p ]]; do p=$(dirname "$p"); done
+  ! git -C "$p" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "$DIR is inside a git work tree; pick a scratch AGENT_RUNNER_VERIFY_DIR"
+  db_ok || die "cannot use Redis DB $DB: $(redis-cli -n "$DB" PING 2>&1 | head -1)"
   [[ -z $(rcli --scan --pattern '*' | head -1) ]] || die "Redis DB $DB is not empty; run down, or pick another AGENT_RUNNER_VERIFY_DB"
 }
 
 start() {
   mkdir -p "$DIR"
   : >"$OWNED"
+  # a fresh name per up, so production's own history can't match it and a second check can't pass on the first
+  NONCE=$(od -An -N4 -tx4 /dev/urandom | tr -d ' ')
+  JOB=verify_echo_$NONCE
+  printf 'DB=%s\nNONCE=%s\nJOB=%s\n' "$DB" "$NONCE" "$JOB" >"$STATE"
   rm -rf "$DIR/app" "$DIR/home" "$DIR/workspace" "$DIR/stubs" "$EVIDENCE"
   mkdir -p "$DIR/app" "$DIR/home/.claude/projects" "$DIR/workspace" "$DIR/stubs" "$EVIDENCE"
   # A copy, so REPO_ROOT (logs/agent-runs, .env, scheduled-jobs.json) is the sandbox's, never a real checkout's.
@@ -76,7 +84,7 @@ start() {
 cat <<'EOF'
 {\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"verify-stub-session\",\"model\":\"stub\"}
 {\"type\":\"assistant\",\"session_id\":\"verify-stub-session\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"stub agent ran\"}]}}
-{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"verify stub reply\",\"num_turns\":1,\"total_cost_usd\":0,\"session_id\":\"verify-stub-session\"}
+{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"verify stub reply $NONCE\",\"num_turns\":1,\"total_cost_usd\":0,\"session_id\":\"verify-stub-session\"}
 EOF"
   stub gh "echo \"gh \$*\" >>'$EVIDENCE/stub-calls.log'; echo 'sandbox: gh is stubbed' >&2; exit 1"
   stub pm2 "echo \"pm2 \$*\" >>'$EVIDENCE/stub-calls.log'; echo 'sandbox: pm2 is stubbed' >&2; exit 1"
@@ -124,9 +132,9 @@ EOF
       JOPLIN_API_TOKEN= \
       OPENAI_API_KEY= DEEPINFRA_API_KEY= GMAIL_EMAIL= GMAIL_PASSWORD= \
       setsid "$node" --no-deprecation "$DIR/app/src/main.ts" >"$EVIDENCE/server.log" 2>&1 </dev/null &
-    echo "PID=$!" >"$STATE"
+    echo "PID=$!" >>"$STATE"
   )
-  printf 'PORT=%s\nJOB_AT=%s\nDB=%s\n' "$port" "$at" "$DB" >>"$STATE"
+  printf 'PORT=%s\nJOB_AT=%s\n' "$port" "$at" >>"$STATE"
   . "$STATE"
 
   for _ in $(seq 60); do
@@ -146,19 +154,19 @@ doctor() {
   curl -sf "127.0.0.1:$PORT/status" >/dev/null && say "ok: /status answers" || { say "FAIL: /status does not answer"; bad=1; }
   local env
   env=$(tr '\0' '\n' 2>/dev/null </proc/"$PID"/environ || true)
-  grep -qx "REDIS_URL=$LIVE_REDIS/$DB" <<<"$env" && say "ok: Redis DB $DB" || { say "FAIL: REDIS_URL is not DB $DB"; bad=1; }
+  grep -qxF "REDIS_URL=$LIVE_REDIS/$DB" <<<"$env" && say "ok: Redis DB $DB" || { say "FAIL: REDIS_URL is not DB $DB"; bad=1; }
   if grep -qE '^(pm_exec_path|CLAUDECODE|CLAUDE_CODE_[A-Z_]*|AI_AGENT)=' <<<"$env"; then say "FAIL: harness or PM2 variables leaked into the runner"; bad=1; else say "ok: no harness or PM2 variables"; fi
   grep -q "cron issue tracer disabled" "$EVIDENCE/server.log" && say "ok: cron off" || { say "FAIL: cron is not disabled"; bad=1; }
   return $bad
 }
 
-# Production's state the sandbox must never touch: its outbox and history must not mention the
-# sandbox's job or stub reply, and the job's last-fired field must not appear in DB 0.
+# Production's state the sandbox must never touch: its outbox and history must not mention this
+# sandbox's nonce, and the job's last-fired field must not appear in DB 0.
 live_untouched() {
   local leaks=0
-  if redis-cli -n 0 XRANGE agent-runner:outbox - + | grep -qE "$JOB|verify stub reply"; then say "FAIL: production outbox mentions the sandbox"; leaks=1; fi
+  if redis-cli -n 0 XRANGE agent-runner:outbox - + | grep -qF "$NONCE"; then say "FAIL: production outbox mentions the sandbox"; leaks=1; fi
   [[ $(redis-cli -n 0 HEXISTS agent-runner:jobs:last-fired "$JOB") == 0 ]] || { say "FAIL: production jobs:last-fired has $JOB"; leaks=1; }
-  if grep -qE "$JOB|verify stub reply" "$LIVE_LOGS/runs.jsonl" 2>/dev/null; then say "FAIL: production history mentions the sandbox"; leaks=1; fi
+  if grep -qF "$NONCE" "$LIVE_LOGS/runs.jsonl" 2>/dev/null; then say "FAIL: production history mentions the sandbox"; leaks=1; fi
   return $leaks
 }
 
@@ -178,6 +186,7 @@ wait_for() { # seconds, description, command...
 
 check() {
   load_state
+  [[ ! -e $EVIDENCE/outbox.txt ]] || die "check already ran on this sandbox, so it would pass on that run's results; run down and up"
   local fail=0 out
   live_untouched >/dev/null || die "production already mentions the sandbox before the check; inspect it by hand"
   curl -sf "127.0.0.1:$LIVE_PORT/status" >"$EVIDENCE/live-status-before.json" || true
@@ -195,7 +204,7 @@ check() {
   out=$(command_reply 'claude say hello to the verify sandbox') || { say "FAIL: POST /command freeform"; fail=1; }
   echo "$out" >"$EVIDENCE/freeform-reply.txt"
   say "freeform: $out"
-  if wait_for 60 "the stub agent's reply in the outbox" bash -c "redis-cli -n $DB XRANGE agent-runner:outbox - + | grep -q 'verify stub reply'" &&
+  if wait_for 60 "the stub agent's reply in the outbox" bash -c "redis-cli -n $DB XRANGE agent-runner:outbox - + | grep -qF 'verify stub reply $NONCE'" &&
     grep -q '^claude -p' "$EVIDENCE/stub-calls.log"; then
     say "ok: freeform ran the stub agent and its reply reached the sandbox outbox"
   else fail=1; fi
@@ -219,10 +228,11 @@ check() {
 down() {
   [[ -d $DIR ]] || { say "nothing to do: no $DIR"; return 0; }
   owned
-  if [[ -f $STATE ]]; then
-    load_state
+  [[ -f $STATE ]] || { rm -rf "$DIR/app" "$DIR/home" "$DIR/workspace" "$DIR/stubs" "$DIR/jobs.json" "$DIR/workspaces.json"; say "no state file, so no Redis DB to empty; evidence kept in $EVIDENCE"; return 0; }
+  load_state
+  if [[ -n ${PID:-} ]]; then
     if ours; then
-      kill -TERM "$PID"
+      kill -TERM "$PID" 2>/dev/null || true
       for _ in $(seq 20); do ours || break; sleep 0.5; done
       ours && kill -KILL "$PID"
     fi
@@ -230,7 +240,9 @@ down() {
   local left
   left=$(sandbox_pids)
   [[ -n $left ]] && { say "killing leftover sandbox processes: $(tr '\n' ' ' <<<"$left")"; kill -KILL $left 2>/dev/null || true; }
-  rcli --scan --pattern 'agent-runner:*' | xargs -r redis-cli -n "$DB" DEL >/dev/null || say "could not empty Redis DB $DB; delete its agent-runner:* keys by hand"
+  if db_ok; then
+    rcli --scan --pattern 'agent-runner:*' | xargs -r redis-cli -n "$DB" DEL >/dev/null || say "could not empty Redis DB $DB; delete its agent-runner:* keys by hand"
+  else say "cannot use Redis DB $DB, so it was not emptied"; fi
   rm -rf "$DIR/app" "$DIR/home" "$DIR/workspace" "$DIR/stubs" "$DIR/jobs.json" "$DIR/workspaces.json" "$STATE"
   say "down; evidence kept in $EVIDENCE"
 }

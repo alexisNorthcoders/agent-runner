@@ -17,7 +17,7 @@ The sandbox:
 
 One path is shared. Redis pub/sub channels ignore the DB number, so the sandbox hears production's `agent-runner:state-changed` messages, and a sandbox `claude:restart` (through `bin/safe-restart.ts`) publishes on production's channel. Production then re-reads its own DB 0 state and pushes an unchanged snapshot to its office feed. Nothing else crosses over. `claude:restart` in the sandbox ends with `safe-restart failed: ... pm2 is stubbed` in its outbox and the pause cleared.
 
-`$DIR` is `${AGENT_RUNNER_VERIFY_DIR:-/tmp/agent-runner-verify}`. `up` refuses a `$DIR` inside a git work tree, or one with files in it that `sandbox.sh` didn't make (it has no `.agent-runner-verify` marker). One sandbox runs at a time per `$DIR` and Redis DB. `AGENT_RUNNER_VERIFY_DB` picks another DB at `up` (never 0, which the script refuses). The state file records it, so later commands use the same DB. DB 15 is the store contract test's, so the default is 14. The examples below use the defaults.
+`$DIR` is `${AGENT_RUNNER_VERIFY_DIR:-/tmp/agent-runner-verify}`. `up` refuses a `$DIR` inside a git work tree, or one with files in it that `sandbox.sh` didn't make (it has no `.agent-runner-verify` marker). One sandbox runs at a time per `$DIR` and Redis DB. `AGENT_RUNNER_VERIFY_DB` picks another DB at `up`. The script refuses 0, and any DB that doesn't answer `PONG` cleanly: after a failed `SELECT`, `redis-cli -n <n>` runs its command on DB 0, so never use it with an unchecked DB number. The state file records it, so later commands use the same DB. DB 15 is the store contract test's, so the default is 14. The examples below use the defaults.
 
 ## Launch
 
@@ -25,16 +25,16 @@ One path is shared. Redis pub/sub channels ignore the DB number, so the sandbox 
 .claude/skills/verify/sandbox.sh smoke   # up, doctor, check, then down on any exit; exit 0 = PASS
 ```
 
-`smoke` takes 1.5 to 3 minutes, most of it waiting for the scheduled job, which is due two minutes after `up` (rounded down to the minute). That is longer than the Bash tool's default 2 minute timeout, so run it with `timeout: 300000` or in the background. A killed `smoke` leaves the runner up, and the next `up` refuses until you run `down`. To drive by hand instead:
+`smoke` takes 1.5 to 3 minutes, most of it waiting for the scheduled job, which is due two minutes after `up` (rounded down to the minute). That is longer than the Bash tool's default 2 minute timeout, so run it with `timeout: 300000` or in the background. A TERM or INT still runs `down`, but a SIGKILLed `smoke` leaves the runner up, and the next `up` refuses until you run `down`. To drive by hand instead:
 
 ```sh
 .claude/skills/verify/sandbox.sh up      # prints the pid, port and the job's due time
-. /tmp/agent-runner-verify/state.env     # PID, PORT, JOB_AT, DB
+. /tmp/agent-runner-verify/state.env     # DB, NONCE, JOB, PID, PORT, JOB_AT
 # ... drive it (features/) ...
 .claude/skills/verify/sandbox.sh down
 ```
 
-Ready means `GET /status` answers, which `up` waits for (30 s at most). `up` refuses if the state file exists (a sandbox is running, or one was not cleaned up) or the Redis DB has keys in it. `down` clears both. `check` is meant to run once per `up`: a second run can pass on the first run's outbox entry.
+Ready means `GET /status` answers, which `up` waits for (30 s at most). `up` refuses if the state file exists (a sandbox is running, or one was not cleaned up) or the Redis DB has keys in it. `down` clears both. Each `up` draws a random `NONCE`. The job is `verify_echo_<NONCE>` and the stub replies `verify stub reply <NONCE>`, so production history can't match by accident. `check` runs once per `up` and refuses a second run, which could pass on the first run's results.
 
 ## Doctor
 
@@ -56,7 +56,7 @@ Proof standards:
 
 - Drive the user's path: `/command` text and the feed, not internal setters or Redis writes.
 - Capture the request and the resulting state, and check the side effect (an outbox entry, `runs.jsonl` through `claude:history`, a job's log file) as well as the reply.
-- Prove isolation on every run. `check` fails if production's outbox (DB 0), `runs.jsonl` or `jobs:last-fired` mention the sandbox's job or stub reply. For a change that might write elsewhere, also diff `redis-cli -n 0 --scan --pattern 'agent-runner:*' | sort` before and after.
+- Prove isolation on every run. `check` fails if production's outbox (DB 0), `runs.jsonl` or `jobs:last-fired` mention the sandbox's `NONCE`. For a change that might write elsewhere, also diff `redis-cli -n 0 --scan --pattern 'agent-runner:*' | sort` before and after.
 
 ## Cleanup
 
