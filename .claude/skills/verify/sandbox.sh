@@ -11,7 +11,7 @@ set -euo pipefail
 
 SKILL_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(git -C "$SKILL_DIR" rev-parse --show-toplevel)
-DIR=${AGENT_RUNNER_VERIFY_DIR:-${TMPDIR:-/tmp}/agent-runner-verify}
+DIR=${AGENT_RUNNER_VERIFY_DIR:-/tmp/agent-runner-verify}
 DB=${AGENT_RUNNER_VERIFY_DB:-14}
 LIVE_PORT=3790
 LIVE_REDIS=redis://127.0.0.1:6379
@@ -19,6 +19,8 @@ LIVE_LOGS=${AGENT_RUNNER_LIVE_LOGS:-$HOME/Projects/agent-runner/logs/agent-runs}
 STATE=$DIR/state.env
 EVIDENCE=$DIR/evidence
 JOB=verify_echo
+# up refuses a $DIR that has files but not this marker, so a wrong AGENT_RUNNER_VERIFY_DIR is never emptied
+OWNED=$DIR/.agent-runner-verify
 MARK=agent-runner-verify-sandbox
 
 die() { echo "sandbox: $*" >&2; exit 1; }
@@ -28,11 +30,14 @@ rcli() { redis-cli -n "$DB" "$@"; }
 [[ $DB =~ ^[0-9]+$ ]] && ((DB != 0)) || die "AGENT_RUNNER_VERIFY_DB must be a number other than 0 (production)"
 [[ $DIR == /* && $DIR != / ]] || die "AGENT_RUNNER_VERIFY_DIR must be an absolute path"
 
+# Sets PID, PORT, JOB_AT and DB (the DB up used, whatever AGENT_RUNNER_VERIFY_DB says now).
 load_state() {
   [[ -f $STATE ]] || die "no sandbox state at $STATE (run up first)"
   # shellcheck source=/dev/null
   . "$STATE"
 }
+
+owned() { [[ -f $OWNED ]] || die "$DIR was not made by sandbox.sh; refusing to delete anything in it"; }
 
 ours() { [[ -n ${PID:-} ]] && [[ $(tr '\0' ' ' 2>/dev/null </proc/"$PID"/cmdline) == *"$DIR/app/src/main.ts"* ]]; }
 
@@ -50,14 +55,15 @@ sandbox_pids() {
 stub() { printf '%s\n' '#!/bin/sh' "$2" >"$DIR/stubs/$1"; chmod +x "$DIR/stubs/$1"; }
 
 preflight() {
-  if [[ -f $STATE ]]; then
-    . "$STATE"
-    ours && die "a sandbox is already running (pid $PID, port $PORT); run down first"
-  fi
+  [[ -f $STATE ]] && die "$STATE exists, so a sandbox is running or was not cleaned up; run down first"
+  if [[ -d $DIR && -n $(ls -A "$DIR") ]]; then owned; fi
+  ! git -C "$(dirname "$DIR")" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "$DIR is inside a git work tree; pick a scratch AGENT_RUNNER_VERIFY_DIR"
   [[ -z $(rcli --scan --pattern '*' | head -1) ]] || die "Redis DB $DB is not empty; run down, or pick another AGENT_RUNNER_VERIFY_DB"
 }
 
 start() {
+  mkdir -p "$DIR"
+  : >"$OWNED"
   rm -rf "$DIR/app" "$DIR/home" "$DIR/workspace" "$DIR/stubs" "$EVIDENCE"
   mkdir -p "$DIR/app" "$DIR/home/.claude/projects" "$DIR/workspace" "$DIR/stubs" "$EVIDENCE"
   # A copy, so REPO_ROOT (logs/agent-runs, .env, scheduled-jobs.json) is the sandbox's, never a real checkout's.
@@ -120,8 +126,7 @@ EOF
       setsid "$node" --no-deprecation "$DIR/app/src/main.ts" >"$EVIDENCE/server.log" 2>&1 </dev/null &
     echo "PID=$!" >"$STATE"
   )
-  echo "PORT=$port" >>"$STATE"
-  echo "JOB_AT=$at" >>"$STATE"
+  printf 'PORT=%s\nJOB_AT=%s\nDB=%s\n' "$port" "$at" "$DB" >>"$STATE"
   . "$STATE"
 
   for _ in $(seq 60); do
@@ -177,7 +182,7 @@ check() {
   live_untouched >/dev/null || die "production already mentions the sandbox before the check; inspect it by hand"
   curl -sf "127.0.0.1:$LIVE_PORT/status" >"$EVIDENCE/live-status-before.json" || true
 
-  out=$(command_reply claude:status)
+  out=$(command_reply claude:status) || { say "FAIL: POST /command claude:status"; out=; }
   echo "$out" >"$EVIDENCE/claude-status.txt"
   [[ $out == *"Agent: idle"* && $out == *"Paused: no"* ]] && say "ok: claude:status replied ($(wc -l <<<"$out") lines)" || { say "FAIL: claude:status reply: $out"; fail=1; }
   curl -sf "127.0.0.1:$PORT/status" | tee "$EVIDENCE/status.json" | grep -q '"busy":false' && say "ok: /status $(cat "$EVIDENCE/status.json")" || { say "FAIL: /status"; fail=1; }
@@ -187,7 +192,7 @@ check() {
     say "ok: office feed sent a version 1 snapshot listing $JOB"
   else say "FAIL: office feed: $(head -c 300 "$EVIDENCE/feed.txt")"; fail=1; fi
 
-  out=$(command_reply 'claude say hello to the verify sandbox')
+  out=$(command_reply 'claude say hello to the verify sandbox') || { say "FAIL: POST /command freeform"; fail=1; }
   echo "$out" >"$EVIDENCE/freeform-reply.txt"
   say "freeform: $out"
   if wait_for 60 "the stub agent's reply in the outbox" bash -c "redis-cli -n $DB XRANGE agent-runner:outbox - + | grep -q 'verify stub reply'" &&
@@ -198,7 +203,7 @@ check() {
   say "waiting for $JOB (due $JOB_AT UTC; the scheduler ticks every 30s)"
   if wait_for 240 "$JOB in claude:history" bash -c "grep -q verify-job-ran '$EVIDENCE/job.log' 2>/dev/null && [[ \$(redis-cli -n $DB HGET agent-runner:jobs:last-fired $JOB) == \$(date -u +%F) ]]"; then
     wait_for 30 "$JOB to finish" bash -c "curl -sf 127.0.0.1:$PORT/status | grep -q '\"busy\":false'" || fail=1
-    out=$(command_reply 'claude:history 5')
+    out=$(command_reply 'claude:history 5') || { say "FAIL: POST /command claude:history"; out=; }
     echo "$out" >"$EVIDENCE/claude-history.txt"
     [[ $out == *"scheduled job $JOB"* ]] && say "ok: $JOB ran (job.log) and is in claude:history" || { say "FAIL: claude:history lacks $JOB: $out"; fail=1; }
   else fail=1; fi
@@ -212,8 +217,10 @@ check() {
 }
 
 down() {
+  [[ -d $DIR ]] || { say "nothing to do: no $DIR"; return 0; }
+  owned
   if [[ -f $STATE ]]; then
-    . "$STATE"
+    load_state
     if ours; then
       kill -TERM "$PID"
       for _ in $(seq 20); do ours || break; sleep 0.5; done
@@ -223,7 +230,7 @@ down() {
   local left
   left=$(sandbox_pids)
   [[ -n $left ]] && { say "killing leftover sandbox processes: $(tr '\n' ' ' <<<"$left")"; kill -KILL $left 2>/dev/null || true; }
-  rcli --scan --pattern 'agent-runner:*' | xargs -r redis-cli -n "$DB" DEL >/dev/null
+  rcli --scan --pattern 'agent-runner:*' | xargs -r redis-cli -n "$DB" DEL >/dev/null || say "could not empty Redis DB $DB; delete its agent-runner:* keys by hand"
   rm -rf "$DIR/app" "$DIR/home" "$DIR/workspace" "$DIR/stubs" "$DIR/jobs.json" "$DIR/workspaces.json" "$STATE"
   say "down; evidence kept in $EVIDENCE"
 }

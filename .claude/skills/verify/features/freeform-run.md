@@ -20,7 +20,7 @@ Preconditions:
 
 - **Start.** Post `claude say hello to the verify sandbox`. The reply is `Started run <id> in /tmp/agent-runner-verify/workspace.` and `Log: /tmp/agent-runner-verify/app/logs/agent-runs/<id>.log`.
 - **Agent call.** Read `evidence/stub-calls.log`. It has a `claude -p --model sonnet --output-format stream-json ...` line whose prompt ends with the instructions after the runner's preamble.
-- **Result.** Within a few seconds, `redis-cli -n 14 XRANGE agent-runner:outbox - +` has an entry with `replyTo verify`, the text `Run <id> (say hello to the verify sandbox) finished (1 turns, $0.00).` and `verify stub reply`.
+- **Result.** Within a few seconds, `redis-cli -n $DB XRANGE agent-runner:outbox - +` has an entry with `replyTo verify`, the text `Run <id> (say hello to the verify sandbox) finished (1 turns, $0.00).` and `verify stub reply`.
 - **History.** Post `claude:history 5`. It lists `say hello to the verify sandbox — success`.
 
 ## Gotchas

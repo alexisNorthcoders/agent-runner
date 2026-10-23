@@ -5,14 +5,15 @@ The maintained source for verifying agent-runner's user-facing behavior. Read th
 ## Baseline preconditions
 
 - A sandbox from `.claude/skills/verify/sandbox.sh up`, and `sandbox.sh doctor` prints no `FAIL`.
-- `. /tmp/agent-runner-verify/state.env` gives `PORT` and `JOB_AT`.
-- Redis DB 14 holds only what this sandbox wrote. The workspace allowlist is empty, and the cron is off.
+- `. /tmp/agent-runner-verify/state.env` gives `PID`, `PORT`, `JOB_AT` and `DB` (paths here assume the default `AGENT_RUNNER_VERIFY_DIR`).
+- Redis DB `$DB` (14 by default) holds only what this sandbox wrote. The workspace allowlist is empty, and the cron is off.
 - Never drive production (port 3790, DB 0) or an instance this run didn't start.
 
 ## Driving conventions
 
 - Send commands as the bot does: `curl -s -X POST 127.0.0.1:$PORT/command -H 'content-type: application/json' -d '{"text":"<command>","replyTo":"verify"}'`. The answer is `{"reply": "..."}`.
-- Read what the bot would deliver later from the outbox: `redis-cli -n 14 XRANGE agent-runner:outbox - +`.
+- Read what the bot would deliver later from the outbox: `redis-cli -n $DB XRANGE agent-runner:outbox - +`.
+- Never use `npm run agent:*` or `bin/` against the sandbox. From a checkout they act on production. Every action they offer has a `claude:` command.
 - Treat command text as literal. `claude:<word>` is a subcommand, and `claude <words>` is a freeform run.
 
 ## Proof and skip reporting

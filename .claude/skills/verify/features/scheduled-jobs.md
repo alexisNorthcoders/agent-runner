@@ -19,7 +19,7 @@ Preconditions:
 
 - `up` wrote `$DIR/jobs.json` with `verify_echo` (`echo verify-job-ran`, `cwd` the scratch workspace, `logFile` `evidence/job.log`), due at `JOB_AT`, two minutes after `up` ran.
 
-- **Adopted.** Right after `up`, `redis-cli -n 14 HGET agent-runner:jobs:last-fired verify_echo` is yesterday's UTC date.
+- **Adopted.** Right after `up`, `redis-cli -n $DB HGET agent-runner:jobs:last-fired verify_echo` is yesterday's UTC date. If `up` ran in the last two minutes of the UTC day, `JOB_AT` is `00:00` or `00:01` and the field is today's date. The job still fires after midnight.
 - **Fired.** Within 30 s after `JOB_AT`, `server.log` has `scheduled jobs: verify_echo: Started run <id>: scheduled job verify_echo`, `evidence/job.log` has `verify-job-ran`, and the `last-fired` field is today's date.
 - **History.** Once `/status` is `busy:false`, post `claude:history 5`. It lists `scheduled job verify_echo — success`.
 
