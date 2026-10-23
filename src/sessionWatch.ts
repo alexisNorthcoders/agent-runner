@@ -5,6 +5,7 @@ import { errorText } from './narrow.ts';
 import { canonicalPath, workspaceOfPaths } from './workspaceInference.ts';
 import type { TranscriptState } from './agentBackend/claudeTranscripts.ts';
 import type { NotifyChange } from './stateChanges.ts';
+import type { OfficeSession } from './officeWire.ts';
 
 /**
  * The session watch: which interactive agent sessions are open on this machine, which workspace
@@ -17,18 +18,6 @@ import type { NotifyChange } from './stateChanges.ts';
  * from its tail). A session is open while its transcript is that recent; running agent processes
  * (`/proc`, best effort) only cap the sessions counted per cwd. Prompts and replies are never kept.
  */
-/** `since`: when the watch first saw it open. `lastEntryAt`: its latest transcript entry. */
-export type OfficeSession = {
-  id: string;
-  workspaceAlias: string | null;
-  cwd: string;
-  branch: string | null;
-  state: 'working' | 'waiting';
-  activity: string | null;
-  subagents: number;
-  since: string;
-  lastEntryAt: string;
-};
 
 export type TranscriptFile = { path: string; size: number; mtimeMs: number };
 

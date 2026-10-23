@@ -4,6 +4,7 @@ import { OWNER } from './outbox.ts';
 import { errorText, isRecord } from './narrow.ts';
 import type { Store } from './redisStore.ts';
 import type { createOutbox } from './outbox.ts';
+import type { JobScheduleEntry } from './officeWire.ts';
 
 /**
  * Scheduled jobs: commands the runner runs at a fixed UTC time, once a day or on a set weekday or day of the month, in place of crontab
@@ -179,9 +180,6 @@ export function nextDueAt(job: Pick<ScheduledJob, 'at' | 'weekday' | 'monthDay'>
   while (!runsOn(job, now + day * DAY_MS)) day++; // monthDay ≤ 28 and weekday ≤ 6 always match within 28 days
   return new Date(dueTimeOn(job, now + day * DAY_MS)).toISOString();
 }
-
-/** A configured job, for the office: no command, directory or env. */
-export type JobScheduleEntry = { name: string; room: string; at: string; nextDueAt: string };
 
 /**
  * The configured jobs and when each is next due, in config order.

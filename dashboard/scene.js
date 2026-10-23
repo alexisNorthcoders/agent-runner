@@ -299,7 +299,7 @@ const HOVER_WORDS = {
  * (stopped, timed out or out of usage, interrupted by a restart), since an issue run may then record `failed`; then
  * an issue run's pipeline result. A run with no result (freeform, Joplin, a job) that succeeded
  * gets the stamp. Anything this page doesn't know is `idle`.
- * @param {Pick<import('../src/officeSnapshot.ts').OfficeHistoryEntry, 'outcome' | 'result'>} h
+ * @param {Pick<import('../src/officeWire.ts').OfficeHistoryEntry, 'outcome' | 'result'>} h
  * @returns {RestingState}
  */
 export function restingState({ outcome, result }) {
@@ -325,7 +325,7 @@ export function restingState({ outcome, result }) {
 /**
  * Each room's last run (the history is newest first), but the room the active run is in: its
  * next run has started. Rooms no run has ended in (in the feed's 7 days) show nothing.
- * @param {import('../src/officeSnapshot.ts').OfficeHistoryEntry[]} history
+ * @param {import('../src/officeWire.ts').OfficeHistoryEntry[]} history
  * @param {SceneRun | null} run @param {SceneCubicle[]} cubicles
  * @returns {SceneOutcome[]}
  */
@@ -353,7 +353,7 @@ function reduceOutcomes(history, run, cubicles) {
 }
 
 /**
- * @param {import('../src/officeSnapshot.ts').OfficeSnapshot} snap
+ * @param {import('../src/officeWire.ts').OfficeSnapshot} snap
  * @param {SceneRun | null} prev the worker before, if any
  * @param {SceneCubicle[]} cubicles @param {number} now
  * @param {{ runId: string | null, lines: string[] } | undefined} log the live log the page holds
@@ -404,7 +404,7 @@ function reduceBoss(run, prev, now) {
 }
 
 /**
- * @param {import('../src/officeSnapshot.ts').OfficeSnapshot | null} snap the last snapshot, if any
+ * @param {import('../src/officeWire.ts').OfficeSnapshot | null} snap the last snapshot, if any
  * @param {Scene | null} prev the scene before this one
  * @param {{ up: boolean, now: number, config?: unknown, log?: { runId: string | null, lines: string[] } }} o
  *   `now` on the snapshot's clock. `log`: the active run's live log as the page holds it (a
@@ -471,7 +471,7 @@ export const toolOf = (activity) => (!activity ? null : activity.startsWith('wri
 /**
  * The visitors: one per open interactive session, oldest first, each in its workspace's cubicle
  * (whose `sessions` this fills in) or, in none, the Freeform room.
- * @param {import('../src/officeSnapshot.ts').OfficeSnapshot} snap @param {SceneCubicle[]} cubicles
+ * @param {import('../src/officeWire.ts').OfficeSnapshot} snap @param {SceneCubicle[]} cubicles
  * @returns {SceneSession[]}
  */
 function reduceSessions(snap, cubicles) {

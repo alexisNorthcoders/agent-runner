@@ -1,6 +1,6 @@
 // The office dashboard: listens to the office feed (`feed`, next to this page), draws the office
 // floor on a canvas, and renders the panel's Now, Issues, History and Office tabs as text and tables. No
-// build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeSnapshot.ts.
+// build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeWire.ts.
 import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, what } from './format.js';
 import { cartSlots, clickFilter, deskAt, fitScene, folderSlots, inTraySlots, inside, layoutOffice, placeName, placeRect, sessionDesk, stickyNote, workerRect } from './layout.js';
 import { applyLogEvent } from './logPane.js';
@@ -16,7 +16,7 @@ const TABS = /** @type {const} */ (['now', 'issues', 'history', 'office']);
 /** How often the floor is redrawn while something on it moves. */
 const REDRAW_MS = 100;
 
-/** @typedef {import('../src/officeSnapshot.ts').OfficeSnapshot} OfficeSnapshot */
+/** @typedef {import('../src/officeWire.ts').OfficeSnapshot} OfficeSnapshot */
 
 /** @type {OfficeSnapshot | null} */
 let snap = null;

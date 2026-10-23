@@ -10,9 +10,8 @@ import { describeUsageLimitPause } from './usageLimitPause.ts';
 import type { StatusSnapshot } from './statusCollect.ts';
 import type { HistoryEntry } from './runHistory.ts';
 import type { ActiveRun } from './activeRuns.ts';
-import type { CronTickOutcome } from './cronState.ts';
 import type { AgentSubagent } from './agentBackend/index.ts';
-import type { OfficeSession } from './sessionWatch.ts';
+import type { CronTickOutcome, OfficeSession } from './officeWire.ts';
 
 /** The owner's pauses, e.g. `by hand: everything for 1h20m (reason); chess-trainer for 45m`, or ''. */
 function byHandText(d: StatusSnapshot) {

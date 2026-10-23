@@ -3,13 +3,14 @@ import { issueKey, prAttemptStateKey } from './cronState.ts';
 import { classifyGithubPrMergeability } from './issuePipeline/githubPr.ts';
 import { errorText } from './narrow.ts';
 import type { OpenIssue, OpenAgentPr, createGithubIssues } from './issuePipeline/githubIssue.ts';
-import type { CronTickOutcome, CronStateStore } from './cronState.ts';
+import type { CronStateStore } from './cronState.ts';
 import type { createRunner } from './runner.ts';
 import type { createRunLock } from './runLock.ts';
 import type { createPauseFlag } from './pauseFlag.ts';
 import type { createManualPause } from './manualPause.ts';
 import type { createUsageLimitPause } from './usageLimitPause.ts';
 import type { createOutbox } from './outbox.ts';
+import type { CronTickOutcome } from './officeWire.ts';
 
 /**
  * The cron issue tracer: every interval, find the next `ready-for-agent` issue across the cron's
@@ -36,8 +37,6 @@ import type { createOutbox } from './outbox.ts';
  * - Each tick first deletes stale active-run files (owner and agent both gone), so status doesn't
  *   show a dead run forever.
  */
-
-
 
 const READY_FOR_AGENT_LABEL = 'ready-for-agent';
 /** Issue run results that count as lasting progress. */

@@ -1,13 +1,12 @@
 import { isRecord, parseJsonObject } from './narrow.ts';
 import type { Store } from './redisStore.ts';
+import type { RunTrigger } from './officeWire.ts';
 
 /**
  * Single-flight lock for agent runs, in Redis so the safe-restart CLI (and later the bot) can see
  * it. A request while the lock is held waits in the run queue (src/runQueue.ts). The lock value is the
  * active run's record, which doubles as the "interrupted run" marker read on startup.
  */
-/** `cron`: the cron issue tracer. `schedule`: a scheduled job. `manual`: WhatsApp or HTTP. */
-export type RunTrigger = 'manual' | 'cron' | 'schedule';
 
 /**
  * A scheduled job's run has `kind: 'job'`, `trigger: 'schedule'`, its `jobName` and `room`, and

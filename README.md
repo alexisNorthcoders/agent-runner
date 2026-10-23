@@ -300,7 +300,7 @@ curl -sN localhost:3790/office/feed
 
 ### Snapshot shape
 
-`OfficeSnapshot` in `src/officeSnapshot.ts` is the contract. It is built from the
+`OfficeSnapshot` in `src/officeWire.ts` is the contract. It is built from the
 same status snapshot as `npm run agent:status`, plus the live phase and progress the runner holds
 in memory, so the numbers match. It carries no reply addresses or prompts, and no paths but each
 interactive session's `cwd`.
@@ -632,7 +632,7 @@ are told the same rule in their prompt preamble.
 - `src/statusCollect.ts` + `src/statusFormat.ts`: the status snapshot and its terminal/WhatsApp
   rendering. `bin/agent-cli.js` is the terminal CLI.
 - `src/stateChanges.ts`: the runner's "state changed" notification, and the Redis store that raises it.
-- `src/officeSnapshot.ts` + `src/officeFeed.ts`: the office snapshot and the SSE feed that pushes it.
+- `src/officeWire.ts`, `src/officeSnapshot.ts` + `src/officeFeed.ts`: the office snapshot's types, how it is built, and the SSE feed that pushes it.
 - `src/logTail.ts` + `src/maskSecrets.ts`: the feed's live log of the active run, masked.
 - `dashboard/`: the office dashboard page (static, no build). `docs/nginx/office.conf` serves it.
 - `logs/agent-runs/`: one `<runId>.log` per run (plus `<runId>-autofix.log`), `active/<runId>.json`
@@ -643,5 +643,5 @@ are told the same rule in their prompt preamble.
 
 ```sh
 npm test            # typecheck, then node:test with injected fakes; the Redis contract test uses DB 15 if Redis is up
-npm run typecheck   # strict tsc over .ts, then the checkJs pass over the remaining .js
+npm run typecheck   # strict tsc over .ts, strict checkJs over dashboard/, then the checkJs pass over the remaining .js
 ```

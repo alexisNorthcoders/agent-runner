@@ -1,10 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Place, Scene } from '../dashboard/scene.js';
-import type { OfficeHistoryEntry, OfficeCron, OfficeRun, OfficeSnapshot } from '../src/officeSnapshot.ts';
-import type { OfficeIssueRepo, OfficeIssues } from '../src/issueScan.ts';
-import type { OfficeSession } from '../src/sessionWatch.ts';
 import { HELPER_KEEP_MS, MAIL_KEEP_MS, PILE_MAX, jobWorker, reduceScene, restingState } from '../dashboard/scene.js';
+import type { OfficeCron, OfficeHistoryEntry, OfficeIssueRepo, OfficeIssues, OfficeRun, OfficeSession, OfficeSnapshot } from '../src/officeWire.ts';
 
 const NOW = Date.parse('2026-09-26T12:00:00Z');
 const iso = (ms: number) => new Date(NOW + ms).toISOString();
@@ -77,7 +75,7 @@ describe('office scene: visitors', () => {
   });
 
   it('has no visitors without sessions, from an older feed, or from junk', () => {
-    assert.deepEqual(reduceScene(snap(), null, up).sessions, []);
+    assert.deepEqual(reduceScene(wire({ sessions: undefined }), null, up).sessions, []);
     assert.deepEqual(reduceScene(snap({ sessions: [] }), null, up).sessions, []);
     assert.deepEqual(reduceScene(wire({ sessions: [null, { id: 3 }, { id: 'x', state: 'odd' }] }), null, up).sessions, []);
   });
@@ -689,6 +687,11 @@ describe('office scene: subagent helpers', () => {
     ]);
     assert.deepEqual(scenes[3].helpers.map((h) => [h.id, h.slot]), [['a', 0], ['c', 1]], 'a still walking back');
     assert.deepEqual(scenes[4].helpers.map((h) => h.id), ['c']);
+  });
+
+  it('has no helpers for a run from an older feed, without subagents', () => {
+    const r = run({ subagents: undefined });
+    assert.deepEqual(reduceScene(wire({ activeRun: r, active: [r] }), null, up).helpers, []);
   });
 
   it('has those already helping when the page opens already there', () => {
