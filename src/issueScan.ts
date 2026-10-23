@@ -18,6 +18,7 @@ import type { OfficeIssue, OfficeIssueRepo, OfficeIssues } from './officeWire.ts
  * A repo whose scan fails keeps its last good data, marked `stale` (so does every repo when the
  * allowlist can't be read). Errors are logged here, not put in the feed, which carries no paths.
  */
+
 export const ISSUE_SCAN_INTERVAL_MS = 5 * 60_000;
 
 const byNumber = (a: { number: number }, b: { number: number }) => a.number - b.number;

@@ -12,6 +12,7 @@ import { createWorkspaceAllowlist } from '../src/workspaces.ts';
 import { createIssuePipeline } from '../src/issuePipeline/index.ts';
 import { createReadOnlySessionLauncher } from '../src/agentBackend/claude.ts';
 import { createRepoInsightCursor, createRepoInsightLookups, decideRepoInsightTarget, runRepoInsight } from '../src/repoInsight.ts';
+import { errorText } from '../src/narrow.ts';
 
 async function main() {
   const config = loadConfig();
@@ -33,7 +34,7 @@ async function main() {
     });
     console.log(line);
   } catch (err) {
-    console.error(`repo-insight: ${err.message}`);
+    console.error(`repo-insight: ${errorText(err)}`);
     process.exitCode = 1;
   } finally {
     await redis.quit().catch(() => {});

@@ -5,8 +5,9 @@
  * dashboard feature builds on this shape, so change it by adding fields, and bump `version` on a
  * breaking change. The snapshot is built by src/officeSnapshot.ts.
  *
- * The page is served on the LAN, so the snapshot carries no paths (log, workspace), reply
- * addresses or prompts: runs are named by their label, and workspaces by their alias.
+ * The page is served on the LAN, so the snapshot carries no paths (log, workspace) but each
+ * interactive session's `cwd`, and no reply addresses or prompts: runs are named by their label,
+ * and workspaces by their alias.
  *
  * Types only, with no imports: the dashboard's checkJs project loads this file, and anything it
  * imported would bring Node's globals into browser code.

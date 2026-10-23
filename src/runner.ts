@@ -35,7 +35,7 @@ import type { ActiveLog } from './logTail.ts';
 /**
  * The runner: turns a `claude…` command into at most one agent run at a time and reports every
  * outcome through the outbox. A request that arrives while busy (or paused) waits in the run queue
- * and starts when the runs ahead of it have finished. HTTP (src/http.ts) and startup (src/main.js)
+ * and starts when the runs ahead of it have finished. HTTP (src/http.ts) and startup (src/main.ts)
  * are thin shells over it.
  */
 

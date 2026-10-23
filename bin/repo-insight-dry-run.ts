@@ -12,6 +12,7 @@ import { createCronState } from '../src/cronState.ts';
 import { createWorkspaceAllowlist } from '../src/workspaces.ts';
 import { createIssuePipeline } from '../src/issuePipeline/index.ts';
 import { REPO_INSIGHT_PRIORITY, createRepoInsightCursor, createRepoInsightLookups, decideRepoInsightTarget } from '../src/repoInsight.ts';
+import { errorText } from '../src/narrow.ts';
 
 async function main() {
   const persist = !process.argv.includes('--no-persist');
@@ -33,7 +34,7 @@ async function main() {
       cursor: { read: async () => before, write: persist ? cursor.write : async () => {} },
       isIdle: async (alias) => {
         const idle = await lookups.isIdle(alias).catch((err) => {
-          console.log(`  ${alias}: could not check (${err.message})`);
+          console.log(`  ${alias}: could not check (${errorText(err)})`);
           throw err;
         });
         console.log(`  ${alias}: ${idle ? 'idle' : 'has runnable issues'}`);
@@ -49,7 +50,7 @@ async function main() {
       for (const s of target.pastSuggestions) console.log(`  #${s.number} [${s.state}] ${s.title}`);
     }
   } catch (err) {
-    console.error(`repo-insight: ${err.message}`);
+    console.error(`repo-insight: ${errorText(err)}`);
     process.exitCode = 1;
   } finally {
     await redis.quit().catch(() => {});

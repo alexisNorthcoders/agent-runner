@@ -3,7 +3,9 @@ module.exports = {
   apps: [
     {
       name: 'agent-runner',
-      script: 'src/main.js',
+      script: 'src/main.ts',
+      // PM2 runs .ts with bun unless told otherwise; Node runs it directly
+      interpreter: 'node',
       node_args: '--no-deprecation',
       cwd: __dirname,
       autorestart: true,

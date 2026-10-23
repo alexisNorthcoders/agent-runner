@@ -16,10 +16,6 @@
   "include": [
     "src/**/*.ts",
     "bin/**/*.ts",
-    "test/**/*.ts",
-    "scripts/**/*.ts"
-  ],
-  "exclude": [
-    "scripts/jsdoc"
+    "test/**/*.ts"
   ]
 }
