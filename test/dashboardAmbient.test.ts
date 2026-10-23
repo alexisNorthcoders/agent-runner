@@ -2,24 +2,21 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { BREAK_EVERY_MS, CLAP_MS, LINGER_MS, POSE_MS, breaks, dayPart, neighbours, residentsIn, restingPose } from '../dashboard/ambient.js';
 import { deskAt, layoutOffice, workerRect } from '../dashboard/layout.js';
+import type { Pose } from '../dashboard/ambient.js';
+import type { Scene, SceneCubicle, SceneOutcome } from '../dashboard/scene.js';
 import { WORKER_FEET, walkers } from '../dashboard/walkers.js';
 
-/** @typedef {import('../dashboard/scene.js').Scene} Scene */
-/** @typedef {import('../dashboard/scene.js').SceneCubicle} SceneCubicle */
-/** @typedef {import('../dashboard/scene.js').SceneOutcome} SceneOutcome */
-
 const HOUR = 3_600_000;
-/** 1970-01-02 at `h` o'clock UTC. @param {number} h */
-const at = (h) => 24 * HOUR + h * HOUR;
+/** 1970-01-02 at `h` o'clock UTC. */
+const at = (h: number) => 24 * HOUR + h * HOUR;
 const NOON = at(12);
 
-/** @param {string} alias @param {Partial<SceneCubicle>} [over] @returns {SceneCubicle} */
-const cube = (alias, over = {}) => ({ alias, name: alias, workspace: true, doNotDisturb: false, inTray: [], sticky: [], jobs: [], quiet: false, ...over });
+const cube = (alias: string, over: Partial<SceneCubicle> = {}): SceneCubicle => ({ alias, name: alias, workspace: true, doNotDisturb: false, inTray: [], sticky: [], jobs: [], quiet: false, ...over });
 const cubicles = ['a', 'b', 'c', 'd', 'e', 'f'].map((alias) => cube(alias));
 const layout = layoutOffice(cubicles.length, 'wide', 640);
 
-/** A lit scene with nothing going on, and `over` on top. @param {Partial<Scene>} [over] @returns {Scene} */
-const scene = (over = {}) => ({
+/** A lit scene with nothing going on, and `over` on top. */
+const scene = (over: Partial<Scene> = {}): Scene => ({
   dark: false,
   backInFive: false,
   cubicles,
@@ -34,14 +31,13 @@ const scene = (over = {}) => ({
   ...over,
 });
 
-/** @param {string} alias @param {Partial<SceneOutcome>} over @returns {SceneOutcome} */
-const outcome = (alias, over) => ({ place: { room: 'cubicle', alias }, state: 'stamped', quick: false, runId: 'r0', label: null, outcome: '', recorded: '', endedAt: NOON, prUrl: null, ...over });
+const outcome = (alias: string, over: Partial<SceneOutcome>): SceneOutcome => ({ place: { room: 'cubicle', alias }, state: 'stamped', quick: false, runId: 'r0', label: null, outcome: '', recorded: '', endedAt: NOON, prUrl: null, ...over });
 
-/** With ambient life, on UTC. @param {Scene} sc @param {number} t */
-const life = (sc, t) => walkers(layout, sc.cubicles, sc, t, { ambient: { tzOffsetMin: 0 } });
+/** With ambient life, on UTC. */
+const life = (sc: Scene, t: number) => walkers(layout, sc.cubicles, sc, t, { ambient: { tzOffsetMin: 0 } });
 
-/** Every `step` ms over `span` from `from`. @param {number} from @param {number} span @param {number} step */
-const times = (from, span, step) => Array.from({ length: Math.floor(span / step) }, (_, i) => from + i * step);
+/** Every `step` ms over `span` from `from`. */
+const times = (from: number, span: number, step: number) => Array.from({ length: Math.floor(span / step) }, (_, i) => from + i * step);
 
 describe('ambient life: the time of day', () => {
   it('is night from 22:00 to 07:00, morning to 09:00, day to 18:00, then evening', () => {
@@ -64,8 +60,7 @@ describe('ambient life: who is in', () => {
   });
 
   it("gives up the seat to the run's worker once they're on the floor", () => {
-    /** @type {Scene['run']} */
-    const run = { runId: 'r1', label: null, activity: null, place: { room: 'cubicle', alias: 'b' }, worker: null, delivery: { by: 'phone', at: 0 }, work: 'typing', pile: 0, bubble: null, postRun: false, moved: null };
+    const run: Scene['run'] = { runId: 'r1', label: null, activity: null, place: { room: 'cubicle', alias: 'b' }, worker: null, delivery: { by: 'phone', at: 0 }, work: 'typing', pile: 0, bubble: null, postRun: false, moved: null };
     assert.ok(residentsIn(scene({ run }), 'day', false).includes('b'), 'idling until the carrier arrives');
     assert.ok(!residentsIn(scene({ run }), 'day', true).includes('b'));
   });
@@ -126,10 +121,9 @@ describe('ambient life: breaks', () => {
 
 describe('ambient life: poses', () => {
   const beside = neighbours(layout, cubicles);
-  /** Each pose over many slots. @param {SceneCubicle} c @param {Scene} sc @param {string | null} runAt */
-  const poses = (c, sc, runAt = null) => times(NOON, 400 * POSE_MS, POSE_MS).map((t) => restingPose(c, sc, t, beside.get(c.alias) ?? { left: null, right: null }, runAt).pose);
-  /** @param {string[]} ps @param {string} pose */
-  const share = (ps, pose) => ps.filter((p) => p === pose).length / ps.length;
+  /** Each pose over many slots. */
+  const poses = (c: SceneCubicle, sc: Scene, runAt: string | null = null) => times(NOON, 400 * POSE_MS, POSE_MS).map((t) => restingPose(c, sc, t, beside.get(c.alias) ?? { left: null, right: null }, runAt).pose);
+  const share = (ps: Pose[], pose: Pose) => ps.filter((p) => p === pose).length / ps.length;
 
   it('knows who sits next to whom, row by row', () => {
     // 640 wide: 4 to a row, so d's right and e's left are the end of a row
@@ -141,7 +135,8 @@ describe('ambient life: poses', () => {
   it('fidgets, mostly sitting still', () => {
     const ps = poses(cubicles[0], scene());
     assert.ok(share(ps, 'still') > 0.4);
-    for (const p of /** @type {const} */ (['sip', 'lean', 'look', 'stretch'])) assert.ok(ps.includes(p), p);
+    const fidgets: Pose[] = ['sip', 'lean', 'look', 'stretch'];
+    for (const p of fidgets) assert.ok(ps.includes(p), p);
     assert.ok(!ps.includes('peek') && !ps.includes('sort'));
   });
 
@@ -163,8 +158,7 @@ describe('ambient life: poses', () => {
 
   it('cheers a merge in their cubicle and claps one next door, for CLAP_MS', () => {
     const sc = scene({ outcomes: [outcome('b', { endedAt: NOON })] });
-    /** @param {string} alias @param {number} t */
-    const pose = (alias, t) => restingPose(cube(alias), sc, t, beside.get(alias) ?? { left: null, right: null }, null);
+    const pose = (alias: string, t: number) => restingPose(cube(alias), sc, t, beside.get(alias) ?? { left: null, right: null }, null);
     assert.deepEqual(pose('b', NOON + 1000).pose, 'cheer');
     assert.deepEqual(pose('a', NOON + 1000), { pose: 'clap', facing: 'right' });
     assert.deepEqual(pose('c', NOON + 1000), { pose: 'clap', facing: 'left' });
@@ -192,7 +186,8 @@ describe('ambient life: on the floor', () => {
     const t = times(NOON, 10 * 60_000, 250).find((x) => life(scene(), x).strollers.some((s) => s.pose === 'walking'));
     assert.ok(t, 'someone takes a break');
     const s = life(scene(), t).strollers[0];
-    const desk = /** @type {import('../dashboard/layout.js').Rect} */ (deskAt(layout, cubicles, { room: 'cubicle', alias: s.alias }));
+    const desk = deskAt(layout, cubicles, { room: 'cubicle', alias: s.alias });
+    assert.ok(desk);
     // follow them till they're seated again
     let last = t;
     while (life(scene(), last).strollers.some((x) => x.alias === s.alias)) last += 250;
@@ -218,7 +213,8 @@ describe('ambient life: on the floor', () => {
     assert.ok(w.janitor);
     const lanes = layout.aisles.map((a) => a.y + a.h - 3);
     for (const t of times(at(23), 60_000, 2000)) {
-      const j = /** @type {NonNullable<ReturnType<typeof life>['janitor']>} */ (life(scene(), t).janitor);
+      const j = life(scene(), t).janitor;
+      assert.ok(j);
       const y = j.y + WORKER_FEET;
       assert.ok(lanes.includes(y) || (y >= lanes[0] && y <= lanes[lanes.length - 1]), `on an aisle or the corridor: ${y}`);
     }
@@ -236,11 +232,9 @@ describe('ambient life: on the floor', () => {
 });
 
 describe('ambient life: colleagues helping with subagents', () => {
-  /** @type {Scene['run']} */
-  const run = { runId: 'r1', label: null, activity: null, place: { room: 'cubicle', alias: 'b' }, worker: null, delivery: { by: 'envelope', at: NOON - 60_000 }, work: 'typing', pile: 0, bubble: null, postRun: false, moved: null };
-  /** @param {string} id @param {number} slot @param {Partial<Scene['helpers'][number]>} [over] @returns {Scene['helpers'][number]} */
-  const helper = (id, slot, over = {}) => ({ id, description: `Task ${id}`, activity: 'Bash: ls', slot, place: { room: 'cubicle', alias: 'b' }, since: NOON, until: null, ...over });
-  const at2 = (sc, t) => life(sc, t);
+  const run: Scene['run'] = { runId: 'r1', label: null, activity: null, place: { room: 'cubicle', alias: 'b' }, worker: null, delivery: { by: 'envelope', at: NOON - 60_000 }, work: 'typing', pile: 0, bubble: null, postRun: false, moved: null };
+  const helper = (id: string, slot: number, over: Partial<Scene['helpers'][number]> = {}): Scene['helpers'][number] => ({ id, description: `Task ${id}`, activity: 'Bash: ls', slot, place: { room: 'cubicle', alias: 'b' }, since: NOON, until: null, ...over });
+  const at2 = (sc: Scene, t: number) => life(sc, t);
 
   it('recruits the nearest residents, left first, who leave their desks to walk over', () => {
     const sc = scene({ run, helpers: [helper('x', 0), helper('y', 1)] });
@@ -255,7 +249,8 @@ describe('ambient life: colleagues helping with subagents', () => {
     const there = at2(working, NOON + 60_000).helpers[0];
     assert.equal(there.pose, 'standing');
     assert.equal(there.activity, 'Bash: ls');
-    const desk = /** @type {import('../dashboard/layout.js').Rect} */ (deskAt(layout, cubicles, { room: 'cubicle', alias: 'b' }));
+    const desk = deskAt(layout, cubicles, { room: 'cubicle', alias: 'b' });
+    assert.ok(desk);
     assert.equal(there.facing, there.x > workerRect(desk).x ? 'left' : 'right');
     const done = scene({ run, helpers: [helper('x', 0, { until: NOON + 60_000 })] });
     const back = at2(done, NOON + 61_000).helpers[0];

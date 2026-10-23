@@ -1,37 +1,58 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import type { Place, Scene } from '../dashboard/scene.js';
+import type { OfficeHistoryEntry, OfficeCron, OfficeRun, OfficeSnapshot } from '../src/officeSnapshot.ts';
+import type { OfficeIssueRepo, OfficeIssues } from '../src/issueScan.ts';
+import type { OfficeSession } from '../src/sessionWatch.ts';
 import { HELPER_KEEP_MS, MAIL_KEEP_MS, PILE_MAX, jobWorker, reduceScene, restingState } from '../dashboard/scene.js';
 
 const NOW = Date.parse('2026-09-26T12:00:00Z');
-const iso = (ms) => new Date(NOW + ms).toISOString();
+const iso = (ms: number) => new Date(NOW + ms).toISOString();
 
-/** A minimal OfficeSnapshot, with `over` on top. @returns {any} */
-function snap(over = {}) {
+/** A minimal OfficeSnapshot, with `over` on top. */
+function snap(over: Partial<OfficeSnapshot> = {}): OfficeSnapshot {
   return {
     version: 1,
     at: iso(0),
     activeRun: null,
     active: [],
     queue: [],
-    pauses: { restart: null, general: null, workspaces: [] },
+    pauses: { restart: null, general: null, workspaces: [], limit: null },
     cron: null,
     lock: null,
     history: [],
     spend: { today: { runs: 0, costUsd: 0, tokens: 0 }, week: { runs: 0, costUsd: 0, tokens: 0 } },
     workspaces: ['bot', 'chess-trainer', 'dots'],
+    issues: null,
+    jobs: [],
+    sessions: [],
     ...over,
   };
 }
 
+/** A snapshot as it arrives over the wire, where `over` may hold anything. */
+const wire = (over: Record<string, unknown>): OfficeSnapshot => JSON.parse(JSON.stringify({ ...snap(), ...over }));
+
+/** The scene's run, which the test expects to be there. */
+const worker = (scene: Scene) => {
+  assert.ok(scene.run, 'a run');
+  return scene.run;
+};
+
 const up = { up: true, now: NOW, config: {} };
-const pause = (ms, reason = 'r') => ({ reason, pausedAt: iso(-60_000), until: iso(ms) });
+const pause = (ms: number, reason = 'r') => ({ reason, pausedAt: iso(-60_000), until: iso(ms) });
 
 describe('office scene: visitors', () => {
-  const session = (id, extra = {}) => ({ id, workspaceAlias: 'bot', cwd: '/p/bot', branch: 'main', state: 'working', activity: 'Bash: npm test', subagents: 0, since: iso(-60_000), lastEntryAt: iso(-1000), ...extra });
+  const session = (id: string, extra: Partial<OfficeSession> = {}): OfficeSession => ({ id, workspaceAlias: 'bot', cwd: '/p/bot', branch: 'main', state: 'working', activity: 'Bash: npm test', subagents: 0, since: iso(-60_000), lastEntryAt: iso(-1000), ...extra });
+
+  const sessionsOf = (scene: Scene) => {
+    assert.ok(scene.sessions);
+    return scene.sessions;
+  };
 
   it('seats each session in its workspace cubicle, oldest first, or in the Freeform room outside every workspace', () => {
     const scene = reduceScene(snap({ sessions: [session('a'), session('b', { workspaceAlias: 'dots' }), session('c', { workspaceAlias: null, cwd: '/home/a/notes' }), session('d', { workspaceAlias: 'gone' }), session('e')] }), null, up);
-    assert.deepEqual(scene.sessions.map((s) => [s.id, s.place]), [
+    assert.deepEqual(sessionsOf(scene).map((s) => [s.id, s.place]), [
       ['a', { room: 'cubicle', alias: 'bot', session: 'a' }],
       ['b', { room: 'cubicle', alias: 'dots', session: 'b' }],
       ['c', { room: 'freeform', session: 'c' }],
@@ -39,17 +60,17 @@ describe('office scene: visitors', () => {
       ['e', { room: 'cubicle', alias: 'bot', session: 'e' }],
     ]);
     assert.deepEqual(scene.cubicles.map((c) => [c.alias, c.sessions]), [['bot', ['a', 'e']], ['chess-trainer', []], ['dots', ['b']]]);
-    assert.equal(scene.sessions[2].repo, 'notes');
-    assert.equal(scene.sessions[0].repo, 'bot');
+    assert.equal(sessionsOf(scene)[2].repo, 'notes');
+    assert.equal(sessionsOf(scene)[0].repo, 'bot');
   });
 
   it("types with the current tool's tag while working, and waits with no tag", () => {
     const scene = reduceScene(snap({ sessions: [session('a'), session('b', { activity: 'writing…' }), session('c', { activity: 'Read: /x.js' }), session('d', { state: 'waiting' })] }), null, up);
-    assert.deepEqual(scene.sessions.map((s) => [s.state, s.tool]), [['working', 'Bash'], ['working', 'write'], ['working', 'Read'], ['waiting', null]]);
+    assert.deepEqual(sessionsOf(scene).map((s) => [s.state, s.tool]), [['working', 'Bash'], ['working', 'write'], ['working', 'Read'], ['waiting', null]]);
   });
 
   it('keeps the subagent count and when the session opened, and no text', () => {
-    const [s] = reduceScene(snap({ sessions: [session('a', { subagents: 3 })] }), null, up).sessions;
+    const [s] = sessionsOf(reduceScene(snap({ sessions: [session('a', { subagents: 3 })] }), null, up));
     assert.equal(s.subagents, 3);
     assert.equal(s.since, NOW - 60_000);
     assert.deepEqual(Object.keys(s).sort(), ['activity', 'branch', 'id', 'place', 'repo', 'since', 'state', 'subagents', 'tool']);
@@ -58,7 +79,7 @@ describe('office scene: visitors', () => {
   it('has no visitors without sessions, from an older feed, or from junk', () => {
     assert.deepEqual(reduceScene(snap(), null, up).sessions, []);
     assert.deepEqual(reduceScene(snap({ sessions: [] }), null, up).sessions, []);
-    assert.deepEqual(reduceScene(snap({ sessions: [null, { id: 3 }, { id: 'x', state: 'odd' }] }), null, up).sessions, []);
+    assert.deepEqual(reduceScene(wire({ sessions: [null, { id: 3 }, { id: 'x', state: 'odd' }] }), null, up).sessions, []);
   });
 
   it("doesn't add a desk for a job room's session, nor recruit residents for subagents", () => {
@@ -120,7 +141,7 @@ describe('office scene: office states', () => {
   });
 
   it('lets pauses run out while the runner is down', () => {
-    const paused = snap({ pauses: { restart: null, general: pause(60_000), workspaces: [{ alias: 'dots', ...pause(60_000) }] } });
+    const paused = snap({ pauses: { restart: null, general: pause(60_000), workspaces: [{ alias: 'dots', ...pause(60_000) }], limit: null } });
     const before = reduceScene(paused, reduceScene(paused, null, up), { ...up, up: false });
     assert.equal(before.backInFive, true);
     const after = reduceScene(paused, before, { ...up, up: false, now: NOW + 61_000 });
@@ -137,7 +158,7 @@ describe('office scene: office states', () => {
   });
 
   it('hangs BACK IN 5 on the door during a general pause, until it ends', () => {
-    const paused = snap({ pauses: { restart: null, general: pause(60_000), workspaces: [] } });
+    const paused = snap({ pauses: { restart: null, general: pause(60_000), workspaces: [], limit: null } });
     assert.equal(reduceScene(paused, null, up).backInFive, true);
     // expired, though the next snapshot hasn't said so yet
     assert.equal(reduceScene(paused, null, { ...up, now: NOW + 61_000 }).backInFive, false);
@@ -145,8 +166,8 @@ describe('office scene: office states', () => {
   });
 
   it('hangs Do not disturb on a paused workspace, until it ends', () => {
-    const paused = snap({ pauses: { restart: null, general: null, workspaces: [{ alias: 'chess-trainer', ...pause(60_000) }] } });
-    const dnd = (scene) => scene.cubicles.filter((c) => c.doNotDisturb).map((c) => c.alias);
+    const paused = snap({ pauses: { restart: null, general: null, workspaces: [{ alias: 'chess-trainer', ...pause(60_000) }], limit: null } });
+    const dnd = (scene: Scene) => scene.cubicles.filter((c) => c.doNotDisturb).map((c) => c.alias);
     assert.deepEqual(dnd(reduceScene(paused, null, up)), ['chess-trainer']);
     assert.deepEqual(dnd(reduceScene(paused, null, { ...up, now: NOW + 61_000 })), []);
     assert.deepEqual(dnd(reduceScene(snap(), reduceScene(paused, null, up), up)), []);
@@ -154,7 +175,7 @@ describe('office scene: office states', () => {
 });
 
 describe('office scene: queue room', () => {
-  const cron = (over = {}) => ({ alive: true, pid: 1, intervalMs: 600_000, lastTickStartedAt: iso(-60_000), lastTickEndedAt: iso(-50_000), outcome: null, nextTickAt: iso(540_000), ...over });
+  const cron = (over: Partial<OfficeCron> = {}): OfficeCron => ({ alive: true, pid: 1, intervalMs: 600_000, lastTickStartedAt: iso(-60_000), lastTickEndedAt: iso(-50_000), outcome: null, nextTickAt: iso(540_000), ...over });
 
   it("counts down to the feed's next cron tick", () => {
     assert.equal(reduceScene(snap({ cron: cron() }), null, up).queueRoom.countdownMs, 540_000);
@@ -184,16 +205,18 @@ describe('office scene: queue room', () => {
   });
 });
 
-/** An OfficeRun, `over` on top. @returns {any} */
-function run(over = {}) {
+/** An OfficeRun, `over` on top. */
+function run(over: Partial<OfficeRun> = {}): OfficeRun {
   return {
     runId: 'r1',
     kind: 'issue',
     trigger: 'manual',
     label: 'issue dots#7',
     workspaceAlias: 'dots',
+    inferredWorkspace: null,
     issueNumber: 7,
     room: null,
+    jobName: null,
     health: 'running',
     phase: 'agent',
     model: 'claude-x',
@@ -201,6 +224,7 @@ function run(over = {}) {
     outputTokens: 0,
     contextTokens: 0,
     lastActivity: null,
+    subagents: [],
     startedAt: iso(-1_000),
     elapsedMs: 1_000,
     agentPid: 42,
@@ -208,22 +232,22 @@ function run(over = {}) {
   };
 }
 
-const running = (over = {}) => {
+const running = (over: Partial<OfficeRun> = {}) => {
   const r = run(over);
   return snap({ activeRun: r, active: [r] });
 };
 
-/** Reduce a sequence of snapshots, each at its `now`, returning every scene. @param {Array<[any, number]>} steps */
-function play(steps) {
-  const scenes = [];
-  let prev = null;
+/** Reduce a sequence of snapshots, each at its `now`, returning every scene. */
+function play(steps: Array<[OfficeSnapshot | null, number]>) {
+  const scenes: Scene[] = [];
+  let prev: Scene | null = null;
   for (const [s, now] of steps) scenes.push((prev = reduceScene(s, prev, { ...up, now })));
   return scenes;
 }
 
 describe('office scene: a run starting', () => {
   it('puts the worker in the right room, delivered the right way, for each trigger and kind', () => {
-    const cases = [
+    const cases: Array<[Partial<OfficeRun>, Place, string]> = [
       [{ kind: 'issue', trigger: 'cron', workspaceAlias: 'chess-trainer' }, { room: 'cubicle', alias: 'chess-trainer' }, 'envelope'],
       [{ kind: 'issue', trigger: 'manual', workspaceAlias: 'dots' }, { room: 'cubicle', alias: 'dots' }, 'phone'],
       [{ kind: 'freeform', trigger: 'manual', workspaceAlias: null, issueNumber: null }, { room: 'freeform' }, 'phone'],
@@ -258,7 +282,7 @@ describe('office scene: a run starting', () => {
 });
 
 describe('office scene: a freeform run finding its workspace', () => {
-  const freeform = (over = {}) => running({ kind: 'freeform', workspaceAlias: null, issueNumber: null, inferredWorkspace: null, ...over });
+  const freeform = (over: Partial<OfficeRun> = {}) => running({ kind: 'freeform', workspaceAlias: null, issueNumber: null, inferredWorkspace: null, ...over });
 
   it('starts in the Freeform room, then picks up their papers and walks to the cubicle once it is inferred', () => {
     const [before, after, later] = play([
@@ -315,7 +339,7 @@ describe('office scene: working', () => {
   });
 
   it('grows the paper pile with turns and elapsed time', () => {
-    const pile = (over, now = NOW) => reduceScene(running(over), null, { ...up, now }).run?.pile ?? -1;
+    const pile = (over: Partial<OfficeRun>, now = NOW) => reduceScene(running(over), null, { ...up, now }).run?.pile ?? -1;
     assert.equal(pile({ turns: 0, elapsedMs: 0 }), 0);
     assert.ok(pile({ turns: 20, elapsedMs: 0 }) > pile({ turns: 5, elapsedMs: 0 }));
     assert.ok(pile({ turns: 0, elapsedMs: 20 * 60_000 }) > pile({ turns: 0, elapsedMs: 60_000 }));
@@ -326,7 +350,7 @@ describe('office scene: working', () => {
   it('caps the pile, so a very long run is visibly high but stays on the desk', () => {
     const top = reduceScene(running({ turns: 10_000, elapsedMs: 10 * 3_600_000 }), null, up).run?.pile ?? 0;
     assert.equal(top, PILE_MAX);
-    assert.ok(reduceScene(running({ turns: 40, elapsedMs: 40 * 60_000 }), null, up).run?.pile >= PILE_MAX / 2);
+    assert.ok(worker(reduceScene(running({ turns: 40, elapsedMs: 40 * 60_000 }), null, up)).pile >= PILE_MAX / 2);
   });
 
   it("never shrinks the pile during a run (the autofix pass counts its turns from zero), and starts a new run's from scratch", () => {
@@ -335,9 +359,9 @@ describe('office scene: working', () => {
       [running({ turns: 1, elapsedMs: 0 }), NOW],
       [running({ runId: 'r2', turns: 1, elapsedMs: 0 }), NOW],
     ]);
-    assert.ok(a.run.pile > 0);
-    assert.equal(b.run.pile, a.run.pile);
-    assert.equal(c.run.pile, 0);
+    assert.ok(worker(a).pile > 0);
+    assert.equal(worker(b).pile, worker(a).pile);
+    assert.equal(worker(c).pile, 0);
   });
 });
 
@@ -352,8 +376,8 @@ describe('office scene: post-run', () => {
       [post, NOW + 5_000],
     ]);
     assert.equal(a.boss.at, null);
-    assert.equal(b.run.work, 'reviewed');
-    assert.equal(b.run.bubble, null);
+    assert.equal(worker(b).work, 'reviewed');
+    assert.equal(worker(b).bubble, null);
     assert.deepEqual(b.boss, { at: { room: 'cubicle', alias: 'dots' }, from: null, since: NOW + 5_000 });
   });
 
@@ -363,8 +387,8 @@ describe('office scene: post-run', () => {
       [post, NOW + 5_000],
       [autofix, NOW + 9_000],
     ]);
-    assert.equal(c.run.work, 'scribbling');
-    assert.equal(c.run.bubble, 'Edit: b.js');
+    assert.equal(worker(c).work, 'scribbling');
+    assert.equal(worker(c).bubble, 'Edit: b.js');
     // the boss doesn't walk in again
     assert.deepEqual(c.boss, b.boss);
   });
@@ -385,7 +409,7 @@ describe('office scene: post-run', () => {
       [post, NOW + 5_000],
       [running({ runId: 'r2', kind: 'freeform', workspaceAlias: null }), NOW + 20_000],
     ]);
-    assert.equal(c.run.work, 'typing');
+    assert.equal(worker(c).work, 'typing');
     assert.deepEqual(c.boss, { at: null, from: { room: 'cubicle', alias: 'dots' }, since: NOW + 20_000 });
   });
 
@@ -403,20 +427,23 @@ describe('office scene: post-run', () => {
         [snap(), NOW + 9_000],
       ]);
       for (const s of scenes) assert.deepEqual(s.boss, { at: null, from: null, since: 0 }, kind);
-      assert.equal(scenes[1].run.work, 'typing', kind);
+      assert.equal(worker(scenes[1]).work, 'typing', kind);
     }
   });
 });
 
-/** A finished run, as the office feed's history carries it. @returns {any} */
-const row = (over = {}) => ({
+/** A finished run, as the office feed's history carries it. */
+const row = (over: Partial<OfficeHistoryEntry> = {}): OfficeHistoryEntry => ({
   runId: 'h1',
   kind: 'issue',
   trigger: 'cron',
   label: 'issue bot#3',
   workspaceAlias: 'bot',
+  inferredWorkspace: null,
+  parentRunId: null,
   issueNumber: 3,
   room: null,
+  jobName: null,
   startedAt: iso(-20 * 60_000),
   endedAt: iso(-60_000),
   durationMs: 19 * 60_000,
@@ -432,7 +459,7 @@ const row = (over = {}) => ({
 
 describe('office scene: outcomes', () => {
   it('maps every outcome and result the runner records to a resting state', () => {
-    const cases = [
+    const cases: Array<[Partial<OfficeHistoryEntry>, string]> = [
       [{ outcome: 'success', result: 'merged' }, 'stamped'],
       [{ outcome: 'success', result: 'pr_open' }, 'folder'],
       [{ outcome: 'success', result: 'pushed' }, 'folder'],
@@ -533,9 +560,8 @@ describe('office scene: outcomes', () => {
 });
 
 describe('office scene: pending issues', () => {
-  const item = (number) => ({ number, title: `Task ${number}`, url: `https://github.com/o/bot/issues/${number}` });
-  /** @param {string} alias @param {any} over */
-  const repo = (alias, over = {}) => ({
+  const item = (number: number) => ({ number, title: `Task ${number}`, url: `https://github.com/o/bot/issues/${number}` });
+  const repo = (alias: string, over: Partial<OfficeIssueRepo> = {}): OfficeIssueRepo => ({
     alias,
     repo: `o/${alias}`,
     scannedAt: iso(-60_000),
@@ -548,7 +574,7 @@ describe('office scene: pending issues', () => {
     needsInfo: 0,
     ...over,
   });
-  const issues = (...repos) => ({ scannedAt: iso(-60_000), repos });
+  const issues = (...repos: OfficeIssueRepo[]): OfficeIssues => ({ scannedAt: iso(-60_000), repos });
 
   it('puts runnable issues in the cubicle in-tray, then blocked ones with a padlock', () => {
     const scene = reduceScene(snap({ issues: issues(repo('bot', { runnable: [item(3), item(8)], blocked: [item(5)] })) }), null, up);
@@ -574,7 +600,7 @@ describe('office scene: pending issues', () => {
   });
 
   it("takes the issue being worked out of its cubicle's in-tray", () => {
-    const activeRun = { runId: 'r1', kind: 'issue', trigger: 'cron', label: 'x', workspaceAlias: 'bot', inferredWorkspace: null, issueNumber: 3, room: null, health: 'running', phase: 'agent', turns: 0, elapsedMs: 0, lastActivity: null, startedAt: iso(-1000) };
+    const activeRun = run({ trigger: 'cron', label: 'x', workspaceAlias: 'bot', issueNumber: 3, turns: 0, elapsedMs: 0, startedAt: iso(-1000) });
     const scene = reduceScene(snap({ activeRun, active: [activeRun], issues: issues(repo('bot', { runnable: [item(3), item(8)] })) }), null, up);
     assert.deepEqual(scene.cubicles[0].inTray.map((l) => l.number), [8]);
   });
@@ -588,7 +614,7 @@ describe('office scene: pending issues', () => {
   });
 
   describe('mail', () => {
-    const tray = (bot = [], dots = []) => snap({ issues: issues(repo('bot', { runnable: bot.map(item) }), repo('dots', { runnable: dots.map(item) })) });
+    const tray = (bot: number[] = [], dots: number[] = []) => snap({ issues: issues(repo('bot', { runnable: bot.map(item) }), repo('dots', { runnable: dots.map(item) })) });
 
     it("hands out nothing the page found when it opened, nor before the first scan", () => {
       const [none, first, again] = play([
@@ -637,8 +663,8 @@ describe('office scene: pending issues', () => {
 });
 
 describe('office scene: subagent helpers', () => {
-  const sub = (id, activity = null) => ({ id, description: `Task ${id}`, type: 'general-purpose', activity });
-  const withSubs = (...subagents) => running({ subagents });
+  const sub = (id: string, activity: string | null = null) => ({ id, description: `Task ${id}`, type: 'general-purpose', activity });
+  const withSubs = (...subagents: OfficeRun['subagents']) => running({ subagents });
 
   it('calls a colleague over for each subagent, in the lowest free slot', () => {
     const [, one, two, three] = play([
@@ -691,11 +717,11 @@ describe('office scene: scheduled jobs', () => {
     { name: 'backup', room: 'bot', at: '03:00', nextDueAt: iso(7_200_000) },
   ];
   /** A running job: `over` on top of an OfficeRun. */
-  const jobRun = (over = {}) => ({
+  const jobRun = (over: Partial<OfficeRun> = {}) => ({
     ...run({ runId: 'j1', kind: 'job', trigger: 'schedule', label: 'scheduled job cleanup_agent', workspaceAlias: null, issueNumber: null, room: RA, jobName: 'cleanup_agent', phase: 'job', model: null, ...over }),
   });
-  const jobSnap = (over = {}) => snap({ jobs, ...over });
-  const runningJob = (over = {}) => {
+  const jobSnap = (over: Partial<OfficeSnapshot> = {}) => snap({ jobs, ...over });
+  const runningJob = (over: Partial<OfficeRun> = {}) => {
     const r = jobRun(over);
     return jobSnap({ activeRun: r, active: [r] });
   };
@@ -715,7 +741,7 @@ describe('office scene: scheduled jobs', () => {
   });
 
   it("puts a room's clerk jobs (plain scripts) in a scripts room of its own, after the job rooms", () => {
-    const at = (name) => ({ name, room: RA, at: '02:00', nextDueAt: iso(1000) });
+    const at = (name: string) => ({ name, room: RA, at: '02:00', nextDueAt: iso(1000) });
     const scene = reduceScene(snap({ jobs: [at('cleanup_agent'), at('dashboard_export'), at('report_agent'), at('cron_digest')] }), null, up);
     assert.deepEqual(scene.cubicles.slice(3).map((c) => [c.alias, c.name, c.workspace, c.jobs.map((j) => j.name)]), [
       [RA, RA, false, ['cleanup_agent', 'report_agent']],
@@ -806,8 +832,8 @@ describe('office scene: scheduled jobs', () => {
   });
 
   it("keeps each job room's last outcome, in the shared states, at the job's desk", () => {
-    const job = (over) => row({ kind: 'job', trigger: 'schedule', workspaceAlias: null, issueNumber: null, room: RA, result: null, prUrl: null, ...over });
-    const cases = [
+    const job = (over: Partial<OfficeHistoryEntry>) => row({ kind: 'job', trigger: 'schedule', workspaceAlias: null, issueNumber: null, room: RA, result: null, prUrl: null, ...over });
+    const cases: Array<[string, string]> = [
       ['success', 'stamped'],
       ['failed', 'injured'],
       ['stopped', 'home'],
