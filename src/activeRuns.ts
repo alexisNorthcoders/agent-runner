@@ -7,6 +7,7 @@ import { parseRunRecord } from './runLock.ts';
 import type { RunRecord } from './runLock.ts';
 import { parseAgentProgress } from './agentBackend/index.ts';
 import type { AgentProgress } from './agentBackend/index.ts';
+import type { RunHealth } from './officeWire.ts';
 
 /**
  * One `active/<runId>.json` file per in-flight run, rewritten (throttled) as it progresses and
@@ -14,11 +15,6 @@ import type { AgentProgress } from './agentBackend/index.ts';
  * live progress to the terminal CLIs, and outlive the runner process so a crash leaves a trace.
  * Writes never throw: telemetry must not break a run.
  */
-/**
- * `running`: the runner process that owns it is alive. `orphaned`: the runner died but the agent
- * process is still going, so nobody will report its result. `stale`: both are gone.
- */
-export type RunHealth = 'running' | 'orphaned' | 'stale';
 
 export type ActiveRunFile = RunRecord & Partial<AgentProgress> & { updatedAt?: string };
 

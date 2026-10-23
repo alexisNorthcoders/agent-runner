@@ -126,8 +126,10 @@ function findRoute(graph, from, to) {
   }
   /** @type {Map<string, { d: number, p: Point, prev: string | null }>} */
   const best = new Map([[pointKey(from), { d: 0, p: from, prev: null }]]);
+  /** @type {Set<string>} */
   const done = new Set();
   for (;;) {
+    /** @type {[string, { d: number, p: Point, prev: string | null }] | null} */
     let here = null;
     for (const [k, v] of best) if (!done.has(k) && (!here || v.d < here[1].d)) here = [k, v];
     if (!here) return [from, to];

@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import type { Look } from '../dashboard/looks.js';
 import { HAIRS, SHIRTS, SKINS, STYLES, TEMPS, lookKey, looksFor, workerKeys } from '../dashboard/looks.js';
 
 const aliases = ['agent-runner', 'bot', 'chess-trainer', 'dots', 'go-server', 'home-manuals', 'platformer', 'reddit-bot', 'reply-buddy', 'snake-colyseus', 'snake-lab', 'snake-phaser'];
@@ -45,7 +46,7 @@ describe('worker looks', () => {
     const looks = [...looksFor(Array.from({ length: 60 }, (_, i) => `ws:repo-${i}`)).values()];
     assert.ok(new Set(looks.map((l) => l.skin)).size >= SKINS.length - 1);
     assert.ok(new Set(looks.map((l) => l.style)).size >= STYLES.length - 1);
-    for (const has of [(l) => l.tie, (l) => !l.tie, (l) => l.glasses, (l) => l.beard]) assert.ok(looks.some(has));
+    for (const has of [(l: Look) => l.tie, (l: Look) => !l.tie, (l: Look) => l.glasses, (l: Look) => l.beard]) assert.ok(looks.some(has));
   });
 
   it('is the same on every page, and a newcomer leaves the others as they were unless they clash', () => {

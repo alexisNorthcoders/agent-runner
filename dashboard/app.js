@@ -1,6 +1,6 @@
 // The office dashboard: listens to the office feed (`feed`, next to this page), draws the office
 // floor on a canvas, and renders the panel's Now, Issues, History and Office tabs as text and tables. No
-// build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeSnapshot.ts.
+// build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeWire.ts.
 import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, what } from './format.js';
 import { cartSlots, clickFilter, deskAt, fitScene, folderSlots, inTraySlots, inside, layoutOffice, placeName, placeRect, sessionDesk, stickyNote, workerRect } from './layout.js';
 import { applyLogEvent } from './logPane.js';
@@ -12,37 +12,60 @@ const FEED_URL = 'feed';
 const RECONNECT_MS = 3000;
 // the feed resends the snapshot every 30s, so this much silence means the connection is dead
 const SILENCE_MS = 75_000;
-const TABS = ['now', 'issues', 'history', 'office'];
+const TABS = /** @type {const} */ (['now', 'issues', 'history', 'office']);
 /** How often the floor is redrawn while something on it moves. */
 const REDRAW_MS = 100;
 
-/** @type {any} the last OfficeSnapshot */
+/** @typedef {import('../src/officeWire.ts').OfficeSnapshot} OfficeSnapshot */
+
+/** @type {OfficeSnapshot | null} */
 let snap = null;
 /** local time the snapshot arrived, to keep elapsed times ticking between snapshots */
 let receivedAt = 0;
 let up = false;
 /** @type {EventSource | null} */
 let source = null;
-let reconnectTimer = 0;
-let silenceTimer = 0;
-/** the active run's live log (masked by the runner), and whether the pane scrolls with it */
+/** @type {ReturnType<typeof setTimeout> | undefined} */
+let reconnectTimer;
+/** @type {ReturnType<typeof setTimeout> | undefined} */
+let silenceTimer;
+/** @type {{ runId: string | null, lines: string[] }} the active run's live log (masked by the runner) */
 let pane = { runId: null, lines: [] };
+/** whether the pane scrolls with the log */
 let following = true;
 /** cubicle names and order (office.json) */
 let config = {};
-/** @type {import('./scene.js').Scene | null} */
+/** @type {Scene | null} */
 let scene = null;
-/** @type {import('./layout.js').Layout | null} */
+/** @type {Layout | null} */
 let layout = null;
-/** the workspace the panel is filtered to, picked by clicking its cubicle */
+/** @type {string | null} the workspace the panel is filtered to, picked by clicking its cubicle */
 let filter = null;
-/** where the pointer is over the scene, in CSS pixels relative to the canvas, for the hover tip */
+/** @type {Point | null} where the pointer is over the scene, in CSS pixels relative to the canvas, for the hover tip */
 let pointer = null;
 const sceneCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById('scene'));
 /** the scene at its internal resolution, before it's scaled up */
 const buffer = document.createElement('canvas');
 
+/** @typedef {{ x: number, y: number }} Point */
+/** @typedef {import('./layout.js').Layout} Layout */
+/** @typedef {import('./scene.js').Scene} Scene */
+
 // --- DOM helpers ---
+
+/** @param {string} selector */
+function find(selector) {
+  const el = document.querySelector(selector);
+  if (!(el instanceof HTMLElement)) throw new Error(`${selector} is missing from index.html`);
+  return el;
+}
+
+/** @param {HTMLCanvasElement} canvas */
+function context2d(canvas) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('no 2D canvas context');
+  return ctx;
+}
 
 /** @param {string} tag @param {Record<string, string> | null} [attrs] @param {...(Node | string | null | undefined | false)} kids */
 function h(tag, attrs, ...kids) {
@@ -77,26 +100,27 @@ function nextDue(j, t) {
   return at > t ? `in ~${formatDuration(at - t)} (${new Date(at).toLocaleString()})` : 'due now';
 }
 
-/** The snapshot's clock, advanced by the time since it arrived. */
-const now = () => Date.parse(snap.at) + (Date.now() - receivedAt);
+/** The snapshot's clock, advanced by the time since it arrived (the viewer's clock before the first one). */
+const now = () => (snap ? Date.parse(snap.at) + (Date.now() - receivedAt) : Date.now());
 /** The office's ambient life, on this viewer's clock (its time of day). */
 const ambient = () => ({ tzOffsetMin: new Date().getTimezoneOffset() });
 
 // --- tabs ---
 
-/** The usage-limit pause's line while it holds, else null. @param {number} t */
-function usageLimitLine(t) {
+/** The usage-limit pause's line while it holds, else null. @param {OfficeSnapshot} snap @param {number} t */
+function usageLimitLine(snap, t) {
   const l = snap.pauses.limit;
   return l && Date.parse(l.resetsAt) > t ? l.message : null;
 }
 
-function renderNow() {
+/** @param {OfficeSnapshot} snap */
+function renderNow(snap) {
   const t = now();
   const out = [];
-  const limited = usageLimitLine(t);
+  const limited = usageLimitLine(snap, t);
   if (limited) out.push(h('p', { class: 'stale' }, `Paused: ${limited}`));
   const run = snap.activeRun;
-  const elapsed = run && formatDuration(run.elapsedMs == null ? null : run.elapsedMs + (Date.now() - receivedAt));
+  const elapsed = formatDuration(run?.elapsedMs == null ? null : run.elapsedMs + (Date.now() - receivedAt));
   if (!run) out.push(h('p', null, 'Agent: idle'));
   else if (run.kind === 'job') {
     // a job has no model, turns or tokens: its output is the live log below
@@ -154,7 +178,8 @@ function filterNote() {
   return h('p', { class: 'filter' }, `Showing ${filter} only (click its cubicle again or `, clear, ')');
 }
 
-function renderHistory() {
+/** @param {OfficeSnapshot} snap */
+function renderHistory(snap) {
   const t = now();
   const rows = filter ? snap.history.filter((r) => workspaceOf(r) === filter) : snap.history;
   return [
@@ -179,13 +204,14 @@ function renderHistory() {
   ];
 }
 
-/** @param {{ number: number, title: string, url: string }} i @param {string} [extra] */
+/** @param {{ number: number, title: string, url: string }} i @param {Node} [extra] */
 const issueLink = (i, extra) => h('li', null, h('a', { href: i.url, target: '_blank', rel: 'noopener' }, `#${i.number}`), ` ${i.title}`, extra ?? null);
 
 /** @param {string} title @param {Node[]} items */
 const issueList = (title, items) => (items.length ? [h('h4', null, `${title} (${items.length})`), h('ul', null, ...items)] : []);
 
-function renderIssues() {
+/** @param {OfficeSnapshot} snap */
+function renderIssues(snap) {
   const t = now();
   const scan = snap.issues;
   if (!scan) return [h('p', { class: 'dim' }, 'Not scanned yet: the runner scans GitHub on startup, on a timer and after each run.')];
@@ -212,7 +238,8 @@ function renderIssues() {
   ];
 }
 
-function renderOffice() {
+/** @param {OfficeSnapshot} snap */
+function renderOffice(snap) {
   const t = now();
   const c = snap.cron;
   let cron = 'not started (no ticks recorded)';
@@ -234,7 +261,7 @@ function renderOffice() {
       ['cron', cron],
       ['restart pause', restart],
       ['paused by hand', general],
-      ['usage limit', usageLimitLine(t) ?? 'no'],
+      ['usage limit', usageLimitLine(snap, t) ?? 'no'],
       ['lock', lock],
       ['queue', snap.queue.length ? `${snap.queue.length} waiting (next: ${snap.queue[0].label})` : 'empty'],
     ]),
@@ -261,19 +288,19 @@ function renderOffice() {
 
 /** Shown on the Now tab once a run's log has arrived (it stays after the run, until the next one). */
 function showLog() {
-  document.getElementById('log').hidden = currentTab() !== 'now' || !pane.runId;
+  find('#log').hidden = currentTab() !== 'now' || !pane.runId;
 }
 
 function renderLog() {
-  const lines = document.getElementById('log-lines');
+  const lines = find('#log-lines');
   lines.textContent = pane.lines.join('\n');
-  document.getElementById('log-run').textContent = pane.runId ?? '';
+  find('#log-run').textContent = pane.runId ?? '';
   if (following) lines.scrollTop = lines.scrollHeight;
 }
 
 function toggleFollow() {
   following = !following;
-  document.getElementById('log-follow').textContent = following ? 'Pause scrolling' : 'Resume scrolling';
+  find('#log-follow').textContent = following ? 'Pause scrolling' : 'Resume scrolling';
   if (following) renderLog();
 }
 
@@ -281,20 +308,20 @@ const RENDER = { now: renderNow, issues: renderIssues, history: renderHistory, o
 
 function currentTab() {
   const tab = location.hash.slice(1);
-  return TABS.includes(tab) ? tab : 'now';
+  return TABS.find((t) => t === tab) ?? 'now';
 }
 
 function render() {
   const tab = currentTab();
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.getAttribute('href') === `#${tab}`);
-  const status = document.getElementById('status');
+  const status = find('#status');
   status.textContent = up ? 'live' : 'runner down, reconnecting…';
   status.className = up ? 'up' : 'down';
   document.body.classList.toggle('down', !up);
-  const panel = document.getElementById('panel');
+  const panel = find('#panel');
   if (!snap) panel.replaceChildren(h('p', { class: 'dim' }, up ? 'Waiting for the first snapshot…' : 'Runner down: no snapshot yet.'));
   // a tab's optional parts (e.g. the filter note) are null when absent
-  else panel.replaceChildren(...RENDER[tab]().filter((x) => x != null));
+  else panel.replaceChildren(...RENDER[tab](snap).filter((x) => x != null));
   showLog();
   drawScene();
 }
@@ -302,12 +329,12 @@ function render() {
 // --- the office floor ---
 
 function drawScene() {
-  const t = snap ? now() : Date.now();
+  const t = now();
   scene = reduceScene(snap, scene, { up, now: t, config, log: pane });
-  const floor = document.getElementById('floor');
+  const floor = find('#floor');
   const canvas = sceneCanvas;
   const dpr = window.devicePixelRatio || 1;
-  const fit = fitScene(floor.clientWidth, window.innerHeight - document.querySelector('header').offsetHeight - 48, dpr);
+  const fit = fitScene(floor.clientWidth, window.innerHeight - find('header').offsetHeight - 48, dpr);
   const next = layoutOffice(scene.cubicles.length, fit.mode, fit.width);
   // the pointer was placed over the old floor plan, so it may be over something else now: drop
   // the tip until the pointer moves again
@@ -318,21 +345,21 @@ function drawScene() {
     buffer.width = layout.width;
     buffer.height = layout.height;
   }
-  drawOffice(buffer.getContext('2d'), layout, scene, { t, filter, ambient: ambient() });
+  drawOffice(context2d(buffer), layout, scene, { t, filter, ambient: ambient() });
   if (canvas.width !== layout.width * fit.scale || canvas.height !== layout.height * fit.scale) {
     canvas.width = layout.width * fit.scale;
     canvas.height = layout.height * fit.scale;
   }
   canvas.style.width = `${canvas.width / dpr}px`;
   canvas.style.height = `${canvas.height / dpr}px`;
-  const ctx = canvas.getContext('2d');
+  const ctx = context2d(canvas);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(buffer, 0, 0, canvas.width, canvas.height);
   showTip();
 }
 
-/** The pointer in the scene's internal pixels. @param {{ x: number, y: number }} p */
-function scenePoint(p) {
+/** The pointer in the scene's internal pixels. @param {Layout} layout @param {Point} p */
+function scenePoint(layout, p) {
   return { x: (p.x * layout.width) / sceneCanvas.clientWidth, y: (p.y * layout.height) / sceneCanvas.clientHeight };
 }
 
@@ -346,11 +373,11 @@ function setFilter(alias) {
 function clickFloor(e) {
   if (!scene || !layout || scene.dark) return;
   const r = sceneCanvas.getBoundingClientRect();
-  const { x, y } = scenePoint({ x: e.clientX - r.left, y: e.clientY - r.top });
+  const { x, y } = scenePoint(layout, { x: e.clientX - r.left, y: e.clientY - r.top });
   setFilter(clickFilter(layout, scene.cubicles, x, y, filter));
 }
 
-/** Same floor plan: same size and the same rooms in the same places. @param {any} a @param {any} b */
+/** Same floor plan: same size and the same rooms in the same places. @param {Layout | null} a @param {Layout} b */
 const sameLayout = (a, b) => !!a && JSON.stringify(a) === JSON.stringify(b);
 
 /**
@@ -369,9 +396,9 @@ const issueTip = (i) => `#${i.number} ${i.title}${i.blocked ? ' (blocked)' : ''}
 
 /**
  * A pending issue under the pointer: an in-tray letter, a sticky note, or a folder on the boss's desk.
- * @param {number} x @param {number} y
+ * @param {Layout} layout @param {Scene} scene @param {number} x @param {number} y
  */
-function pendingAt(x, y) {
+function pendingAt(layout, scene, x, y) {
   // the letters on show: not those still in the mail carrier's bag
   const { undelivered } = walkers(layout, scene.cubicles, scene, now());
   for (const [i, c] of scene.cubicles.entries()) {
@@ -384,8 +411,8 @@ function pendingAt(x, y) {
   return folderSlots(layout, scene.cubicles, scene.outcomes, scene.parked).find((f) => inside(f.rect, x, y))?.tip ?? null;
 }
 
-/** The scheduled job whose worker is at (x, y), if any. @param {number} x @param {number} y */
-function jobWorkerAt(x, y) {
+/** The scheduled job whose worker is at (x, y), if any. @param {Layout} layout @param {Scene} scene @param {number} x @param {number} y */
+function jobWorkerAt(layout, scene, x, y) {
   for (const c of scene.cubicles) {
     for (const j of c.jobs) {
       const d = deskAt(layout, scene.cubicles, { room: 'cubicle', alias: c.alias, job: j.name });
@@ -398,9 +425,9 @@ function jobWorkerAt(x, y) {
 /**
  * The visitor at (x, y), for the hover: the repo and branch, whether the agent is working or
  * waiting for the owner, what it's doing, and how long the session has been open.
- * @param {number} x @param {number} y
+ * @param {Layout} layout @param {Scene} scene @param {number} x @param {number} y
  */
-function visitorAt(x, y) {
+function visitorAt(layout, scene, x, y) {
   const sessions = scene.sessions ?? [];
   for (const v of sessions) {
     const d = sessionDesk(layout, scene.cubicles, sessions, v.id);
@@ -411,11 +438,13 @@ function visitorAt(x, y) {
   return null;
 }
 
-/** What's under the pointer: a visitor at a laptop, a subagent's colleague, a letter's label, a pending issue, the cron countdown, or a room (a cubicle's workspace) and its last run. */
-function hovered() {
-  if (!pointer || !scene || !layout || scene.dark) return null;
-  const { x, y } = scenePoint(pointer);
-  const visitor = visitorAt(x, y);
+/**
+ * What's under the pointer: a visitor at a laptop, a subagent's colleague, a letter's label, a pending issue, the cron countdown, or a room (a cubicle's workspace) and its last run.
+ * @param {Layout} layout @param {Scene} scene @param {Point} pointer
+ */
+function hovered(layout, scene, pointer) {
+  const { x, y } = scenePoint(layout, pointer);
+  const visitor = visitorAt(layout, scene, x, y);
   if (visitor) return visitor;
   const run = scene.run;
   const desk = run && deskAt(layout, scene.cubicles, run.place);
@@ -423,11 +452,11 @@ function hovered() {
   // a colleague helping with a subagent, standing or on their way
   const helper = walkers(layout, scene.cubicles, scene, now(), { ambient: ambient() }).helpers.find((hp) => inside({ x: hp.x - 1, y: hp.y - 1, w: 12, h: 23 }, x, y));
   if (helper) return `Subagent: ${helper.description}${helper.done ? '\n(done, heading back)' : helper.activity ? `\n${helper.activity}` : ''}${helper.recruit ? `\nHelping out from ${helper.recruit}` : '\nA temp from the Queue room'}`;
-  const job = jobWorkerAt(x, y);
+  const job = jobWorkerAt(layout, scene, x, y);
   if (job) return `Scheduled job ${job.name} (${job.worker}), daily at ${job.at} UTC\nNext due ${nextDue(job, now())}`;
   const slot = cartSlots(layout, scene.queueRoom.letters).find((sl) => inside(sl.rect, x, y));
   if (slot) return slot.label;
-  const pending = pendingAt(x, y);
+  const pending = pendingAt(layout, scene, x, y);
   if (pending) return pending;
   if (scene.queueRoom.countdownMs != null && inside(layout.clock, x, y)) return `Next cron tick in ${formatDuration(scene.queueRoom.countdownMs)}`;
   const i = layout.cubicles.findIndex((r) => inside(r, x, y));
@@ -446,10 +475,10 @@ function hovered() {
 }
 
 function showTip() {
-  const tip = document.getElementById('tip');
-  const label = hovered();
+  const tip = find('#tip');
+  const label = pointer && scene && layout && !scene.dark ? hovered(layout, scene, pointer) : null;
   tip.hidden = !label;
-  if (!label) return;
+  if (!label || !pointer) return;
   const canvas = sceneCanvas;
   tip.textContent = label;
   // the canvas is centred in #floor, which the tip is positioned in
@@ -467,6 +496,7 @@ function trackPointer(e) {
 
 // --- feed ---
 
+/** @param {boolean} value */
 function setUp(value) {
   if (up === value) return;
   up = value;
@@ -514,7 +544,7 @@ window.addEventListener('hashchange', () => {
   // the pane was hidden, so it couldn't follow
   if (following) renderLog();
 });
-document.getElementById('log-follow').addEventListener('click', toggleFollow);
+find('#log-follow').addEventListener('click', toggleFollow);
 sceneCanvas.addEventListener('pointermove', trackPointer);
 sceneCanvas.addEventListener('pointerdown', trackPointer);
 sceneCanvas.addEventListener('click', clickFloor);

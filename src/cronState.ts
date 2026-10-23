@@ -1,5 +1,6 @@
 import { isRecord, parseJsonObject, stringOrNull } from './narrow.ts';
 import type { Store } from './redisStore.ts';
+import type { CronTickOutcome } from './officeWire.ts';
 
 /**
  * The cron issue tracer's state, in Redis so the bot, the CLIs and a restarted runner all see it.
@@ -17,14 +18,6 @@ import type { Store } from './redisStore.ts';
  * - `agent-runner:cron:no-changes` (hash `owner/repo#n` → count): consecutive runs of an issue that
  *   made no changes. At the limit the cron parks the issue; any lasting progress resets it.
  */
-export type CronTickOutcome = {
-  kind: 'busy' | 'paused' | 'limited' | 'no_eligible' | 'ran' | 'error' | string;
-  repo?: string;
-  issue?: number;
-  result?: string;
-  note?: string;
-};
-
 export type CronState = {
   pid: number;
   intervalMs: number;

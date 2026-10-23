@@ -7,7 +7,7 @@ import type { QueuedRun } from './runQueue.ts';
 import type { ManualPause } from './manualPause.ts';
 import type { UsageLimitPause } from './usageLimitPause.ts';
 import type { RunRecord } from './runLock.ts';
-import type { OfficeSession } from './sessionWatch.ts';
+import type { OfficeSession } from './officeWire.ts';
 
 /**
  * One snapshot of the runner's state, shared by `claude:status` (inside the service) and the

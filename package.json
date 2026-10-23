@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node --no-deprecation src/main.js",
     "test": "npm run typecheck && node --test 'test/**/*.test.js' 'test/**/*.test.ts'",
-    "typecheck": "tsc -p . && node scripts/typecheckJs.ts",
+    "typecheck": "tsc -p . && tsc -p tsconfig.dashboard.json && node scripts/typecheckJs.ts",
     "safe-restart": "node bin/safe-restart.js",
     "agent:status": "node bin/agent-cli.js status",
     "agent:watch": "node bin/agent-cli.js watch",

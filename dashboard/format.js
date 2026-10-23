@@ -1,6 +1,6 @@
 /**
  * Pure formatting for the dashboard page, with no DOM so `node:test` can check it. The numbers
- * mirror `src/statusFormat.ts` (test/dashboardFormat.test.js keeps them in step), so the page
+ * mirror `src/statusFormat.ts` (test/dashboardFormat.test.ts keeps them in step), so the page
  * shows the same values as `npm run agent:status`.
  */
 

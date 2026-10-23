@@ -2,6 +2,7 @@ import { classifyReadyIssues, hasLabel } from './cronTracer.ts';
 import { errorText } from './narrow.ts';
 import type { createGithubIssues, OpenIssue } from './issuePipeline/githubIssue.ts';
 import type { NotifyChange } from './stateChanges.ts';
+import type { OfficeIssue, OfficeIssueRepo, OfficeIssues } from './officeWire.ts';
 
 /**
  * The issue scan: the work waiting in each allowlisted workspace's GitHub repo, for the office
@@ -17,31 +18,6 @@ import type { NotifyChange } from './stateChanges.ts';
  * A repo whose scan fails keeps its last good data, marked `stale` (so does every repo when the
  * allowlist can't be read). Errors are logged here, not put in the feed, which carries no paths.
  */
-export type OfficeIssue = { number: number; title: string; url: string };
-
-export type OfficeParkedIssue = OfficeIssue & { prUrl: string };
-
-/**
- * One workspace's repo. `scannedAt`: when this data was read (null if it never has been).
- * `stale`: the latest scan of it failed, so this is older data. `runnable`, `blocked` and
- * `parked` are its `ready-for-agent` issues, and `parked` carries the open PR's link.
- */
-export type OfficeIssueRepo = {
-  alias: string;
-  repo: string | null;
-  scannedAt: string | null;
-  stale: boolean;
-  runnable: OfficeIssue[];
-  blocked: OfficeIssue[];
-  parked: OfficeParkedIssue[];
-  readyForHuman: OfficeIssue[];
-  needsTriage: number;
-  needsInfo: number;
-};
-
-/** `scannedAt`: when the latest scan ended. `repos`: in the allowlist's (alias) order. */
-export type OfficeIssues = { scannedAt: string; repos: OfficeIssueRepo[] };
-
 export const ISSUE_SCAN_INTERVAL_MS = 5 * 60_000;
 
 const byNumber = (a: { number: number }, b: { number: number }) => a.number - b.number;

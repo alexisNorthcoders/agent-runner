@@ -1,19 +1,25 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import type { Layout, Point, Rect, SideRoomId } from '../dashboard/layout.js';
+import type { Place, Scene, SceneCubicle, SceneJobDesk, SceneOutcome, SceneRun } from '../dashboard/scene.js';
+import type { Carrier, Walker } from '../dashboard/walkers.js';
 import { WALL, cubicleDesks, deskAt, deskOwners, inside, layoutOffice, workerRect } from '../dashboard/layout.js';
 import { BOSS_FEET, HAND_MS, RING_MS, WORKER_FEET, feet, trayNow, walkers } from '../dashboard/walkers.js';
 
-/** @typedef {import('../dashboard/scene.js').Scene} Scene */
-/** @typedef {import('../dashboard/scene.js').SceneRun} SceneRun */
-
-const cubicles = ['bot', 'dots'].map((alias) => ({ alias, name: alias, workspace: true, doNotDisturb: false, inTray: [], sticky: [], jobs: [], quiet: false }));
+const cubicles = ['bot', 'dots'].map((alias): SceneCubicle => ({ alias, name: alias, workspace: true, doNotDisturb: false, inTray: [], sticky: [], jobs: [], quiet: false }));
 const layout = layoutOffice(cubicles.length, 'wide', 640);
-/** @type {import('../dashboard/scene.js').Place} */
-const BOT = { room: 'cubicle', alias: 'bot' };
+const BOT: Place = { room: 'cubicle', alias: 'bot' };
 const desk = deskAt(layout, cubicles, BOT);
+assert.ok(desk);
 
-/** An active run in the bot cubicle, delivered at 0, with `over` on top. @param {Partial<SceneRun>} over @returns {SceneRun} */
-const run = (over = {}) => ({
+/** The thing a test expects to be there. */
+const present = <T>(x: T | null | undefined): T => {
+  assert.ok(x != null, 'it is there');
+  return x;
+};
+
+/** An active run in the bot cubicle, delivered at 0, with `over` on top. */
+const run = (over: Partial<SceneRun> = {}): SceneRun => ({
   runId: 'r1',
   label: null,
   activity: null,
@@ -28,8 +34,8 @@ const run = (over = {}) => ({
   ...over,
 });
 
-/** A lit scene with no walks, and `over` on top. @param {Partial<Scene>} over @returns {Scene} */
-const scene = (over = {}) => ({
+/** A lit scene with no walks, and `over` on top. */
+const scene = (over: Partial<Scene> = {}): Scene => ({
   dark: false,
   backInFive: false,
   cubicles,
@@ -44,14 +50,12 @@ const scene = (over = {}) => ({
   ...over,
 });
 
-/** @param {Scene} sc @param {number} t */
-const at = (sc, t) => walkers(layout, sc.cubicles, sc, t);
+const at = (sc: Scene, t: number) => walkers(layout, sc.cubicles, sc, t);
 
 /**
  * When the carrier arrives with the run: the first moment its worker is at the desk.
- * @param {Scene} sc @param {(sc: Scene, t: number) => ReturnType<typeof walkers>} [look]
  */
-function arrival(sc, look = at) {
+function arrival(sc: Scene, look: (sc: Scene, t: number) => ReturnType<typeof walkers> = at) {
   let [lo, hi] = [0, 120_000];
   assert.ok(look(sc, hi).worker, 'the carrier arrives');
   while (hi - lo > 1) {
@@ -90,7 +94,7 @@ describe('office walkers: the delivery', () => {
     const there = at(phoned, arrive).carrier;
     assert.notDeepEqual(at(phoned, arrive - 20).carrier, there, 'still walking just before');
     assert.deepEqual(at(phoned, arrive + HAND_MS - 1).carrier, there, 'standing still for the hand-over');
-    const w = at(phoned, arrive).worker;
+    const w = present(at(phoned, arrive).worker);
     assert.equal(w.pose, 'seated');
     const r = workerRect(desk);
     assert.deepEqual([w.x, w.y, w.pile], [r.x, r.y, 3]);
@@ -109,44 +113,39 @@ describe('office walkers: the delivery', () => {
 
   it('has the worker at the desk all along in post-run, with no delivery', () => {
     const post = scene({ run: run({ postRun: true, work: 'reviewed' }) });
-    assert.equal(at(post, 1).worker.pose, 'seated');
+    assert.equal(present(at(post, 1).worker).pose, 'seated');
     const c = at(post, 1).carrier;
     assert.deepEqual([c.pose, c.carrying], ['standing', null]);
   });
 });
 
-/** Every room's and corridor's back wall. @param {import('../dashboard/layout.js').Layout} l */
-const backWalls = (l) => [...Object.values(l.rooms).map((r) => r.rect), ...l.corridors].map((r) => ({ x: r.x, y: r.y, w: r.w, h: WALL }));
+/** Every room's and corridor's back wall. */
+const backWalls = (l: Layout) => [...Object.values(l.rooms).map((r) => r.rect), ...l.corridors].map((r) => ({ x: r.x, y: r.y, w: r.w, h: WALL }));
 
 describe('office walkers: the carrier walks the corridors and aisles', () => {
-  /** @type {import('../dashboard/scene.js').SceneJobDesk} */
-  const backup = { name: 'backup', worker: 'clerk', at: '03:00', nextDueAt: null };
-  const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((alias) => ({ ...cubicles[0], alias, name: alias, jobs: alias === 'f' ? [backup] : [] }));
-  /** @param {number} n @param {number} [width] */
-  const wide = (n, width = 640) => layoutOffice(n, 'wide', width);
-  /** @param {import('../dashboard/scene.js').Place} place @param {typeof many} cs */
-  const delivering = (place, cs = many) => scene({ cubicles: cs, run: run({ place, delivery: { by: 'envelope', at: 0 } }) });
-  /** @param {import('../dashboard/layout.js').Layout} l */
-  const look = (l) => (/** @type {Scene} */ sc, /** @type {number} */ t) => walkers(l, sc.cubicles, sc, t);
+  const backup: SceneJobDesk = { name: 'backup', worker: 'clerk', at: '03:00', nextDueAt: null };
+  const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((alias): SceneCubicle => ({ ...cubicles[0], alias, name: alias, jobs: alias === 'f' ? [backup] : [] }));
+  const wide = (n: number, width = 640) => layoutOffice(n, 'wide', width);
+  const delivering = (place: Place, cs = many) => scene({ cubicles: cs, run: run({ place, delivery: { by: 'envelope', at: 0 } }) });
+  const look = (l: Layout) => (sc: Scene, t: number) => walkers(l, sc.cubicles, sc, t);
 
-  /** Where the carrier can't be: a room's walls (but its doorway), the back walls, a cubicle's partitions. @param {import('../dashboard/layout.js').Layout} l */
-  function solid(l) {
+  /** Where the carrier can't be: a room's walls (but its doorway), the back walls, a cubicle's partitions. */
+  function solid(l: Layout) {
     const walls = backWalls(l);
-    for (const id of /** @type {const} */ (['review', 'joplin', 'queueRoom', 'freeform'])) {
+    for (const id of ['review', 'joplin', 'queueRoom', 'freeform'] satisfies SideRoomId[]) {
       const r = l.rooms[id].rect;
       walls.push({ x: r.x, y: r.y, w: r.w, h: 1 }, { x: r.x, y: r.y + r.h - 1, w: r.w, h: 1 }, { x: r.x, y: r.y, w: 1, h: r.h }, { x: r.x + r.w - 1, y: r.y, w: 1, h: r.h });
     }
     for (const r of l.cubicles) walls.push({ x: r.x + 2, y: r.y + 2, w: r.w - 4, h: 12 }, { x: r.x + 2, y: r.y + 2, w: 3, h: r.h - 4 }, { x: r.x + r.w - 5, y: r.y + 2, w: 3, h: r.h - 4 });
     const doorways = Object.values(l.doorways);
-    /** the carrier's feet, at the bottom of their sprite @param {{ x: number, y: number }} c */
-    return (c) =>
+    /** the carrier's feet, at the bottom of their sprite */
+    return (c: Point) =>
       [[c.x + 2, c.y - 1], [c.x + 7, c.y - 1]].some(([x, y]) => walls.some((w) => inside(w, x, y)) && !doorways.some((d) => inside(d, x, y)));
   }
 
   it('is never inside a wall or a cubicle partition, there and back', () => {
-    /** @type {import('../dashboard/scene.js').Place[]} */
-    const places = [
-      ...many.map((c) => ({ room: /** @type {const} */ ('cubicle'), alias: c.alias })),
+    const places: Place[] = [
+      ...many.map((c): Place => ({ room: 'cubicle', alias: c.alias })),
       { room: 'cubicle', alias: 'f', job: 'backup' },
       { room: 'freeform' },
       { room: 'joplin' },
@@ -206,7 +205,7 @@ describe('office walkers: the carrier walks the corridors and aisles', () => {
     const l = wide(many.length);
     const c = look(l)(grown, mid).carrier;
     assert.equal(c.pose, 'walking');
-    const route = [];
+    const route: Carrier[] = [];
     for (let t = 0; t <= arrival(grown, look(l)); t += 4) route.push(look(l)(grown, t).carrier);
     assert.ok(route.some((p) => Math.abs(p.x - c.x) + Math.abs(p.y - c.y) <= 1), `${JSON.stringify(c)} on the new route`);
     assert.ok(!solid(l)(c));
@@ -231,11 +230,10 @@ describe('office walkers: the carrier walks the corridors and aisles', () => {
 /**
  * Where nobody's feet can be: a room's walls (but its doorway), the back wall, a cubicle's
  * partitions, and every desk (the front desk, the rooms' desks and each cubicle's).
- * @param {import('../dashboard/layout.js').Layout} l @param {typeof cubicles} cs
  */
-function solidWithDesks(l, cs) {
+function solidWithDesks(l: Layout, cs: SceneCubicle[]) {
   const walls = [...backWalls(l), l.desk, ...Object.values(l.desks)];
-  for (const id of /** @type {const} */ (['review', 'joplin', 'queueRoom', 'freeform'])) {
+  for (const id of ['review', 'joplin', 'queueRoom', 'freeform'] satisfies SideRoomId[]) {
     const r = l.rooms[id].rect;
     walls.push({ x: r.x, y: r.y, w: r.w, h: 1 }, { x: r.x, y: r.y + r.h - 1, w: r.w, h: 1 }, { x: r.x, y: r.y, w: 1, h: r.h }, { x: r.x + r.w - 1, y: r.y, w: 1, h: r.h });
   }
@@ -245,17 +243,16 @@ function solidWithDesks(l, cs) {
     walls.push(...cubicleDesks(r, deskOwners(c).length));
   });
   const doorways = Object.values(l.doorways);
-  /** a figure's feet, `feet` below the top of their head @param {{ x: number, y: number }} p @param {number} feet */
-  return (p, feet) =>
+  /** a figure's feet, `feet` below the top of their head */
+  return (p: Point, feet: number) =>
     [[p.x + 2, p.y + feet - 1], [p.x + 7, p.y + feet - 1]].some(([x, y]) => walls.some((w) => inside(w, x, y)) && !doorways.some((d) => inside(d, x, y)));
 }
 
 
 /**
  * The first t from `from` at which `done` holds, by bisection (it holds from then on).
- * @param {(t: number) => boolean} done @param {number} from
  */
-function firstWhen(done, from) {
+function firstWhen(done: (t: number) => boolean, from: number) {
   let [lo, hi] = [from, from + 120_000];
   assert.ok(done(hi), 'it happens');
   while (hi - lo > 1) {
@@ -270,16 +267,14 @@ describe('office walkers: the boss walks the corridors', () => {
   const since = 5000;
   const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((alias) => ({ ...cubicles[0], alias, name: alias }));
   const l = layoutOffice(many.length, 'wide', 640);
-  /** @param {Scene} sc @param {number} t */
-  const look = (sc, t) => walkers(l, sc.cubicles, sc, t);
-  /** @param {string} alias @returns {import('../dashboard/scene.js').Place} */
-  const cube = (alias) => ({ room: 'cubicle', alias });
-  /** Post-run in `alias`'s cubicle, the boss setting off at `since`. @param {string} alias */
-  const going = (alias) => scene({ cubicles: many, run: run({ place: cube(alias), postRun: true, work: 'reviewed' }), boss: { at: cube(alias), from: null, since } });
-  /** The run over, the boss setting off back from `alias`'s cubicle at `since`. @param {string} alias */
-  const returning = (alias) => scene({ cubicles: many, boss: { at: null, from: cube(alias), since } });
-  /** When the boss stops walking. @param {Scene} sc */
-  const arrival = (sc) => firstWhen((t) => look(sc, t).boss.pose !== 'walking', since);
+  const look = (sc: Scene, t: number) => walkers(l, sc.cubicles, sc, t);
+  const cube = (alias: string): Place => ({ room: 'cubicle', alias });
+  /** Post-run in `alias`'s cubicle, the boss setting off at `since`. */
+  const going = (alias: string) => scene({ cubicles: many, run: run({ place: cube(alias), postRun: true, work: 'reviewed' }), boss: { at: cube(alias), from: null, since } });
+  /** The run over, the boss setting off back from `alias`'s cubicle at `since`. */
+  const returning = (alias: string) => scene({ cubicles: many, boss: { at: null, from: cube(alias), since } });
+  /** When the boss stops walking. */
+  const arrival = (sc: Scene) => firstWhen((t) => look(sc, t).boss.pose !== 'walking', since);
   const home = look(scene({ cubicles: many }), 1e9).boss;
 
   it('is never inside a wall, partition or desk, there and back', () => {
@@ -293,7 +288,7 @@ describe('office walkers: the boss walks the corridors', () => {
             const b = walkers(lw, many, sc, t).boss;
             if (b.pose === 'seated') continue;
             assert.ok(!blocked(b, BOSS_FEET), `${width} ${alias} at ${t}: ${JSON.stringify(b)}`);
-            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (lw.doorways.review), feet(b).x, feet(b).y)) through++;
+            if (inside(present(lw.doorways.review), feet(b).x, feet(b).y)) through++;
           }
           assert.ok(through > 0, `${alias}: through the Review room's doorway`);
         }
@@ -308,7 +303,7 @@ describe('office walkers: the boss walks the corridors', () => {
     assert.equal(look(sc, there - 1).boss.pose, 'walking');
     const b = look(sc, there).boss;
     assert.equal(b.pose, 'standing');
-    const d = deskAt(l, many, cube('a'));
+    const d = present(deskAt(l, many, cube('a')));
     const w = workerRect(d);
     assert.ok(b.x > w.x && b.x - w.x <= 12, 'at the worker\'s side');
     assert.equal(b.y + BOSS_FEET, d.y - 1, 'standing just behind the desk');
@@ -375,23 +370,23 @@ describe('office walkers: the boss walks the corridors', () => {
 
 describe('office walkers: a freeform worker moving desks', () => {
   const since = 20_000;
-  const from = { room: /** @type {const} */ ('freeform') };
+  const from: Place = { room: 'freeform' };
   const moving = scene({ run: run({ moved: { from, since } }) });
-  /** When the worker sits down. @param {Scene} sc @param {number} after */
-  const seated = (sc, after) => firstWhen((t) => at(sc, t).worker?.pose === 'seated' && at(sc, t).worker?.x === workerRect(desk).x, after);
+  /** When the worker sits down. */
+  const seated = (sc: Scene, after: number) => firstWhen((t) => at(sc, t).worker?.pose === 'seated' && at(sc, t).worker?.x === workerRect(desk).x, after);
 
   it('stays at the Freeform room\'s desk until the move, then ends at the cubicle seat', () => {
-    const before = at(moving, since - 1).worker;
+    const before = present(at(moving, since - 1).worker);
     const seat = workerRect(layout.desks.freeform);
     assert.deepEqual([before.pose, before.x, before.y], ['seated', seat.x, seat.y]);
-    const start = at(moving, since + 1).worker;
+    const start = present(at(moving, since + 1).worker);
     assert.deepEqual([start.pose, start.pile], ['walking', 3]);
     assert.ok(Math.abs(start.x - seat.x) <= 2 && Math.abs(start.y - seat.y) <= 6, 'standing up from their seat');
     const sat = seated(moving, since);
     assert.ok(sat - since > 2400, 'across the office takes a while');
-    assert.equal(at(moving, sat - 1).worker.pose, 'walking');
+    assert.equal(present(at(moving, sat - 1).worker).pose, 'walking');
     const to = workerRect(desk);
-    const end = at(moving, sat).worker;
+    const end = present(at(moving, sat).worker);
     assert.deepEqual([end.pose, end.x, end.y], ['seated', to.x, to.y]);
     assert.deepEqual(end.at, BOT);
     assert.equal(at(moving, sat).animating, true, 'the run is still on the floor');
@@ -403,10 +398,10 @@ describe('office walkers: a freeform worker moving desks', () => {
       const blocked = solidWithDesks(l, cubicles);
       let through = 0;
       for (let t = since; t <= since + 30_000; t += 8) {
-        const w = walkers(l, cubicles, moving, t).worker;
+        const w = present(walkers(l, cubicles, moving, t).worker);
         if (w.pose !== 'walking') continue;
         assert.ok(!blocked(w, WORKER_FEET), `${width} at ${t}: ${JSON.stringify(w)}`);
-        if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.freeform), feet(w).x, feet(w).y)) through++;
+        if (inside(present(l.doorways.freeform), feet(w).x, feet(w).y)) through++;
       }
       assert.ok(through > 0, 'through the doorway');
     }
@@ -415,7 +410,7 @@ describe('office walkers: a freeform worker moving desks', () => {
   it('faces left while heading left', () => {
     let left = 0;
     for (let t = since; t < since + 30_000; t += 40) {
-      const [w, next] = [at(moving, t).worker, at(moving, t + 40).worker];
+      const [w, next] = [present(at(moving, t).worker), present(at(moving, t + 40).worker)];
       if (next.pose !== 'walking' || next.y !== w.y || next.x === w.x) continue;
       if (next.x < w.x) left++;
       assert.equal(next.facing, next.x < w.x ? 'left' : 'right', `at ${t}`);
@@ -427,45 +422,36 @@ describe('office walkers: a freeform worker moving desks', () => {
     const early = scene({ run: run({ moved: { from, since: 0 } }) });
     const arrive = arrival(early);
     const seat = workerRect(layout.desks.freeform);
-    const handed = at(early, arrive).worker;
+    const handed = present(at(early, arrive).worker);
     assert.deepEqual([handed.pose, handed.x, handed.y], ['seated', seat.x, seat.y], 'delivered to the Freeform room');
-    assert.equal(at(early, arrive + HAND_MS - 1).worker.pose, 'seated');
-    assert.equal(at(early, arrive + HAND_MS + 1).worker.pose, 'walking');
+    assert.equal(present(at(early, arrive + HAND_MS - 1).worker).pose, 'seated');
+    assert.equal(present(at(early, arrive + HAND_MS + 1).worker).pose, 'walking');
     const sat = seated(early, arrive + HAND_MS);
-    assert.deepEqual(at(early, sat).worker.at, BOT);
+    assert.deepEqual(present(at(early, sat).worker).at, BOT);
   });
 
   it('stays at the Freeform room\'s desk when there is no way to the new one', () => {
     const lost = scene({ run: run({ place: { room: 'cubicle', alias: 'gone' }, moved: { from, since } }) });
     const seat = workerRect(layout.desks.freeform);
     for (const t of [since - 1, since + 1, since + 60_000]) {
-      const w = at(lost, t).worker;
+      const w = present(at(lost, t).worker);
       assert.deepEqual([w.pose, w.x, w.y, w.at], ['seated', seat.x, seat.y, from], `at ${t}`);
     }
   });
 });
 
 describe('office walkers: the narrow layout\'s lane', () => {
-  /** @type {import('../dashboard/scene.js').SceneJobDesk} */
-  const backup = { name: 'backup', worker: 'clerk', at: '03:00', nextDueAt: null };
-  const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((alias) => ({ ...cubicles[0], alias, name: alias, jobs: alias === 'f' ? [backup] : [] }));
+  const backup: SceneJobDesk = { name: 'backup', worker: 'clerk', at: '03:00', nextDueAt: null };
+  const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((alias): SceneCubicle => ({ ...cubicles[0], alias, name: alias, jobs: alias === 'f' ? [backup] : [] }));
   const since = 20_000;
-  /** @param {string} alias @param {string} [job] @returns {import('../dashboard/scene.js').Place} */
-  const cube = (alias, job) => ({ room: 'cubicle', alias, ...(job ? { job } : {}) });
-  /** @type {import('../dashboard/scene.js').Place[]} */
-  const places = [cube('a'), cube('c'), cube('d'), cube('f'), cube('f', 'backup'), { room: 'freeform' }, { room: 'joplin' }];
-  /** @param {import('../dashboard/scene.js').Place} place */
-  const delivering = (place) => scene({ cubicles: many, run: run({ place, delivery: { by: 'envelope', at: 0 } }) });
-  /** @param {import('../dashboard/scene.js').Place} place */
-  const bossGoing = (place) => scene({ cubicles: many, run: run({ place, postRun: true, work: 'reviewed' }), boss: { at: place, from: null, since } });
-  /** @param {import('../dashboard/scene.js').Place} place */
-  const bossReturning = (place) => scene({ cubicles: many, boss: { at: null, from: place, since } });
-  /** @param {import('../dashboard/scene.js').Place} place */
-  const moving = (place) => scene({ cubicles: many, run: run({ place, moved: { from: { room: 'freeform' }, since } }) });
-  /** @param {import('../dashboard/layout.js').Layout} l */
-  const look = (l) => (/** @type {Scene} */ sc, /** @type {number} */ t) => walkers(l, sc.cubicles, sc, t);
-  /** @param {import('../dashboard/layout.js').Layout} l @param {import('../dashboard/walkers.js').Walker} w */
-  const inDoorway = (l, w) => Object.values(l.doorways).some((d) => inside(d, feet(w).x, feet(w).y));
+  const cube = (alias: string, job?: string): Place => ({ room: 'cubicle', alias, ...(job ? { job } : {}) });
+  const places: Place[] = [cube('a'), cube('c'), cube('d'), cube('f'), cube('f', 'backup'), { room: 'freeform' }, { room: 'joplin' }];
+  const delivering = (place: Place) => scene({ cubicles: many, run: run({ place, delivery: { by: 'envelope', at: 0 } }) });
+  const bossGoing = (place: Place) => scene({ cubicles: many, run: run({ place, postRun: true, work: 'reviewed' }), boss: { at: place, from: null, since } });
+  const bossReturning = (place: Place) => scene({ cubicles: many, boss: { at: null, from: place, since } });
+  const moving = (place: Place) => scene({ cubicles: many, run: run({ place, moved: { from: { room: 'freeform' }, since } }) });
+  const look = (l: Layout) => (sc: Scene, t: number) => walkers(l, sc.cubicles, sc, t);
+  const inDoorway = (l: Layout, w: Walker) => Object.values(l.doorways).some((d) => inside(d, feet(w).x, feet(w).y));
 
   for (const width of [240, 360]) {
     const l = layoutOffice(many.length, 'narrow', width);
@@ -496,7 +482,7 @@ describe('office walkers: the narrow layout\'s lane', () => {
           for (let t = since; t < end; t += 8) {
             const b = look(l)(sc, t).boss;
             assert.ok(!blocked(b, BOSS_FEET), `${JSON.stringify(place)} at ${t}: ${JSON.stringify(b)}`);
-            if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.review), feet(b).x, feet(b).y)) through++;
+            if (inside(present(l.doorways.review), feet(b).x, feet(b).y)) through++;
           }
           assert.ok(through > 0, `${JSON.stringify(place)}: through the Review room's doorway`);
         }
@@ -512,7 +498,7 @@ describe('office walkers: the narrow layout\'s lane', () => {
           const w = look(l)(sc, t).worker;
           if (w?.pose !== 'walking') continue;
           assert.ok(!blocked(w, WORKER_FEET), `${JSON.stringify(place)} at ${t}: ${JSON.stringify(w)}`);
-          if (inside(/** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.freeform), feet(w).x, feet(w).y)) through++;
+          if (inside(present(l.doorways.freeform), feet(w).x, feet(w).y)) through++;
         }
         assert.ok(through > 0, `${JSON.stringify(place)}: through the Freeform room's doorway`);
         const sat = look(l)(sc, end).worker;
@@ -527,9 +513,8 @@ describe('office walkers: the narrow layout\'s lane', () => {
     /**
      * How far along the walk (0..1) a walker is at `t`, by the length walked on the layout's route:
      * sampled from `start` to `end`, where they stop.
-     * @param {(t: number) => { x: number, y: number }} pos @param {number} start @param {number} end @param {number} t
      */
-    function fractionAt(pos, start, end, t) {
+    function fractionAt(pos: (t: number) => Point, start: number, end: number, t: number) {
       let [walked, total] = [0, 0];
       for (let u = start; u < end; u += 2) {
         const [a, b] = [pos(u), pos(Math.min(end, u + 2))];
@@ -557,7 +542,7 @@ describe('office walkers: the narrow layout\'s lane', () => {
 
     it('puts the boss and a moving worker at the same fraction of the new route', () => {
       const bossSc = bossGoing(cube('d'));
-      const bossThere = (/** @type {import('../dashboard/layout.js').Layout} */ l) => firstWhen((t) => look(l)(bossSc, t).boss.pose !== 'walking', since);
+      const bossThere = (l: Layout) => firstWhen((t) => look(l)(bossSc, t).boss.pose !== 'walking', since);
       const there = bossThere(wideL);
       assert.equal(bossThere(narrowL), there);
       const t = Math.round((since + there) / 2);
@@ -566,13 +551,13 @@ describe('office walkers: the narrow layout\'s lane', () => {
         assert.ok(Math.abs(got - 0.5) < 0.02, `boss ${l.width}: ${got}`);
       }
       const moveSc = moving(cube('d'));
-      const seated = (/** @type {import('../dashboard/layout.js').Layout} */ l) => firstWhen((u) => look(l)(moveSc, u).worker?.at?.room === 'cubicle', since + 1);
+      const seated = (l: Layout) => firstWhen((u) => look(l)(moveSc, u).worker?.at?.room === 'cubicle', since + 1);
       const sat = seated(wideL);
       assert.equal(seated(narrowL), sat);
       const start = Math.max(since, arrival(moveSc, look(wideL)) + HAND_MS);
       const mid = Math.round((start + sat) / 2);
       for (const l of [wideL, narrowL]) {
-        const got = fractionAt((u) => look(l)(moveSc, u).worker, start, sat, mid);
+        const got = fractionAt((u) => present(look(l)(moveSc, u).worker), start, sat, mid);
         assert.ok(Math.abs(got - 0.5) < 0.02, `worker ${l.width}: ${got}`);
       }
     });
@@ -602,13 +587,12 @@ describe('office walkers: the narrow layout\'s lane', () => {
 });
 
 describe('office walkers: the mail', () => {
-  const letter = (number) => ({ number, title: `Task ${number}`, blocked: false });
+  const letter = (number: number) => ({ number, title: `Task ${number}`, blocked: false });
   const withTrays = cubicles.map((c) => ({ ...c, inTray: c.alias === 'bot' ? [letter(1), letter(4)] : [letter(5)] }));
-  /** @type {Scene['mail'][number]} */
-  const round = { id: 'm1', at: 1000, drops: [{ alias: 'bot', numbers: [4] }, { alias: 'dots', numbers: [5] }] };
-  const mailed = (over = {}) => scene({ cubicles: withTrays, mail: [round], ...over });
-  /** The letters on show in each tray at `t`. @param {Scene} sc @param {number} t */
-  const trays = (sc, t) => sc.cubicles.map((c) => trayNow(c, at(sc, t).undelivered).map((l) => l.number));
+  const round: Scene['mail'][number] = { id: 'm1', at: 1000, drops: [{ alias: 'bot', numbers: [4] }, { alias: 'dots', numbers: [5] }] };
+  const mailed = (over: Partial<Scene> = {}) => scene({ cubicles: withTrays, mail: [round], ...over });
+  /** The letters on show in each tray at `t`. */
+  const trays = (sc: Scene, t: number) => sc.cubicles.map((c) => trayNow(c, at(sc, t).undelivered).map((l) => l.number));
 
   it('keeps new letters in the bag until the carrier drops them in their trays, one cubicle after the other', () => {
     const sc = mailed();
@@ -661,8 +645,7 @@ describe('office walkers: animating', () => {
 
   it('keeps going while a run is on the floor or a resting state moves, but not in the dark', () => {
     assert.equal(at(scene({ run: run() }), 1e9).animating, true);
-    /** @type {import('../dashboard/scene.js').SceneOutcome} */
-    const asleep = { place: BOT, state: 'asleep', quick: false, runId: 'r0', label: null, outcome: '', recorded: '', endedAt: 0, prUrl: null };
+    const asleep: SceneOutcome = { place: BOT, state: 'asleep', quick: false, runId: 'r0', label: null, outcome: '', recorded: '', endedAt: 0, prUrl: null };
     assert.equal(at(scene({ outcomes: [asleep] }), 1e9).animating, true);
     assert.equal(at(scene({ outcomes: [{ ...asleep, state: 'injured' }] }), 1e9).animating, false);
     assert.equal(at(scene({ run: run(), dark: true }), 1).animating, false);
@@ -672,24 +655,22 @@ describe('office walkers: animating', () => {
 describe('office walkers: the Doors', () => {
   const since = 5000;
   const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((alias) => ({ ...cubicles[0], alias, name: alias }));
-  /** @param {string} alias @returns {import('../dashboard/scene.js').Place} */
-  const cube = (alias) => ({ room: 'cubicle', alias });
-  /** The run over, the boss setting off back from `alias`'s cubicle at `since`. @param {string} alias */
-  const returning = (alias) => scene({ cubicles: many, boss: { at: null, from: cube(alias), since } });
-  /** The first t from `from` (in steps of 5ms) at which `holds`. @param {(t: number) => boolean} holds @param {number} from */
-  const scan = (holds, from) => {
+  const cube = (alias: string): Place => ({ room: 'cubicle', alias });
+  /** The run over, the boss setting off back from `alias`'s cubicle at `since`. */
+  const returning = (alias: string) => scene({ cubicles: many, boss: { at: null, from: cube(alias), since } });
+  /** The first t from `from` (in steps of 5ms) at which `holds`. */
+  const scan = (holds: (t: number) => boolean, from: number) => {
     for (let t = from; t < from + 60_000; t += 5) if (holds(t)) return t;
     assert.fail('it happens');
   };
 
-  for (const mode of /** @type {const} */ (['wide', 'narrow'])) {
+  for (const mode of ['wide', 'narrow'] satisfies Array<Parameters<typeof layoutOffice>[1]>) {
     describe(mode, () => {
       const l = layoutOffice(many.length, mode, mode === 'wide' ? 640 : 300);
-      /** @param {Scene} sc @param {number} t */
-      const look = (sc, t) => walkers(l, sc.cubicles, sc, t);
+      const look = (sc: Scene, t: number) => walkers(l, sc.cubicles, sc, t);
       const sc = returning('d');
       const home = firstWhen((t) => look(sc, t).boss.pose === 'seated', since);
-      const review = /** @type {import('../dashboard/layout.js').Rect} */ (l.doorways.review);
+      const review = present(l.doorways.review);
       const through = scan((t) => inside(review, feet(look(sc, t).boss).x, feet(look(sc, t).boss).y), since);
 
       it('has a Door per side room, all shut with nobody walking', () => {
@@ -699,7 +680,7 @@ describe('office walkers: the Doors', () => {
       it('is closed before the boss gets near, open while they pass through, and closed again a moment after', () => {
         assert.equal(look(sc, since).doors.review, 0, 'shut while the boss is across the office');
         assert.equal(look(sc, through).doors.review, 1, 'wide open in the doorway');
-        const opening = scan((t) => look(sc, t).doors.review > 0, since);
+        const opening = scan((t) => present(look(sc, t).doors.review) > 0, since);
         assert.ok(through - opening > 100, 'swings open as they come near');
         const shut = scan((t) => look(sc, t).doors.review === 0, through);
         assert.ok(shut - through > 100 && shut - through < 1500, `closes a moment after: ${shut - through}ms`);
@@ -708,8 +689,8 @@ describe('office walkers: the Doors', () => {
       });
 
       it('keeps the office animating while a Door closes, and stops once every Door is shut', () => {
-        const closing = scan((t) => look(sc, t).doors.review < 1, through);
-        assert.ok(look(sc, closing).doors.review > 0, 'swinging shut');
+        const closing = scan((t) => present(look(sc, t).doors.review) < 1, through);
+        assert.ok(present(look(sc, closing).doors.review) > 0, 'swinging shut');
         assert.equal(look(sc, closing).animating, true);
         assert.ok(Object.values(look(sc, home).doors).every((v) => v === 0));
         assert.equal(look(sc, home).animating, false);

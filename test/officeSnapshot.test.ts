@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildOfficeSnapshot, collectOfficeSnapshot } from '../src/officeSnapshot.ts';
 import { spend } from '../src/statusFormat.ts';
 import type { StatusSnapshot } from '../src/statusCollect.ts';
-import type { OfficeSession } from '../src/sessionWatch.ts';
+import type { OfficeSession } from '../src/officeWire.ts';
 
 const NOW = Date.parse('2026-09-24T12:00:00Z');
 
