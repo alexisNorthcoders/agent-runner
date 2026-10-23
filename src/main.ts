@@ -30,6 +30,7 @@ import { createJobLauncher } from './jobProcess.ts';
 import { createJobScheduler, jobSchedule, loadJobsFile } from './scheduledJobs.ts';
 import { createIssueScan } from './issueScan.ts';
 import { createSessionWatch } from './sessionWatch.ts';
+import { errorText } from './narrow.ts';
 
 async function main() {
   const config = loadConfig();
@@ -38,9 +39,8 @@ async function main() {
   /**
    * Run `bin/safe-restart.ts` fully detached. The `sh … &` double fork re-parents it away from this
    * process, so the `pm2 restart` it issues (which kills this process tree) doesn't kill it too.
-   * @param {string} replyTo
    */
-  function launchSafeRestart(replyTo) {
+  function launchSafeRestart(replyTo: string) {
     const logFile = join(config.repoRoot, 'logs', 'safe-restart.log');
     mkdirSync(join(config.repoRoot, 'logs'), { recursive: true });
     spawn(
@@ -56,7 +56,7 @@ async function main() {
   const store = notifyingStore(createRedisStore(redis), changes.notify);
   // …and so does every write another process announces (npm run agent:pause, safe-restart)
   const unsubscribeChanges = await subscribeStateChanges(redis, (key) => changes.notify(`elsewhere: ${key}`)).catch((err) => {
-    console.warn(`agent-runner: cannot subscribe to state changes from other processes: ${err?.message || err}`);
+    console.warn(`agent-runner: cannot subscribe to state changes from other processes: ${errorText(err)}`);
     return async () => {};
   });
   const lock = createRunLock({ store, ttlSeconds: config.lockTtlSeconds });
@@ -148,7 +148,7 @@ async function main() {
     server.once('error', reject);
     server.listen(config.port, '127.0.0.1', () => resolve(undefined));
   }).catch((err) => {
-    console.error(`agent-runner: cannot listen on 127.0.0.1:${config.port}:`, err.message);
+    console.error(`agent-runner: cannot listen on 127.0.0.1:${config.port}:`, errorText(err));
     process.exit(1);
   });
   console.log(`agent-runner listening on http://127.0.0.1:${config.port} (workspace ${config.workspaceRoot})`);
@@ -159,7 +159,7 @@ async function main() {
     // recovery may have stopped an orphaned agent, which makes its active-run file stale
     if (interrupted) await activeRuns.removeStale({ ownersGone: true }).catch(() => []);
   } catch (err) {
-    console.error('agent-runner: startup recovery failed:', err?.message || err);
+    console.error('agent-runner: startup recovery failed:', errorText(err));
   }
 
   // Requests queued before a restart start now, and the timer picks the queue back up once a pause
@@ -203,7 +203,7 @@ async function main() {
 
   // A run in flight is left alone: PM2 kills the agent with this process tree, and the lock left
   // in Redis makes the next start report the run as interrupted.
-  for (const sig of /** @type {const} */ (['SIGINT', 'SIGTERM'])) {
+  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
     process.once(sig, () => {
       cron.stop();
       issueScan.stop();

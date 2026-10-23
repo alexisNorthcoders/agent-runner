@@ -14,6 +14,7 @@ import { createRunLock } from '../src/runLock.ts';
 import { createPauseFlag } from '../src/pauseFlag.ts';
 import { createOutbox } from '../src/outbox.ts';
 import { runSafeRestart } from '../src/safeRestart.ts';
+import { errorText } from '../src/narrow.ts';
 
 const READY_TIMEOUT_MS = 60_000;
 const PM2_TIMEOUT_MS = 60_000;
@@ -46,29 +47,26 @@ async function main() {
   // The pause is set and cleared in this process. runSafeRestart clears it in a `finally`, but a
   // signal (Ctrl-C on `npm run safe-restart`, SIGTERM) skips that, so remember the token and clear
   // it here too rather than leaving the runner paused until the TTL.
-  /** @type {string | null} */
-  let heldToken = null;
+  let heldToken: string | null = null;
   const pause = {
     ...pauseFlag,
-    /** @param {string} reason */
-    async set(reason) {
+    async set(reason: string) {
       heldToken = await pauseFlag.set(reason);
       return heldToken;
     },
-    /** @param {string} token */
-    async clear(token) {
+    async clear(token: string) {
       const cleared = await pauseFlag.clear(token);
       heldToken = null;
       return cleared;
     },
   };
-  for (const sig of /** @type {const} */ (['SIGINT', 'SIGTERM', 'SIGHUP'])) {
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
     process.once(sig, async () => {
       console.log(`safe-restart: got ${sig}, aborting`);
       try {
         if (heldToken) await pauseFlag.clear(heldToken);
       } catch (err) {
-        console.error(`safe-restart: could not clear the pause (expires on its own): ${err?.message || err}`);
+        console.error(`safe-restart: could not clear the pause (expires on its own): ${errorText(err)}`);
       }
       process.exit(1);
     });

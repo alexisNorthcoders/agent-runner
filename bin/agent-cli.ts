@@ -9,7 +9,7 @@ import { spawn } from 'child_process';
 import { access, readFile } from 'fs/promises';
 import { createClient } from 'redis';
 import { loadConfig } from '../src/config.ts';
-import { createRedisStore, publishStateChange } from '../src/redisStore.ts';
+import { createRedisStore, publishStateChange, type Store } from '../src/redisStore.ts';
 import { notifyingStore } from '../src/stateChanges.ts';
 import { createPauseFlag } from '../src/pauseFlag.ts';
 import { createRunLock } from '../src/runLock.ts';
@@ -23,6 +23,7 @@ import { createUsageLimitPause } from '../src/usageLimitPause.ts';
 import { parsePauseArgs } from '../src/commands.ts';
 import { createWorkspaceAllowlist } from '../src/workspaces.ts';
 import { ansi, plain, renderHistoryLines, renderStatus } from '../src/statusFormat.ts';
+import { errorText } from '../src/narrow.ts';
 
 const USAGE = `agent-cli: observability for agent-runner
 
@@ -52,8 +53,7 @@ async function main() {
    * shows as "unknown" in the status.
    */
   function createRedisReader() {
-    /** @type {Promise<ReturnType<typeof createClient>> | null} */
-    let connecting = null;
+    let connecting: Promise<ReturnType<typeof createClient>> | null = null;
     const connect = () =>
       (connecting ??= (async () => {
         const client = createClient({ url: config.redisUrl, socket: { connectTimeout: 1000, reconnectStrategy: false } });
@@ -67,8 +67,7 @@ async function main() {
           throw err;
         }
       })());
-    /** @template T @param {(store: import('../src/redisStore.ts').Store) => Promise<T>} fn */
-    async function withStore(fn) {
+    async function withStore<T>(fn: (store: Store) => Promise<T>) {
       const client = await connect();
       try {
         // writes (pause, resume) tell the runner's office feed
@@ -86,8 +85,7 @@ async function main() {
       readQueue: () => withStore((store) => createRunQueue({ store }).list()),
       readManualPauses: () => withStore((store) => createManualPause({ store }).list()),
       readUsageLimit: () => withStore((store) => createUsageLimitPause({ store }).get()),
-      /** @param {Parameters<typeof applyPauseCommand>[0]['cmd']} cmd */
-      applyPause: (cmd) =>
+      applyPause: (cmd: Parameters<typeof applyPauseCommand>[0]['cmd']) =>
         withStore((store) => applyPauseCommand({ manualPause: createManualPause({ store }), usageLimit: createUsageLimitPause({ store }), workspaces: createWorkspaceAllowlist(), cmd })),
       async close() {
         const client = await connecting?.catch(() => null);
@@ -109,14 +107,12 @@ async function main() {
       readUsageLimit: redis.readUsageLimit,
     });
 
-  /** @param {string[]} args */
-  async function status(args) {
+  async function status(args: string[]) {
     const data = await collect();
     console.log(args.includes('--json') ? JSON.stringify(data, null, 2) : renderStatus(data, c));
   }
 
-  /** @param {number} seconds */
-  async function watch(seconds) {
+  async function watch(seconds: number) {
     const intervalMs = Math.max(1, seconds) * 1000;
     for (;;) {
       const frame = renderStatus(await collect(), c);
@@ -125,8 +121,7 @@ async function main() {
     }
   }
 
-  /** @param {string[]} args */
-  async function showHistory(args) {
+  async function showHistory(args: string[]) {
     const nIdx = args.indexOf('-n');
     const limit = nIdx !== -1 ? parseInt(args[nIdx + 1], 10) || 20 : 20;
     const rows = await history.read({ limit });
@@ -135,8 +130,7 @@ async function main() {
     console.log(renderHistoryLines(rows, Date.now(), c).join('\n'));
   }
 
-  /** @param {string[]} args */
-  async function logs(args) {
+  async function logs(args: string[]) {
     const follow = args.includes('-f');
     const target = args.find((a) => !a.startsWith('-')) ?? 'latest';
     const runs = [...(await activeRuns.list()).reverse(), ...(await history.read())];
@@ -183,7 +177,7 @@ async function main() {
         process.exitCode = 1;
     }
   } catch (err) {
-    console.error(err?.message || String(err));
+    console.error(errorText(err));
     process.exitCode = 1;
   } finally {
     await redis.close();
