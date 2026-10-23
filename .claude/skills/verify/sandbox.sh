@@ -28,7 +28,8 @@ rcli() { redis-cli -n "$DB" "$@"; }
 # After a failed SELECT (say DB 99 of 16), redis-cli prints an error and runs the command on DB 0 anyway.
 db_ok() { [[ $(redis-cli -n "$DB" PING 2>&1) == PONG ]]; }
 
-[[ $DB =~ ^[0-9]+$ ]] && ((DB != 0)) || die "AGENT_RUNNER_VERIFY_DB must be a number other than 0 (production)"
+valid_db() { [[ $DB =~ ^[1-9][0-9]*$ ]] || die "the Redis DB must be a number from 1 up, never 0 (production); got '$DB'"; }
+valid_db
 [[ $DIR =~ ^/[A-Za-z0-9/_.-]+$ ]] || die "AGENT_RUNNER_VERIFY_DIR must be an absolute path of letters, digits and / _ . -"
 
 # Sets DB (the DB up used, whatever AGENT_RUNNER_VERIFY_DB says now), NONCE, JOB, PID, PORT and JOB_AT.
@@ -36,6 +37,7 @@ load_state() {
   [[ -f $STATE ]] || die "no sandbox state at $STATE (run up first)"
   # shellcheck source=/dev/null
   . "$STATE"
+  valid_db
 }
 
 owned() { [[ -f $OWNED ]] || die "$DIR was not made by sandbox.sh; refusing to delete anything in it"; }
@@ -186,7 +188,8 @@ wait_for() { # seconds, description, command...
 
 check() {
   load_state
-  [[ ! -e $EVIDENCE/outbox.txt ]] || die "check already ran on this sandbox, so it would pass on that run's results; run down and up"
+  [[ ! -e $EVIDENCE/.check-started ]] || die "check already ran on this sandbox, so it would pass on that run's results; run down and up"
+  : >"$EVIDENCE/.check-started"
   local fail=0 out
   live_untouched >/dev/null || die "production already mentions the sandbox before the check; inspect it by hand"
   curl -sf "127.0.0.1:$LIVE_PORT/status" >"$EVIDENCE/live-status-before.json" || true
@@ -234,7 +237,7 @@ down() {
     if ours; then
       kill -TERM "$PID" 2>/dev/null || true
       for _ in $(seq 20); do ours || break; sleep 0.5; done
-      ours && kill -KILL "$PID"
+      ours && { kill -KILL "$PID" 2>/dev/null || true; }
     fi
   fi
   local left
