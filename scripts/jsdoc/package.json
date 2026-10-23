@@ -1,9 +1,0 @@
-{
-  "name": "jsdoc-to-ts",
-  "private": true,
-  "type": "module",
-  "description": "TypeScript 5's LanguageService for jsdocToTs.ts. TypeScript 7 has no code-fix API, so it lives apart from the root TypeScript 7.",
-  "devDependencies": {
-    "typescript": "5.9.3"
-  }
-}

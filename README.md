@@ -643,5 +643,5 @@ are told the same rule in their prompt preamble.
 
 ```sh
 npm test            # typecheck, then node:test with injected fakes; the Redis contract test uses DB 15 if Redis is up
-npm run typecheck   # strict tsc over .ts, strict checkJs over dashboard/, then the checkJs pass over the remaining .js
+npm run typecheck   # strict tsc over src, bin and test, then strict checkJs over dashboard/
 ```
