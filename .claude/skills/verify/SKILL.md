@@ -1,0 +1,69 @@
+---
+name: verify
+description: Start a sandboxed second agent-runner from this checkout and drive it the way the WhatsApp bot and the office dashboard do (POST /command, GET /status, the /office/feed SSE stream, scheduled jobs), with a stub agent, its own port, Redis DB and logs. Use to prove a change to agent-runner's runtime behavior before merging it, or whenever you need to see the real service answer without touching production.
+---
+
+# Verify agent-runner in a sandbox
+
+Production agent-runner runs under PM2 from `~/Projects/agent-runner` on port 3790 with Redis DB 0. Never drive it to verify a change, and never start this repo with `npm start`, `pm2` or a plain `node src/main.ts`. Use `sandbox.sh`, which starts a second runner that can't reach production.
+
+Drive the sandbox only over HTTP. Never run `npm run agent:*`, `npm run safe-restart` or anything under `bin/` from a checkout to reach it: they read that checkout's `.env` (or default to DB 0) and its `logs/`, so they act on production. Use the matching command through `POST /command` instead (`claude:pause`, `claude:history`, `claude:queue`).
+
+The sandbox:
+
+- **Code.** It runs a copy of this checkout's `src/`, `bin/` and `package.json` (working tree, uncommitted edits included) from `$DIR/app`, so `REPO_ROOT` and with it `logs/agent-runs`, `.env` and `scheduled-jobs.json` are the sandbox's own. The copy has no `.env`.
+- **Env.** `env -i` plus an explicit list, so nothing leaks in from your shell (`CLAUDE*`, `pm_exec_path`, `AI_AGENT`, `GIT_EDITOR`). It gets a free port, `REDIS_URL=redis://127.0.0.1:6379/14`, a scratch `HOME` and `AGENT_WORKSPACE`, an empty workspace allowlist, the cron and session watch off, a one-day issue scan interval, a dead Joplin URL, and a scratch `SCHEDULED_JOBS_FILE` with one job.
+- **Binaries.** `claude`, `gh` and `pm2` are stubs first on `PATH` (and in the scratch `~/.local/bin`, which agents and jobs get first). The `claude` stub prints a fixed stream-json run, so a freeform command costs nothing. `gh` and `pm2` fail, so `claude:restart` can't restart a real PM2 app. Every stub call is logged to `evidence/stub-calls.log`.
+
+One path is shared. Redis pub/sub channels ignore the DB number, so the sandbox hears production's `agent-runner:state-changed` messages, and a sandbox `claude:restart` (through `bin/safe-restart.ts`) publishes on production's channel. Production then re-reads its own DB 0 state and pushes an unchanged snapshot to its office feed. Nothing else crosses over. `claude:restart` in the sandbox ends with `safe-restart failed: ... pm2 is stubbed` in its outbox and the pause cleared.
+
+`$DIR` is `${AGENT_RUNNER_VERIFY_DIR:-/tmp/agent-runner-verify}`. `up` refuses a `$DIR` inside a git work tree, or one with files in it that `sandbox.sh` didn't make (it has no `.agent-runner-verify` marker). One sandbox runs at a time per `$DIR` and Redis DB. `AGENT_RUNNER_VERIFY_DB` picks another DB at `up`. The script refuses 0, and any DB that doesn't answer `PONG` cleanly: after a failed `SELECT`, `redis-cli -n <n>` runs its command on DB 0, so never use it with an unchecked DB number. The state file records it, so later commands use the same DB. DB 15 is the store contract test's, so the default is 14. The examples below use the defaults.
+
+## Launch
+
+```sh
+.claude/skills/verify/sandbox.sh smoke   # up, doctor, check, then down on any exit; exit 0 = PASS
+```
+
+`smoke` takes 1.5 to 3 minutes, most of it waiting for the scheduled job, which is due two minutes after `up` (rounded down to the minute). That is longer than the Bash tool's default 2 minute timeout, so run it with `timeout: 300000` or in the background. A TERM or INT still runs `down`, but a SIGKILLed `smoke` leaves the runner up, and the next `up` refuses until you run `down`. To drive by hand instead:
+
+```sh
+.claude/skills/verify/sandbox.sh up      # prints the pid, port and the job's due time
+. /tmp/agent-runner-verify/state.env     # DB, NONCE, JOB, PID, PORT, JOB_AT
+# ... drive it (features/) ...
+.claude/skills/verify/sandbox.sh down
+```
+
+Ready means `GET /status` answers, which `up` waits for (30 s at most). `up` refuses if the state file exists (a sandbox is running, or one was not cleaned up) or the Redis DB has keys in it. `down` clears both. Each `up` draws a random `NONCE`. The job is `verify_echo_<NONCE>` and the stub replies `verify stub reply <NONCE>`, so production history can't match by accident. `check` runs once per `up` and refuses a second run, which could pass on the first run's results.
+
+## Doctor
+
+```sh
+.claude/skills/verify/sandbox.sh doctor
+```
+
+Read-only. It checks that the pid runs `$DIR/app/src/main.ts`, owns the port, and answers `/status`, that its `REDIS_URL` is the sandbox DB, that no harness or PM2 variable is in its environment, and that the cron is off. Run it first whenever something looks off. Any `FAIL` line means don't drive it: run `down` and `up`.
+
+## Drive
+
+`features/README.md` indexes one recipe per feature. All of them talk to `127.0.0.1:$PORT` exactly as the bot (`POST /command` with `{text, replyTo}`) and the dashboard (`GET /office/feed`) do. Messages the bot would deliver land in the sandbox's outbox: `redis-cli -n $DB XRANGE agent-runner:outbox - +` after sourcing the state file.
+
+## Evidence
+
+Everything goes to `$DIR/evidence/` and survives `down`: `server.log` (the runner's stdout and stderr), `stub-calls.log`, and from `check` the `claude:status` and `claude:history` replies, `status.json`, `feed.txt`, `outbox.txt`, `job.log`, and production's `/status` before and after.
+
+Proof standards:
+
+- Drive the user's path: `/command` text and the feed, not internal setters or Redis writes.
+- Capture the request and the resulting state, and check the side effect (an outbox entry, `runs.jsonl` through `claude:history`, a job's log file) as well as the reply.
+- Prove isolation on every run. `check` fails if production's outbox (DB 0), `runs.jsonl` or `jobs:last-fired` mention the sandbox's `NONCE`. For a change that might write elsewhere, also diff `redis-cli -n 0 --scan --pattern 'agent-runner:*' | sort` before and after.
+
+## Cleanup
+
+```sh
+.claude/skills/verify/sandbox.sh down
+```
+
+It stops the pid it started (TERM, then KILL after 10 s), kills any process left that carries `AGENT_RUNNER_VERIFY_SANDBOX=$DIR` in its environment (the runner's agents and jobs inherit it), deletes `agent-runner:*` from the sandbox DB, and removes `app/`, `home/`, `workspace/`, `stubs/` and the state file. It keeps `evidence/`. It never kills by name, and it deletes nothing in a `$DIR` without the marker. Run it after every failed attempt too.
+
+The sandbox's `PATH` also has node's bin directory, for `node` itself. Global npm CLIs live there too (the stubbed `pm2` among them). The runner never calls them, but a job or a stub you edit could.
