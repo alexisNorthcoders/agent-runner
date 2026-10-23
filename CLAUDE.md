@@ -40,6 +40,8 @@ are in `GLOSSARY.md`.
   `import()`, where `import.meta.main` is false, so its guard also accepts an exact `pm_exec_path`.
   Agent runs inherit `pm_exec_path` from PM2, so inside a run in the live checkout, importing
   `src/main.ts` starts a second runner. Never import or run an entry module to check that it loads.
+  To see the service run, use the `verify` skill (`.claude/skills/verify/sandbox.sh smoke`), which
+  starts an isolated copy on its own port, Redis DB and logs.
 - PM2 runs `src/main.ts` with `interpreter: 'node'` (`ecosystem.config.cjs`). Without it, PM2 6 runs
   a `.ts` script with bun. A change to the ecosystem file only takes effect after `pm2 delete` and
   `pm2 start`, which is the owner's call.
