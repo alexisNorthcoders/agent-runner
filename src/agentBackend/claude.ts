@@ -326,6 +326,29 @@ export function readOnlySessionArgs({ prompt, model = process.env.REPO_INSIGHT_M
   ];
 }
 
+export const GRILL_ALLOWED_TOOLS = [
+  'Bash(gh issue view:*)',
+  'Bash(gh issue edit:*)',
+  'Bash(gh issue comment:*)',
+  'Read(~/.claude/skills/**)',
+  'Read(~/.claude/plugins/**)',
+  'Edit(//tmp/**)',
+];
+
+/** Argv for the `issue_grill` session: the default tool set narrowed to `GRILL_ALLOWED_TOOLS`, with no prompting. */
+export function grillSessionArgs({ prompt, model = process.env.ISSUE_GRILL_MODEL?.trim() || READ_ONLY_DEFAULT_MODEL }: { prompt: string; model?: string }): string[] {
+  return [
+    '-p',
+    '--model', model,
+    '--output-format', 'json',
+    '--permission-mode', 'default',
+    '--allowedTools', ...GRILL_ALLOWED_TOOLS,
+    // `--allowedTools` is variadic: without `--` the prompt is read as a tool name.
+    '--',
+    prompt,
+  ];
+}
+
 export type ExecFileAgent = (
   bin: string,
   args: string[],
@@ -350,41 +373,44 @@ async function reportJobUsage(out: unknown, { usageFile, appendFileFn = appendFi
 }
 
 /**
- * Launch a read-only exploration session in `cwd` and return its final text. The same seam shape
+ * Launch a one-shot `claude -p` session in `cwd` and return its final text. `sessionArgs` builds the
+ * argv (tool policy and model) from the prompt. The same seam shape
  * as `repoInsight`'s `launchSession`; tests inject a fake instead of spawning the CLI. Its model,
  * cost and tokens go to `AGENT_RUNNER_USAGE_FILE` (even for a session that reports an error), so
  * the scheduled job's history row shows them.
  */
-export function createReadOnlySessionLauncher({
+export function createOneShotSessionLauncher({
+  sessionArgs,
   bin = resolveClaudeBin(),
   timeoutMs = 15 * 60_000,
   execFileFn = execFile,
   usageFile = process.env[USAGE_FILE_ENV]?.trim(),
   appendFileFn,
 }: {
+    sessionArgs: (p: { prompt: string }) => string[];
     bin?: string;
     timeoutMs?: number;
     execFileFn?: ExecFileAgent;
     usageFile?: string;
     appendFileFn?: AppendFile;
-  } = {}): (p: { cwd: string; prompt: string }) => Promise<{ text: string }> {
+  }): (p: { cwd: string; prompt: string }) => Promise<{ text: string }> {
   return ({ cwd, prompt }) =>
     new Promise((resolve, reject) => {
       const child = execFileFn(
         bin,
-        readOnlySessionArgs({ prompt }),
+        sessionArgs({ prompt }),
         { cwd, env: { ...process.env, PATH: augmentedPathEnv() }, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' },
         (err, stdout, stderr) => {
-          if (err) return reject(new Error(`exploration session failed: ${String(stderr || '').trim().slice(0, 300) || err.message}`));
+          if (err) return reject(new Error(`agent session failed: ${String(stderr || '').trim().slice(0, 300) || err.message}`));
           let out: unknown;
           try {
             out = JSON.parse(stdout);
           } catch {
-            return reject(new Error('exploration session printed no JSON result'));
+            return reject(new Error('agent session printed no JSON result'));
           }
           const result = recordOrEmpty(out);
           reportJobUsage(out, { usageFile, appendFileFn }).then(() => {
-            if (result.is_error) return reject(new Error(`exploration session reported an error: ${String(result.result ?? '').slice(0, 300)}`));
+            if (result.is_error) return reject(new Error(`agent session reported an error: ${String(result.result ?? '').slice(0, 300)}`));
             resolve({ text: String(result.result ?? '') });
           });
         }

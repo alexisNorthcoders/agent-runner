@@ -32,5 +32,17 @@
       "CLAUDE_AGENT_BIN": "/home/alexis/.local/bin/claude"
     },
     "timeoutMinutes": 30
+  },
+  {
+    "name": "issue_grill",
+    "room": "scout",
+    "cwd": "/home/alexis/Projects/agent-runner",
+    "command": "npm run issue-grill",
+    "at": "04:30",
+    "logFile": "/home/alexis/Projects/agent-runner/logs/cron-issue-grill.log",
+    "env": {
+      "CLAUDE_AGENT_BIN": "/home/alexis/.local/bin/claude"
+    },
+    "timeoutMinutes": 45
   }
 ]

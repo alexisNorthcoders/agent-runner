@@ -380,11 +380,40 @@ describe('stopOrphanClaude', () => {
   });
 });
 
+describe('issue-grill session args', () => {
+  it('allows each tool as its own argv item and ends options before the slash-command prompt', async () => {
+    const { grillSessionArgs, GRILL_ALLOWED_TOOLS } = await import('../src/agentBackend/claude.ts');
+    const args = grillSessionArgs({ prompt: '/self-grill 7', model: 'sonnet' });
+    const at = args.indexOf('--allowedTools');
+    assert.deepEqual(args.slice(at + 1, at + 1 + GRILL_ALLOWED_TOOLS.length), GRILL_ALLOWED_TOOLS);
+    assert.equal(args[at + 1 + GRILL_ALLOWED_TOOLS.length], '--');
+    assert.deepEqual(args.slice(-2), ['--', '/self-grill 7']);
+    assert.equal(args[args.indexOf('--model') + 1], 'sonnet');
+  });
+
+  it('runs on Opus unless ISSUE_GRILL_MODEL says otherwise', async () => {
+    const { grillSessionArgs } = await import('../src/agentBackend/claude.ts');
+    const saved = process.env.ISSUE_GRILL_MODEL;
+    try {
+      delete process.env.ISSUE_GRILL_MODEL;
+      let args = grillSessionArgs({ prompt: 'p' });
+      assert.equal(args[args.indexOf('--model') + 1], 'claude-opus-5-5');
+      process.env.ISSUE_GRILL_MODEL = 'haiku';
+      args = grillSessionArgs({ prompt: 'p' });
+      assert.equal(args[args.indexOf('--model') + 1], 'haiku');
+    } finally {
+      if (saved === undefined) delete process.env.ISSUE_GRILL_MODEL;
+      else process.env.ISSUE_GRILL_MODEL = saved;
+    }
+  });
+});
+
 describe('read-only exploration session', () => {
   it('disables editing and shell tools by CLI flag, not just the prompt', async () => {
-    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.ts');
+    const { createOneShotSessionLauncher, readOnlySessionArgs } = await import('../src/agentBackend/claude.ts');
     let seen = { args: [] as string[], cwd: undefined as unknown };
-    const launch = createReadOnlySessionLauncher({
+    const launch = createOneShotSessionLauncher({
+      sessionArgs: readOnlySessionArgs,
       bin: 'claude',
       execFileFn: (_bin, args, opts, cb) => {
         seen = { args, cwd: opts.cwd };
@@ -424,7 +453,7 @@ describe('read-only exploration session', () => {
   });
 
   it("appends the session's model, cost and tokens to the job's usage file, even when it reports an error", async () => {
-    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.ts');
+    const { createOneShotSessionLauncher, readOnlySessionArgs } = await import('../src/agentBackend/claude.ts');
     const { sumJobUsage } = await import('../src/jobUsage.ts');
     const written: string[] = [];
     const result = {
@@ -437,14 +466,15 @@ describe('read-only exploration session', () => {
       },
     };
     const launcher = (out: object) =>
-      createReadOnlySessionLauncher({
+      createOneShotSessionLauncher({
+      sessionArgs: readOnlySessionArgs,
         bin: 'claude',
         usageFile: '/logs/run.usage.jsonl',
         appendFileFn: async (file, text) => void written.push(`${file}|${text}`),
         execFileFn: (_bin, _args, _opts, cb) => cb(null, JSON.stringify(out), ''),
       });
     assert.deepEqual(await launcher(result)({ cwd: '/ws/x', prompt: 'explore' }), { text: 'idea' });
-    await assert.rejects(launcher({ ...result, is_error: true })({ cwd: '/ws/x', prompt: 'explore' }), /reported an error/);
+    await assert.rejects(launcher({ ...result, is_error: true })({ cwd: '/ws/x', prompt: 'explore' }), /agent session reported an error/);
     assert.equal(written.length, 2);
     assert.ok(written.every((w) => w.startsWith('/logs/run.usage.jsonl|')));
     const usage = sumJobUsage(written.map((w) => w.split('|')[1]).join(''));
@@ -452,9 +482,10 @@ describe('read-only exploration session', () => {
   });
 
   it('still returns the text when the usage file cannot be written, and writes none without one', async () => {
-    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.ts');
+    const { createOneShotSessionLauncher, readOnlySessionArgs } = await import('../src/agentBackend/claude.ts');
     const execFileFn: ExecFileAgent = (_bin, _args, _opts, cb) => cb(null, JSON.stringify({ result: 'idea', total_cost_usd: 1 }), '');
-    const failing = createReadOnlySessionLauncher({
+    const failing = createOneShotSessionLauncher({
+      sessionArgs: readOnlySessionArgs,
       bin: 'claude',
       usageFile: '/nope/usage.jsonl',
       appendFileFn: async () => {
@@ -464,15 +495,16 @@ describe('read-only exploration session', () => {
     });
     assert.deepEqual(await failing({ cwd: '/ws/x', prompt: 'explore' }), { text: 'idea' });
     let called = false;
-    const none = createReadOnlySessionLauncher({ bin: 'claude', usageFile: '', appendFileFn: async () => void (called = true), execFileFn });
+    const none = createOneShotSessionLauncher({ sessionArgs: readOnlySessionArgs, bin: 'claude', usageFile: '', appendFileFn: async () => void (called = true), execFileFn });
     assert.deepEqual(await none({ cwd: '/ws/x', prompt: 'explore' }), { text: 'idea' });
     assert.equal(called, false);
   });
 
   it('closes stdin so the CLI does not wait for piped input', async () => {
-    const { createReadOnlySessionLauncher } = await import('../src/agentBackend/claude.ts');
+    const { createOneShotSessionLauncher, readOnlySessionArgs } = await import('../src/agentBackend/claude.ts');
     let ended = false;
-    const launch = createReadOnlySessionLauncher({
+    const launch = createOneShotSessionLauncher({
+      sessionArgs: readOnlySessionArgs,
       bin: 'claude',
       execFileFn: (_bin, _args, _opts, cb) => {
         setImmediate(() => cb(null, JSON.stringify({ result: 'idea' }), ''));

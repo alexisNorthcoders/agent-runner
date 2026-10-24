@@ -11,7 +11,7 @@ import { createRedisStore } from '../src/redisStore.ts';
 import { createCronState } from '../src/cronState.ts';
 import { createWorkspaceAllowlist } from '../src/workspaces.ts';
 import { createIssuePipeline } from '../src/issuePipeline/index.ts';
-import { createReadOnlySessionLauncher } from '../src/agentBackend/claude.ts';
+import { createOneShotSessionLauncher, readOnlySessionArgs } from '../src/agentBackend/claude.ts';
 import { createRepoInsightCursor, createRepoInsightLookups, runRepoInsight, sweepRepoInsight } from '../src/repoInsight.ts';
 import { errorText } from '../src/narrow.ts';
 
@@ -25,7 +25,7 @@ async function main() {
     const workspaces = createWorkspaceAllowlist();
     const github = createIssuePipeline({ settings: config.pipeline }).github;
     const lookups = createRepoInsightLookups({ workspaces, github, prAttempts: createCronState({ store }).prAttempts });
-    const launchSession = createReadOnlySessionLauncher();
+    const launchSession = createOneShotSessionLauncher({ sessionArgs: readOnlySessionArgs });
     const { lines, failed } = await sweepRepoInsight({
       cursor: createRepoInsightCursor({ store }),
       runnableIssues: lookups.runnableIssues,

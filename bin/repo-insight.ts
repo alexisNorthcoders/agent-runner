@@ -10,7 +10,7 @@ import { createRedisStore } from '../src/redisStore.ts';
 import { createCronState } from '../src/cronState.ts';
 import { createWorkspaceAllowlist } from '../src/workspaces.ts';
 import { createIssuePipeline } from '../src/issuePipeline/index.ts';
-import { createReadOnlySessionLauncher } from '../src/agentBackend/claude.ts';
+import { createOneShotSessionLauncher, readOnlySessionArgs } from '../src/agentBackend/claude.ts';
 import { createRepoInsightCursor, createRepoInsightLookups, decideRepoInsightTarget, runRepoInsight } from '../src/repoInsight.ts';
 import { errorText } from '../src/narrow.ts';
 
@@ -29,7 +29,7 @@ async function main() {
       target,
       resolveWorkspace: (alias) => workspaces.resolveIssueWorkspace(alias),
       resolveRepo: (root, alias) => github.resolveIssueRepo(root, alias),
-      launchSession: createReadOnlySessionLauncher(),
+      launchSession: createOneShotSessionLauncher({ sessionArgs: readOnlySessionArgs }),
       createIssue: github.createIssue,
     });
     console.log(line);

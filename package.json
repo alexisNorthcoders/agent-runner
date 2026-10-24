@@ -18,7 +18,8 @@
     "agent:resume": "node bin/agent-cli.ts resume",
     "repo-insight": "node bin/repo-insight.ts",
     "repo-insight:decide": "node bin/repo-insight-dry-run.ts",
-    "repo-insight:bootstrap": "node bin/repo-insight-bootstrap.ts"
+    "repo-insight:bootstrap": "node bin/repo-insight-bootstrap.ts",
+    "issue-grill": "node bin/issue-grill.ts"
   },
   "engines": {
     "node": ">=24.2"

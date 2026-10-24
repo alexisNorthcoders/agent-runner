@@ -13,6 +13,8 @@ export type OpenIssue = { number: number; title: string; labels: string[] };
 
 export type SuggestedIssue = { number: number; title: string; url: string; state: 'open' | 'closed'; labels: string[] };
 
+export type TriageSuggestion = { number: number; title: string; url: string; createdAt: string; comments: string[] };
+
 export type OpenAgentPr = { url: string; headSha: string; baseRefName: string; mergeable: string; mergeStateStatus: string };
 
 /** The fields of `gh issue view --json title,body,number,state,url,labels` that the prompt uses. */
@@ -22,11 +24,15 @@ const REPO_SLUG_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const RETRY_BACKOFF_MS = [0, 2500, 8000];
 const ISSUE_LIST_LIMIT = 500;
 export const AGENT_SUGGESTED_LABEL = 'agent-suggested';
+export const NEEDS_TRIAGE_LABEL = 'needs-triage';
 
 function assertRepoSlug(repo: string): string {
   if (!REPO_SLUG_RE.test(String(repo))) throw new Error(`GitHub repo must look like owner/repo (got ${JSON.stringify(repo)})`);
   return repo;
 }
+
+const commentBodies = (comments: unknown): string[] =>
+  Array.isArray(comments) ? comments.map((c) => recordOrEmpty(c).body).filter((body): body is string => typeof body === 'string') : [];
 
 const labelNames = (labels: unknown): string[] =>
   Array.isArray(labels)
@@ -202,6 +208,29 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
           labels: labelNames(row.labels),
         }))
         .filter((row) => Number.isInteger(row.number) && row.number > 0);
+    },
+
+    /**
+     * Open issues labelled both `agent-suggested` and `needs-triage`, with their comment bodies.
+     */
+    async listTriageSuggestions(repo: string): Promise<TriageSuggestion[]> {
+      const out = await gh(['issue', 'list', '--repo', assertRepoSlug(repo), '--label', AGENT_SUGGESTED_LABEL, '--label', NEEDS_TRIAGE_LABEL, '--state', 'open', '--json', 'number,title,url,createdAt,comments', '--limit', String(ISSUE_LIST_LIMIT)]);
+      return ghJsonRows(out)
+        .map(recordOrEmpty)
+        .map((row): TriageSuggestion => ({
+          number: Number(row.number),
+          title: String(row.title ?? ''),
+          url: String(row.url ?? ''),
+          createdAt: String(row.createdAt ?? ''),
+          comments: commentBodies(row.comments),
+        }))
+        .filter((row) => Number.isInteger(row.number) && row.number > 0);
+    },
+
+    /** The bodies of an issue's comments, oldest first. */
+    async issueCommentBodies(repo: string, issueNumber: number): Promise<string[]> {
+      const out = await gh(['issue', 'view', String(issueNumber), '--repo', assertRepoSlug(repo), '--json', 'comments']);
+      return commentBodies(recordOrEmpty(JSON.parse(out || '{}')).comments);
     },
 
     /**

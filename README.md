@@ -230,6 +230,16 @@ skipped, and `owner` is told once per change of the errors.
 
 Moving a crontab line over: add the job to the config, then remove the line from `crontab -e`.
 
+**`issue_grill`** (`npm run issue-grill`) turns the issues that `repo_insight` files into specs, one
+per day. The pool is the open issues labelled `agent-suggested` and `needs-triage` in the repo of each
+alias in `REPO_INSIGHT_PRIORITY`. The oldest issue wins, and ties go to the earlier alias, then the
+lower number. The job runs `/self-grill <issue url>` in a headless agent session in that alias's workspace
+root. The skill rewrites the issue body as a spec and posts one comment that opens with
+`Self-grill decision log`. That comment is the "already grilled" marker, so delete it to put an issue
+back in the pool. The job fails if the comment is missing after the session. It never changes labels.
+It needs the personal skills `self-grill` and `to-spec` in `~/.claude/skills`, plus the mattpocock
+`grilling` and `domain-modeling` skills. `ISSUE_GRILL_MODEL` picks the model (default Opus).
+
 ## HTTP API (127.0.0.1 only, no auth)
 
 - `POST /command {text, replyTo}` → `{reply}`. The reply is synchronous ("Started run X", "Queued (position n)…",
@@ -631,6 +641,8 @@ The runner never clears a pause it didn't set. The prompt preamble gives agent r
 - `src/cronTracer.ts`: the cron issue tracer (picking, parking, progress), over `runner.startIssueRun`.
 - `src/scheduledJobs.ts`: scheduled jobs' config and once-a-day scheduler, over `runner.submitJob`.
   `src/jobProcess.ts` runs a job's command with its output appended to the log file.
+- `src/repoInsight.ts` + `bin/repo-insight*.ts`: the `repo_insight` job. It picks an idle workspace in rotation, explores it in a read-only agent session and files one `agent-suggested` issue.
+- `src/issueGrill.ts` + `bin/issue-grill.ts`: the `issue_grill` job. It grills one of those issues into a spec in a headless `/self-grill` session.
 - `src/safeRestart.ts` + `bin/safe-restart.ts`: restart decision logic and the CLI.
 - `src/joplin.ts`: Joplin Data API client.
 - `src/workspaces.ts`: the issue-run workspace allowlist.
