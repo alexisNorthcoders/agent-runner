@@ -28,7 +28,8 @@ describe('pickGrillCandidate', () => {
 describe('runIssueGrill', () => {
   type Fixture = { issues?: Record<string, TriageSuggestion[]>; broken?: Record<string, string>; commentsAfterRun?: string[]; sessionText?: string; aliasRepo?: Record<string, string> };
   const setup = ({ issues = {}, broken = {}, commentsAfterRun = [`${GRILL_LOG_MARKER} (2 rounds)\n...`], sessionText = 'done', aliasRepo = {} }: Fixture) => {
-    const launched: { cwd: string; prompt: string }[] = [];
+    const launched: { cwd: string; prompt: string; progressSoFar: string[] }[] = [];
+    const progress: string[] = [];
     const deps = {
       lookups: createIssueGrillLookups({
         workspaces: {
@@ -45,9 +46,10 @@ describe('runIssueGrill', () => {
         },
       }),
       resolveWorkspace: async (alias: string) => ({ root: `/ws/${alias}` }),
-      launchSession: async (p: { cwd: string; prompt: string }) => (launched.push(p), { text: sessionText }),
+      launchSession: async (p: { cwd: string; prompt: string }) => (launched.push({ ...p, progressSoFar: [...progress] }), { text: sessionText }),
+      progress: (line: string) => void progress.push(line),
     };
-    return { deps, launched };
+    return { deps, launched, progress };
   };
 
   it('grills the oldest issue across aliases in its own workspace and reports it', async () => {
@@ -59,7 +61,7 @@ describe('runIssueGrill', () => {
       sessionText: 'working\nhttps://x/7 and 2 LOW-CONFIDENCE\n\n',
     });
     const line = await runIssueGrill(deps);
-    assert.deepEqual(launched, [{ cwd: '/ws/go-server', prompt: '/self-grill https://x/7' }]);
+    assert.deepEqual(launched, [{ cwd: '/ws/go-server', prompt: '/self-grill https://x/7', progressSoFar: ['issue-grill: grilling go-server #7 "Older" (https://x/7)'] }]);
     assert.equal(line, 'issue-grill: go-server #7 "Older" → https://x/7 and 2 LOW-CONFIDENCE (https://x/7)');
   });
 

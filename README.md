@@ -236,7 +236,7 @@ alias in `REPO_INSIGHT_PRIORITY`. The oldest issue wins, and ties go to the earl
 lower number. The job runs `/self-grill <issue url>` in a headless agent session in that alias's workspace
 root. The skill rewrites the issue body as a spec and posts one comment that opens with
 `Self-grill decision log`. That comment is the "already grilled" marker, so delete it to put an issue
-back in the pool. The job fails if the comment is missing after the session. It never changes labels.
+back in the pool. It prints the pick before the session starts, so the office's live log names the issue for the whole run. The job fails if the comment is missing after the session. It never changes labels.
 It needs the personal skills `self-grill` and `to-spec` in `~/.claude/skills`, plus the mattpocock
 `grilling` and `domain-modeling` skills. `ISSUE_GRILL_MODEL` picks the model (default Opus).
 

@@ -21,6 +21,7 @@ async function main() {
       resolveWorkspace: (alias) => workspaces.resolveIssueWorkspace(alias),
       // a grill outlasts the launcher's 15-minute default; the job's own timeout stays the outer bound
       launchSession: createOneShotSessionLauncher({ sessionArgs: grillSessionArgs, timeoutMs: 40 * 60_000 }),
+      progress: (line) => console.log(line),
     });
     console.log(line);
   } catch (err) {
