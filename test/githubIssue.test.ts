@@ -124,6 +124,26 @@ describe('cron lookups', () => {
     assert.equal(args[args.indexOf('--label') + 1], 'agent-suggested');
   });
 
+  it('lists open triage suggestions with their comment bodies', async () => {
+    const rows = [
+      { number: 5, title: 'A', url: 'u5', createdAt: '2026-01-02T00:00:00Z', comments: [{ body: 'one' }, { body: 'two' }, {}] },
+      { number: 6, title: 'B', url: 'u6', createdAt: '2026-01-03T00:00:00Z' },
+      { number: 0, title: 'junk' },
+    ];
+    const { api, calls } = issues(() => JSON.stringify(rows));
+    assert.deepEqual(await api.listTriageSuggestions('o/r'), [
+      { number: 5, title: 'A', url: 'u5', createdAt: '2026-01-02T00:00:00Z', comments: ['one', 'two'] },
+      { number: 6, title: 'B', url: 'u6', createdAt: '2026-01-03T00:00:00Z', comments: [] },
+    ]);
+    assert.deepEqual(calls[0][1], ['issue', 'list', '--repo', 'o/r', '--label', 'agent-suggested', '--label', 'needs-triage', '--state', 'open', '--json', 'number,title,url,createdAt,comments', '--limit', '500']);
+  });
+
+  it("reads an issue's comment bodies", async () => {
+    const { api, calls } = issues(() => JSON.stringify({ comments: [{ body: 'a' }, { body: 'b' }] }));
+    assert.deepEqual(await api.issueCommentBodies('o/r', 9), ['a', 'b']);
+    assert.deepEqual(calls[0][1], ['issue', 'view', '9', '--repo', 'o/r', '--json', 'comments']);
+  });
+
   it('reads the native blocked_by count', async () => {
     const { api, calls } = issues(() => '2\n');
     assert.equal(await api.blockedByCount('o/r', 9), 2);
