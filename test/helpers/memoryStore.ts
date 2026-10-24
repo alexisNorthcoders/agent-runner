@@ -3,7 +3,7 @@ import type { Store } from '../../src/redisStore.ts';
 
 /**
  * In-memory fake of `Store` (src/redisStore.ts). TTLs are ignored; `test/store.contract.test.ts`
- * keeps its behaviour in step with the real Redis store.
+ * keeps its behavior in step with the real Redis store.
  */
 export function createMemoryStore(): Store & { kv: Map<string, string>; hashes: Map<string, Map<string, string>>; streams: Map<string, Array<{ id: string; fields: Record<string, string> }>>; failNext: (err: Error) => void } {
   const kv: Map<string, string> = new Map();

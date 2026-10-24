@@ -634,7 +634,7 @@ describe('queueAutoMerge: merge-settings read on a network error (issue #5)', ()
   const ghError = (stderr: string) => Object.assign(new Error('gh failed'), { stderr });
   const TIMEOUT = 'Get "https://api.github.com/repos/acme/widget": dial tcp 20.26.156.210:443: i/o timeout';
 
-  /** @param capsError a `gh` error for this 1-based read, or null to answer */
+  /** `capsError` returns a `gh` error for the 1-based caps read, or null to answer. */
   function setup(capsError: (attempt: number) => ExecError | null) {
     const sleeps: number[] = [];
     let capsReads = 0;

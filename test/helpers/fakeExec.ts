@@ -4,17 +4,17 @@ import type { Exec } from '../../src/issuePipeline/exec.ts';
 /** A real exec, for tests that drive `git` over temp repos. */
 export const realExec = createExec({ timeoutMs: 30_000 });
 
-/**
- * `Exec` fake driven by a `child_process.execFile`-style handler `(cmd, args, opts, cb)`, so ported
- * tests keep their original shape. Records every call. `getHandler` is read on every call, so a test
- * can swap the handler mid-way.
- */
 export type ExecError = Error & { stderr?: string };
 
 export type ExecCallback = (err: ExecError | null, stdout?: string, stderr?: string) => void;
 
 export type CallbackHandler = (cmd: string, args: string[], opts: object, cb: ExecCallback) => void;
 
+/**
+ * `Exec` fake driven by a `child_process.execFile`-style handler `(cmd, args, opts, cb)`, so a test
+ * can answer in the shape of the real call. Records every call. `getHandler` is read on every call,
+ * so a test can swap the handler mid-way.
+ */
 export function callbackExec(getHandler: () => CallbackHandler) {
   const calls: { cmd: string; args: string[] }[] = [];
   const exec: Exec = (cmd, args, opts = {}) =>
