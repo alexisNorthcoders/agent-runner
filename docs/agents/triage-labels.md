@@ -18,3 +18,18 @@ Note: the runner's cron issue tracer polls this repo (`agent-runner` is in
 `CRON_SECONDARY_WORKSPACE_ALIASES`), so `ready-for-agent` means an unattended run will pick the
 issue up on a coming tick, as in the other workspaces. A manual `claude issue:agent-runner:<n>`
 starts one sooner.
+
+## `ready-for-agent` is for tickets, not specs
+
+Only tickets (one agent-sized unit of work, e.g. from `/to-tickets`) get `ready-for-agent`. A spec
+is input for `/to-tickets`, not work for an AFK agent: publish it without `ready-for-agent`. Write
+specs with the user-level `/to-spec`, not `/mattpocock-skills:to-spec`, which applies the label.
+The cron issue tracer picks up every `ready-for-agent` issue, so a labelled spec would run as one
+oversized issue.
+
+## Every `ready-for-agent` ticket gets a model label
+
+When you apply `ready-for-agent`, also apply exactly one of `model:haiku`, `model:sonnet` or
+`model:opus`, sized to the ticket (`model:sonnet` unless it is trivial or unusually hard).
+agent-runner runs the issue on that model. Without a label, it uses the workspace's `.claude`
+settings model if one is set, else agent-runner's default, so the choice is left to chance.
