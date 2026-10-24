@@ -19,7 +19,8 @@ async function main() {
     const line = await runIssueGrill({
       lookups: createIssueGrillLookups({ workspaces, github }),
       resolveWorkspace: (alias) => workspaces.resolveIssueWorkspace(alias),
-      launchSession: createOneShotSessionLauncher({ sessionArgs: grillSessionArgs }),
+      // a grill outlasts the launcher's 15-minute default; the job's own timeout stays the outer bound
+      launchSession: createOneShotSessionLauncher({ sessionArgs: grillSessionArgs, timeoutMs: 40 * 60_000 }),
     });
     console.log(line);
   } catch (err) {

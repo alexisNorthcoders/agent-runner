@@ -6,7 +6,7 @@ import type { GrillCandidate } from '../src/issueGrill.ts';
 import type { TriageSuggestion } from '../src/issuePipeline/githubIssue.ts';
 
 const cand = (o: Partial<GrillCandidate>): GrillCandidate => ({ alias: 'bot', repo: 'me/bot', number: 1, title: 't', url: 'u', createdAt: '2026-01-01T00:00:00Z', ...o });
-const issue = (o: Partial<TriageSuggestion>): TriageSuggestion => ({ number: 1, title: 'T', url: 'https://x/1', createdAt: '2026-01-01T00:00:00Z', comments: [], ...o });
+const issue = (o: Partial<TriageSuggestion>): TriageSuggestion => ({ number: 1, title: 'T', url: `https://x/${o.number ?? 1}`, createdAt: '2026-01-01T00:00:00Z', comments: [], ...o });
 
 describe('pickGrillCandidate', () => {
   it('is null without candidates', () => {
@@ -59,7 +59,7 @@ describe('runIssueGrill', () => {
       sessionText: 'working\nhttps://x/7 and 2 LOW-CONFIDENCE\n\n',
     });
     const line = await runIssueGrill(deps);
-    assert.deepEqual(launched, [{ cwd: '/ws/go-server', prompt: '/self-grill 7' }]);
+    assert.deepEqual(launched, [{ cwd: '/ws/go-server', prompt: '/self-grill https://x/7' }]);
     assert.equal(line, 'issue-grill: go-server #7 "Older" → https://x/7 and 2 LOW-CONFIDENCE (https://x/7)');
   });
 
@@ -73,7 +73,7 @@ describe('runIssueGrill', () => {
       },
     });
     await runIssueGrill(deps);
-    assert.equal(launched[0].prompt, '/self-grill 2');
+    assert.equal(launched[0].prompt, '/self-grill https://x/2');
   });
 
   it('lists an issue once when two aliases resolve to the same repo', async () => {

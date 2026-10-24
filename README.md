@@ -233,7 +233,7 @@ Moving a crontab line over: add the job to the config, then remove the line from
 **`issue_grill`** (`npm run issue-grill`) turns the issues that `repo_insight` files into specs, one
 per day. The pool is the open issues labelled `agent-suggested` and `needs-triage` in the repo of each
 alias in `REPO_INSIGHT_PRIORITY`. The oldest issue wins, and ties go to the earlier alias, then the
-lower number. The job runs `/self-grill <n>` in a headless agent session in that alias's workspace
+lower number. The job runs `/self-grill <issue url>` in a headless agent session in that alias's workspace
 root. The skill rewrites the issue body as a spec and posts one comment that opens with
 `Self-grill decision log`. That comment is the "already grilled" marker, so delete it to put an issue
 back in the pool. The job fails if the comment is missing after the session. It never changes labels.
