@@ -1,9 +1,3 @@
-import { classifyReadyIssues, hasLabel } from './cronTracer.ts';
-import { errorText } from './narrow.ts';
-import type { createGithubIssues, OpenIssue } from './issuePipeline/githubIssue.ts';
-import type { NotifyChange } from './stateChanges.ts';
-import type { OfficeIssue, OfficeIssueRepo, OfficeIssues } from './officeWire.ts';
-
 /**
  * The issue scan: the work waiting in each allowlisted workspace's GitHub repo, for the office
  * (the in-trays, sticky notes and parked folders, and the Issues tab). It lists each repo's open
@@ -18,6 +12,12 @@ import type { OfficeIssue, OfficeIssueRepo, OfficeIssues } from './officeWire.ts
  * A repo whose scan fails keeps its last good data, marked `stale` (so does every repo when the
  * allowlist can't be read). Errors are logged here, not put in the feed, which carries no paths.
  */
+
+import { classifyReadyIssues, hasLabel } from './cronTracer.ts';
+import { errorText } from './narrow.ts';
+import type { createGithubIssues, OpenIssue } from './issuePipeline/githubIssue.ts';
+import type { NotifyChange } from './stateChanges.ts';
+import type { OfficeIssue, OfficeIssueRepo, OfficeIssues } from './officeWire.ts';
 
 export const ISSUE_SCAN_INTERVAL_MS = 5 * 60_000;
 

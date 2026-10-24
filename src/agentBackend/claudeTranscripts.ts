@@ -1,7 +1,3 @@
-import { readdir, readFile, readlink } from 'fs/promises';
-import { parseJsonObject, recordOrEmpty } from '../narrow.ts';
-import { describeToolUse } from './claudeStreamParser.ts';
-
 /**
  * Reads Claude Code's session transcripts (`~/.claude/projects/<folder>/<session-id>.jsonl`, one
  * JSON entry per line) to tell what an interactive session is doing. The format is Claude Code's
@@ -12,6 +8,10 @@ import { describeToolUse } from './claudeStreamParser.ts';
  *
  * Only those fields are kept: never the text of a prompt or a reply.
  */
+
+import { readdir, readFile, readlink } from 'fs/promises';
+import { parseJsonObject, recordOrEmpty } from '../narrow.ts';
+import { describeToolUse } from './claudeStreamParser.ts';
 
 /** A subagent that has written nothing for this long no longer counts as running. */
 export const SUBAGENT_RECENT_MS = 3 * 60_000;

@@ -1,14 +1,14 @@
-import { git, execErrorText } from './exec.ts';
-import { recordOrEmpty } from '../narrow.ts';
-import type { Exec } from './exec.ts';
-import type { PipelineSettings } from './settings.ts';
-
 /**
  * Git work in the target repo for an issue run. Issue runs branch **in place** in the live
  * checkout (WhatsappBot ADR 0001): prep leaves it on `<prefix>-<n>-<slug>`, post-run commits and
  * pushes that branch, and after a merge the repo goes back to its default branch (`main` or
  * `master`, whichever origin uses).
  */
+
+import { git, execErrorText } from './exec.ts';
+import { recordOrEmpty } from '../narrow.ts';
+import type { Exec } from './exec.ts';
+import type { PipelineSettings } from './settings.ts';
 
 const COMMIT_SUBJECT_MAX = 72;
 

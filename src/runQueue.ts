@@ -129,9 +129,8 @@ export function createRunQueue({
   return {
     maxLength,
     /**
-     * Append to the back. The length check and push aren't atomic, which is fine: only the runner
-     * process pushes.
-     * @returns the item's 1-based position, or null when the queue is full
+     * Append to the back. Returns the item's 1-based position, or null when the queue is full.
+     * The length check and push aren't atomic, which is fine because only the runner process pushes.
      */
     async push(item: QueuedRun): Promise<number | null> {
       if ((await store.listLength(key)) >= maxLength) return null;
@@ -168,7 +167,7 @@ export function createRunQueue({
       }
       return null;
     },
-    /** @returns front first */
+    /** The queued items, front first. */
     async list(): Promise<QueuedRun[]> {
       return (await store.listAll(key)).map(parse).filter((x) => x !== null);
     },

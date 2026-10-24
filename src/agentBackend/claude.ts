@@ -1,3 +1,8 @@
+/**
+ * The Claude Code CLI implementation of `AgentBackend` (see ./index.ts). Everything Claude-specific
+ * lives here: binary lookup, CLI flags, stream-json parsing, token/cost extraction and `/implement`.
+ */
+
 import { execFile, spawn } from 'child_process';
 import { createWriteStream, existsSync } from 'fs';
 import { appendFile, mkdir, readFile } from 'fs/promises';
@@ -12,11 +17,6 @@ import { errorText, isRecord, parseJsonObject, recordOrEmpty } from '../narrow.t
 import type { ExecFileException, ExecFileOptionsWithStringEncoding, SpawnOptionsWithStdioTuple, StdioNull, StdioPipe } from 'child_process';
 import type { Readable } from 'stream';
 import type { AgentBackend, AgentModelChoice, AgentResult, AgentOutcome } from './index.ts';
-
-/**
- * The Claude Code CLI implementation of `AgentBackend` (see ./index.ts). Everything Claude-specific
- * lives here: binary lookup, CLI flags, stream-json parsing, token/cost extraction and `/implement`.
- */
 
 /** The part of the spawned CLI process the backend uses. */
 export type AgentChild = {
@@ -62,7 +62,10 @@ export function buildClaudePrompt({ prompt, preamble, implement }: { prompt: str
 /** Kill the agent's whole process group (it was spawned detached), so tool subprocesses die too. */
 function killProcessGroup(child: AgentChild, signal: NodeJS.Signals) {
   try {
-    if (child.pid !== undefined) return void process.kill(-child.pid, signal);
+    if (child.pid !== undefined) {
+      process.kill(-child.pid, signal);
+      return;
+    }
   } catch {
     /* no such group: kill the child alone */
   }
@@ -308,9 +311,7 @@ export const READ_ONLY_DISALLOWED_TOOLS = ['Edit', 'Write', 'MultiEdit', 'Notebo
 /** The read-only (repo-insight) session's model unless `REPO_INSIGHT_MODEL` names another; not `CLAUDE_AGENT_MODEL`, which pins every other run. */
 export const READ_ONLY_DEFAULT_MODEL = 'claude-opus-5-5';
 
-/**
- * @returns argv for a one-shot, read-only `claude -p` session
- */
+/** Argv for a one-shot, read-only `claude -p` session. */
 export function readOnlySessionArgs({ prompt, model = process.env.REPO_INSIGHT_MODEL?.trim() || READ_ONLY_DEFAULT_MODEL }: { prompt: string; model?: string }): string[] {
   return [
     '-p',

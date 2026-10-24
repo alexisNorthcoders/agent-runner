@@ -1,7 +1,3 @@
-import { parseJsonObject, stringOrNull } from './narrow.ts';
-import type { Store } from './redisStore.ts';
-import type { AgentUsageLimit } from './agentBackend/index.ts';
-
 /**
  * The usage-limit pause: set when an agent run ends on its usage limit, it holds every new run
  * (requests and scheduled jobs queue, the cron skips its ticks) until the limit resets. Separate
@@ -9,9 +5,14 @@ import type { AgentUsageLimit } from './agentBackend/index.ts';
  *
  * One Redis key whose TTL ends with the pause, so it expires on its own; its end time is inside too,
  * and a pause past it reads as absent. Setting it only ever extends it. The read and write aren't
- * atomic, which is fine: only the runner process sets it. The owner can end it early with
+ * atomic, which is fine because only the runner process sets it. The owner can end it early with
  * `claude:resume` (no alias), e.g. after a plan upgrade.
  */
+
+import { parseJsonObject, stringOrNull } from './narrow.ts';
+import type { Store } from './redisStore.ts';
+import type { AgentUsageLimit } from './agentBackend/index.ts';
+
 /** `note` and `timeZone` are how the agent put the reset (e.g. `resets 7am Europe/London`), when known. */
 export type UsageLimitPause = { until: string; note: string | null; timeZone: string | null; since: string };
 

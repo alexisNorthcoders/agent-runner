@@ -1,7 +1,3 @@
-import { errorText, parseJsonObject } from './narrow.ts';
-import type { Store } from './redisStore.ts';
-import type { createUsageLimitPause } from './usageLimitPause.ts';
-
 /**
  * Pauses the owner sets by hand (`claude:pause` / `npm run agent:pause`) before working in a repo
  * themselves. Separate from the safe-restart pause flag (`pauseFlag.ts`), so a restart still works
@@ -14,6 +10,11 @@ import type { createUsageLimitPause } from './usageLimitPause.ts';
  * A run that is already going is not stopped. Each pause is a field of one Redis hash with its end
  * time inside; an expired one reads as absent and is deleted lazily.
  */
+
+import { errorText, parseJsonObject } from './narrow.ts';
+import type { Store } from './redisStore.ts';
+import type { createUsageLimitPause } from './usageLimitPause.ts';
+
 /** `scope` is `all` for the general pause, else the workspace alias. */
 export type ManualPause = { scope: string; reason: string; pausedAt: string; until: string };
 
@@ -70,9 +71,6 @@ export function createManualPause({ store, key = MANUAL_PAUSE_KEY, now = Date.no
 
   return {
     list,
-    /**
-     * Set (or replace) a pause.
-     */
     async set({ scope, seconds, reason = '' }: { scope: string; seconds: number; reason?: string }): Promise<ManualPause> {
       const t = now();
       const p = { scope, reason, pausedAt: new Date(t).toISOString(), until: new Date(t + seconds * 1000).toISOString() };

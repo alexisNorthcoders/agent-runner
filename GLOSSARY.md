@@ -19,7 +19,7 @@ A configured command the runner runs once a day at a fixed UTC time (`trigger: s
 _Avoid_: cron job (the cron is the issue tracer), job (for any other run)
 
 **Workspace**:
-An allowlisted repo on the Pi, named by its alias (e.g. `chess-trainer`). Issue runs only happen in workspaces.
+An allowlisted repo on the Pi, named by its alias (for example, `chess-trainer`). Issue runs only happen in workspaces.
 _Avoid_: project, repo (when you mean the alias)
 
 **Inferred workspace**:

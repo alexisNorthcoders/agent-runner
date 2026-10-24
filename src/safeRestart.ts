@@ -1,16 +1,17 @@
+/**
+ * The only sanctioned way to restart agent-runner (`npm run safe-restart`, also `claude:restart`).
+ * It refuses while a run is active or the runner is already paused, sets the pause flag, restarts
+ * the PM2 app, waits for `/status`, and clears the pause. The pause stops a new run from starting
+ * in the gap. The lock is checked again after pausing, so a run that starts between the first
+ * check and the pause still makes the restart refuse.
+ */
+
 import { describeRun } from './runLock.ts';
 import { errorText } from './narrow.ts';
 import type { RunRecord, createRunLock } from './runLock.ts';
 import type { PauseRecord, createPauseFlag } from './pauseFlag.ts';
 
 const CLEAR_ATTEMPTS = 3;
-
-/**
- * The only sanctioned way to restart agent-runner (`npm run safe-restart`, also `claude:restart`):
- * refuse if busy → set the pause flag → restart the PM2 app → wait for `/status` → clear the pause.
- * The pause stops a new run from starting in the gap. The lock is checked again after pausing, so
- * a run that starts between the first check and the pause still makes the restart refuse.
- */
 
 export function decideSafeRestart({ activeRun, pause }: { activeRun: RunRecord | null; pause: PauseRecord | null }): { ok: true } | { ok: false; reason: string } {
   if (activeRun) {

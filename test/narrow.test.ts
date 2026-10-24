@@ -29,7 +29,7 @@ describe('errorText', () => {
     assert.equal(errorText({ message: 42 }), '[object Object]');
   });
 
-  it("does not throw on an Error whose message is not a string", () => {
+  it('does not throw on an Error whose message is not a string', () => {
     assert.equal(errorText(Object.assign(new Error('x'), { message: undefined })), 'Error');
     assert.equal(errorText(Object.assign(new RangeError('x'), { message: 42 })), 'RangeError');
   });

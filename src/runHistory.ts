@@ -1,11 +1,12 @@
-import { appendFile, mkdir, readFile } from 'fs/promises';
-import { join } from 'path';
-import { isRecord, parseJsonObject } from './narrow.ts';
-
 /**
  * Append-only history of finished runs (`runs.jsonl`, one JSON object per line), for status
  * commands and cost tracking. Live state lives in the Redis lock and `active/` files instead.
  */
+
+import { appendFile, mkdir, readFile } from 'fs/promises';
+import { join } from 'path';
+import { isRecord, parseJsonObject } from './narrow.ts';
+
 export type HistoryEntry = {
   runId: string;
   kind?: string;

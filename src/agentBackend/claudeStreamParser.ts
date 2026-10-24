@@ -1,13 +1,13 @@
-import { StringDecoder } from 'string_decoder';
-import { createToolTouchReader } from './claudeToolTouch.ts';
-import { numberOrNull, recordOrEmpty, stringOrNull } from '../narrow.ts';
-import type { AgentSubagent, AgentTokens, AgentTouch } from './index.ts';
-
 /**
  * Incremental parser for `claude -p --output-format stream-json --verbose` output (NDJSON).
  * Pure: feed it stdout chunks, get back human-readable log lines and a snapshot of what the
  * run is doing / has cost so far. Unknown or malformed lines are tolerated (returned verbatim).
  */
+
+import { StringDecoder } from 'string_decoder';
+import { createToolTouchReader } from './claudeToolTouch.ts';
+import { numberOrNull, recordOrEmpty, stringOrNull } from '../narrow.ts';
+import type { AgentSubagent, AgentTokens, AgentTouch } from './index.ts';
 
 function truncate(s: unknown, n: number) {
   const t = String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -179,7 +179,6 @@ export function createStreamAccumulator({ cwd = process.cwd(), onTouch }: { cwd?
     return lines;
   }
 
-  /** @returns log lines for this event */
   function handle(ev: Record<string, unknown>): string[] {
     const sessionId = stringOrNull(ev.session_id);
     if (sessionId) state.sessionId = sessionId;

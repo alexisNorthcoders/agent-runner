@@ -1,3 +1,11 @@
+/**
+ * One snapshot of the runner's state, shared by `claude:status` (inside the service) and the
+ * terminal CLIs (a separate process). Runs and history come from files under the logs dir, so the
+ * CLIs work while the runner is down. The pause flag, lock and cron state come from Redis, and
+ * Redis being down must not hang or fail a status call, so those lookups are time-boxed. The lock
+ * catches a run that holds it without an active file (mid Joplin fetch, or its first write failed).
+ */
+
 import { pidAlive } from './pidAlive.ts';
 import type { ActiveRun, createActiveRuns } from './activeRuns.ts';
 import type { PauseRecord } from './pauseFlag.ts';
@@ -9,13 +17,6 @@ import type { UsageLimitPause } from './usageLimitPause.ts';
 import type { RunRecord } from './runLock.ts';
 import type { OfficeSession } from './officeWire.ts';
 
-/**
- * One snapshot of the runner's state, shared by `claude:status` (inside the service) and the
- * terminal CLIs (a separate process). Runs and history come from files under the logs dir, so the
- * CLIs work while the runner is down. The pause flag, lock and cron state come from Redis, and
- * Redis being down must not hang or fail a status call, so those lookups are time-boxed. The lock
- * catches a run that holds it without an active file (mid Joplin fetch, or its first write failed).
- */
 /**
  * `history` covers the last 7 days, newest first. `lock` is the lock holder (null when free or
  * unreadable).

@@ -73,10 +73,11 @@ export type OfficeSession = {
 
 /**
  * An in-flight run. `trigger` is `cron` for the cron issue tracer, `schedule` for a scheduled
- * job (`kind: job`, with its `room` and `jobName`), else `manual` (WhatsApp or HTTP). `inferredWorkspace`: the
- * allowlisted workspace a freeform run turned out to work in, once its first edit or command
- * there is seen (null until then, and for other kinds). A job's phase is `job`. `phase` is known only for the run this process is executing (null for an orphaned or
- * stale one). `elapsedMs` is as of the snapshot's `at`. `subagents`: the subagents the
+ * job (`kind: job`, with its `room` and `jobName`), else `manual` (WhatsApp or HTTP).
+ * `inferredWorkspace`: the allowlisted workspace a freeform run turned out to work in, once its
+ * first edit or command there is seen (null until then, and for other kinds). `phase` is known
+ * only for the run this process is executing (null for an orphaned or stale one), and a job's
+ * phase is `job`. `elapsedMs` is as of the snapshot's `at`. `subagents`: the subagents the
  * agent has running now, oldest first (only for the run this process is executing).
  */
 export type OfficeRun = {

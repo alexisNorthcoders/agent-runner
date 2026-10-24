@@ -23,9 +23,7 @@ export function resolveGhBin(fromEnv?: string) {
   return 'gh';
 }
 
-/**
- * @param p `timeoutMs` applies unless a call sets its own
- */
+/** `timeoutMs` applies unless a call sets its own. */
 export function createExec({ timeoutMs, ghBin }: { timeoutMs: number; ghBin?: string }): Exec {
   const gh = resolveGhBin(ghBin);
   const env = { ...process.env, PATH: augmentedPathEnv() };

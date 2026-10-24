@@ -1,13 +1,13 @@
-import { VERDICT_APPROVE, VERDICT_REQUEST_CHANGES } from './decisionLogic.ts';
-import { truncate } from './gitWorkspace.ts';
-import { errorText, isRecord, numberOrNull, recordOrEmpty, stringOrNull } from '../narrow.ts';
-import type { PipelineSettings } from './settings.ts';
-
 /**
  * The two LLM calls in post-run: the PR review (OpenAI) that gates the merge, and the "changes
  * made" email body after the issue closes (DeepInfra). Both speak the OpenAI chat-completions API
  * over plain `fetch`, which tests inject.
  */
+
+import { VERDICT_APPROVE, VERDICT_REQUEST_CHANGES } from './decisionLogic.ts';
+import { truncate } from './gitWorkspace.ts';
+import { errorText, isRecord, numberOrNull, recordOrEmpty, stringOrNull } from '../narrow.ts';
+import type { PipelineSettings } from './settings.ts';
 
 export type Usage = { prompt: number; completion: number; total: number };
 

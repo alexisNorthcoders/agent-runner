@@ -165,7 +165,6 @@ describe('issueNumberFromAgentBranch', () => {
 });
 
 describe('createIssue', () => {
-  /** @param existing labels the repo already has */
   const repoWithLabels = (existing: string[]) =>
     issues((_cmd, args) => {
       if (args[0] === 'label' && args[1] === 'list') return JSON.stringify(existing.map((name) => ({ name })));

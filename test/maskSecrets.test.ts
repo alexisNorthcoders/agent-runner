@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { maskSecrets } from '../src/maskSecrets.ts';
 
 describe('maskSecrets', () => {
-  // name, line, masked
-  const cases: [string, string, string][] = [
+  const cases: [name: string, line: string, masked: string][] = [
     ['GitHub classic token', 'token ghp_abcdefghijklmnopqrstuvwxyz0123456789 ok', 'token ghp_*** ok'],
     ['GitHub OAuth token', 'gho_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345', 'gho_***'],
     ['GitHub fine-grained token', 'x github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz y', 'x github_pat_*** y'],

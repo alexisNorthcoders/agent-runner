@@ -1,8 +1,3 @@
-import { open } from 'fs/promises';
-import { StringDecoder } from 'string_decoder';
-import { maskSecrets } from './maskSecrets.ts';
-import { errorText } from './narrow.ts';
-
 /**
  * Follows the active run's log for the office feed's live tail. It polls `current()` (the run this
  * process is executing and the log its agent writes now: the first pass, then an autofix pass's
@@ -16,6 +11,12 @@ import { errorText } from './narrow.ts';
  *
  * It only polls between `start()` and `stop()` (the feed starts it while anyone is connected).
  */
+
+import { open } from 'fs/promises';
+import { StringDecoder } from 'string_decoder';
+import { maskSecrets } from './maskSecrets.ts';
+import { errorText } from './narrow.ts';
+
 export type LogLines = { runId: string | null; reset: boolean; lines: string[] };
 
 /** `fromByte`: where the run's output starts, in a log other runs append to (a scheduled job's). */
@@ -84,10 +85,9 @@ export function createLogTail({ current, pollMs = LOG_POLL_MS, tailLines = LOG_T
   }
 
   /**
-   * The bytes of `file` appended since the last read (on the first read, up to TAIL_BYTES from its
-   * end but not before `fromByte`, from the first whole line: `midLine` says the first line read is
-   * the end of one that started earlier). Null if it can't be read (e.g. not
-   * created yet).
+   * The bytes of `file` appended since the last read. On the first read it goes back up to
+   * TAIL_BYTES from the end, but not before `fromByte`, and `midLine` says the first line read is
+   * the end of one that started earlier. Null if the file can't be read, for example when it isn't created yet.
    */
   async function readNew(file: string, fromByte: number) {
     let fh;

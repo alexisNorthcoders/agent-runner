@@ -1,12 +1,12 @@
-import { isRecord, parseJsonObject } from './narrow.ts';
-import type { Store } from './redisStore.ts';
-import type { RunTrigger } from './officeWire.ts';
-
 /**
  * Single-flight lock for agent runs, in Redis so the safe-restart CLI (and later the bot) can see
  * it. A request while the lock is held waits in the run queue (src/runQueue.ts). The lock value is the
  * active run's record, which doubles as the "interrupted run" marker read on startup.
  */
+
+import { isRecord, parseJsonObject } from './narrow.ts';
+import type { Store } from './redisStore.ts';
+import type { RunTrigger } from './officeWire.ts';
 
 /**
  * A scheduled job's run has `kind: 'job'`, `trigger: 'schedule'`, its `jobName` and `room`, and
@@ -71,11 +71,11 @@ export function createRunLock({ store, ttlSeconds, key = LOCK_KEY }: { store: St
 
   return {
     current,
-    /** @returns true if this run now holds the lock */
+    /** True if this run now holds the lock. */
     tryAcquire: (record: RunRecord): Promise<boolean> => store.setIfAbsent(key, JSON.stringify(record), ttlSeconds),
     /**
      * Rewrite the holder's record (e.g. once the agent pid is known). Check-then-set is not atomic,
-     * which is fine: only the runner process that holds the lock ever writes it.
+     * which is fine because only the runner process that holds the lock ever writes it.
      */
     async update(record: RunRecord) {
       if ((await current())?.runId !== record.runId) return false;

@@ -1,3 +1,10 @@
+/**
+ * One `active/<runId>.json` file per in-flight run, rewritten (throttled) as it progresses and
+ * removed when it finishes. The Redis lock says *whether* a run is active; these files carry its
+ * live progress to the terminal CLIs, and outlive the runner process so a crash leaves a trace.
+ * Writes never throw: telemetry must not break a run.
+ */
+
 import { readdir, readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { pidAlive } from './pidAlive.ts';
@@ -9,13 +16,6 @@ import { parseAgentProgress } from './agentBackend/index.ts';
 import type { AgentProgress } from './agentBackend/index.ts';
 import type { RunHealth } from './officeWire.ts';
 
-/**
- * One `active/<runId>.json` file per in-flight run, rewritten (throttled) as it progresses and
- * removed when it finishes. The Redis lock says *whether* a run is active; these files carry its
- * live progress to the terminal CLIs, and outlive the runner process so a crash leaves a trace.
- * Writes never throw: telemetry must not break a run.
- */
-
 export type ActiveRunFile = RunRecord & Partial<AgentProgress> & { updatedAt?: string };
 
 export type ActiveRun = ActiveRunFile & { health: RunHealth };
@@ -26,9 +26,9 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
   const activeDir = join(dir, 'active');
 
   /**
-   * @param opts `ownersGone`: judge health by the agent pid alone
-   *   (on runner startup, every file belongs to a previous process whose pid may have been reused).
-   * @returns oldest first
+   * The active runs, oldest first. With `ownersGone`, health is judged by the agent pid alone,
+   * which startup needs because every file then belongs to a previous process whose pid may have
+   * been reused.
    */
   async function list({ ownersGone = false }: { ownersGone?: boolean } = {}): Promise<ActiveRun[]> {
     let names;
@@ -119,9 +119,8 @@ export function createActiveRuns({ dir, isAlive = pidAlive, throttleMs = PROGRES
 
     /**
      * Delete the files of `stale` runs, e.g. left by a restart mid-run. `orphaned` ones are kept:
-     * their agent is still working and the file is the only trace of it.
-     * @param opts see `list`
-     * @returns removed runIds
+     * their agent is still working and the file is the only trace of it. Takes the same options as
+     * `list` and returns the removed runIds.
      */
     async removeStale(opts?: { ownersGone?: boolean }): Promise<string[]> {
       const removed = [];

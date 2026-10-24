@@ -74,7 +74,6 @@ export function parseAutofixNoChanges(stdout: string | undefined): string | null
 
 /**
  * Ensure the GitHub PR comment starts with an exact verdict line (automation-parseable).
- * @param raw model output
  */
 export function normalizePrReviewComment(raw: string): { verdict: Verdict; bodyMarkdown: string; fullComment: string } {
   const text = String(raw || '').trim();

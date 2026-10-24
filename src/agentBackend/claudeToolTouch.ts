@@ -1,7 +1,3 @@
-import { homedir } from 'os';
-import { isAbsolute, resolve } from 'path';
-import type { AgentTouch } from './index.ts';
-
 /**
  * Which paths a Claude tool call works on, as the agent-neutral `AgentTouch` the runner infers a
  * freeform run's workspace from (see ./index.ts). Edits name their file; a Bash command touches
@@ -11,6 +7,10 @@ import type { AgentTouch } from './index.ts';
  * command to the next. It reads the command as words, not as a shell would: a path it misses only
  * means the run is placed a little later, or stays in the Freeform room.
  */
+
+import { homedir } from 'os';
+import { isAbsolute, resolve } from 'path';
+import type { AgentTouch } from './index.ts';
 
 const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 /** Options whose next word is a directory the command works in (`git -C`, `npm --prefix`). */
@@ -73,9 +73,6 @@ export function createToolTouchReader({ cwd, home = homedir() }: { cwd: string; 
   }
 
   return {
-    /**
-     * @param name the tool
-     */
     read(name: string, input: Record<string, unknown> = {}): AgentTouch | null {
       if (EDIT_TOOLS.has(name)) {
         const file = input.file_path ?? input.notebook_path;
