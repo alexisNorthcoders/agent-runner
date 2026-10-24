@@ -19,15 +19,25 @@ messages over localhost HTTP (`POST /command`, `GET /status` on 127.0.0.1) and d
 service's Redis outbox (`agent-runner:outbox` stream). The design record is WhatsappBot
 `docs/adr/0001-agent-runner-out-of-process.md`, and the work is tracked in WhatsappBot #102.
 
-Built so far: freeform runs, `claude joplin:<note>`, the GitHub issue pipeline
-(`claude issue:<alias>:<n>`: fetch → branch in place → agent → commit → PR → review → autofix →
-merge, in `src/issuePipeline/`), `claude:stop`, `claude:restart` / `npm run safe-restart`, scheduled jobs (`src/scheduledJobs.ts`, daily commands in place of crontab lines),
-`claude:status` / `claude:history` and the `npm run agent:*` CLIs, the Redis single-flight lock, run queue,
-pause flag and manual pauses (`claude:pause` / `npm run agent:pause`, general or per workspace), startup recovery (with a WIP commit for issue runs), and the cron issue tracer
-(`src/cronTracer.ts`, over `runner.startIssueRun`, with its state in Redis), and the office
-dashboard's feed (`GET /office/feed`, SSE, pushed from `src/stateChanges.ts`, with the active run's masked live log from `src/logTail.ts`) and plain panel
-(`dashboard/`), with each repo's pending issues from the issue scan (`src/issueScan.ts`). Layout, Redis keys and the office snapshot shape are in `README.md`; dashboard terms
-are in `GLOSSARY.md`.
+Built so far:
+
+- Freeform runs and `claude joplin:<note>`.
+- The GitHub issue pipeline (`claude issue:<alias>:<n>`, in `src/issuePipeline/`). It fetches the
+  issue, branches in place, runs the agent, then commits, opens a PR and reviews it. It runs one
+  autofix pass if the review asks for changes, and merges when the review gate passes.
+- `claude:stop`, and `claude:restart` or `npm run safe-restart`.
+- Scheduled jobs (`src/scheduledJobs.ts`), daily commands in place of crontab lines.
+- `claude:status`, `claude:history` and the `npm run agent:*` CLIs.
+- The Redis single-flight lock, the run queue, the pause flag, and manual pauses (`claude:pause` or
+  `npm run agent:pause`, general or per workspace).
+- Startup recovery, with a WIP commit for issue runs.
+- The cron issue tracer (`src/cronTracer.ts`, over `runner.startIssueRun`, with its state in Redis).
+- The office dashboard's feed (`GET /office/feed`, SSE, pushed from `src/stateChanges.ts`, with the
+  active run's masked live log from `src/logTail.ts`), and its panel and office scene
+  (`dashboard/`), with each repo's pending issues from the issue scan (`src/issueScan.ts`).
+
+`README.md` has the layout, the Redis keys and the office snapshot shape. `GLOSSARY.md` has the
+dashboard terms.
 
 ## Conventions
 
@@ -47,6 +57,8 @@ are in `GLOSSARY.md`.
   `pm2 start`, which is the owner's call.
 - Modules say "agent", not "claude". Claude-specific code stays in `src/agentBackend/claude.ts`
   (and its stream parser). User-facing commands stay `claude*`.
+- Parse untyped data where it enters (`JSON.parse`, `catch`, Redis payloads, `gh` JSON, Claude
+  stream-json, HTTP bodies) with the helpers in `src/narrow.ts`, and type the result. No `any`.
 - Redis access goes through the `Store` interface (`src/redisStore.ts`). Tests use
   `test/helpers/memoryStore.ts`, kept honest by `test/store.contract.test.ts`.
 

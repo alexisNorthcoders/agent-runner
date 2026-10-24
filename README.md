@@ -17,6 +17,10 @@ cp .env.example .env        # optional; defaults work on the Pi
 pm2 start ecosystem.config.cjs && pm2 save
 ```
 
+Run `pm2 start` from a plain login shell. PM2 copies the calling shell's environment into the app,
+`pm2 save` keeps it, and agent runs inherit it. From a Claude Code shell, that would hand every run
+the harness's `CLAUDE*` variables.
+
 After the first start, **restart it only with `npm run safe-restart`** (or `claude:restart` from
 WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-restart).
 
@@ -32,7 +36,7 @@ WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-resta
 | `claude:queue` | List the requests waiting for the agent. |
 | `claude:queue clear` | Drop every waiting request. |
 | `claude:pause [<alias>] [2h] [reason]` | Pause by hand while you work in a repo yourself (duration `30m`, `2h`, `1d`, up to 7d; default 2h). With no alias, no new run starts anywhere: requests queue and the cron skips its ticks. With an alias, only issue runs there are refused (the cron moves on to the next workspace), and freeform runs are told to leave it alone. A run already going is not stopped. |
-| `claude:resume [<alias>]` | End that pause early, or with no alias every pause, the [usage-limit pause](#usage-limit) included (e.g. after a plan upgrade). |
+| `claude:resume [<alias>]` | End that pause early, or with no alias every pause, the [usage-limit pause](#usage-limit) included (for example, after a plan upgrade). |
 | `claude:restart` | Run safe-restart in the background, then report to the outbox. |
 | `claude:status` | Active run (with orphaned/stale warnings), pause, last cron tick, today's spend, last 3 runs. |
 | `claude:more [run-id prefix] <instructions>` | Continue the active freeform or Joplin run (queues behind it, then resumes its session; if it ends without one, the queued request reports that and starts nothing), else the newest in history (or the one matching the run-id prefix, like `agent:logs`; issue runs, jobs and sessionless runs get a one-line refusal): resumes its agent conversation (forked, so the parent's stays as it ended) in the parent's cwd. Queues and pauses like any freeform run (a second `claude:more` for a parent whose Continuation is still queued is appended to it, separated by `---`, keeping its place); its history row has `parentRunId` and a `↪` label. |
@@ -42,10 +46,10 @@ There is one run at a time. A run request (`claude …`, `joplin:`, `issue:`) th
 run is active, the runner is paused, or other requests are already waiting joins a FIFO queue
 (max 20) and gets a "Queued (position n)" reply. When a run finishes, the oldest queued request
 starts, and its "Started run …" reply (or why it couldn't start) goes to the outbox. The queue is
-in Redis, so it survives a restart, and the runner re-checks it every 15s (e.g. after a pause
+in Redis, so it survives a restart, and the runner re-checks it every 15s (for example, after a pause
 ends). The cron skips its tick while anything is queued. A due [scheduled job](#scheduled-jobs) joins
-the same queue. Status and history
-replies are a single compact message, with no log paths or excerpts.
+the same queue. Status and history replies are a single compact message, with no log paths or
+excerpts.
 
 ## Usage limit
 
@@ -57,14 +61,14 @@ rejected rate-limit event when it carries one, else from the `resets …` text (
 pause, so the next run acts as a probe. The pause only ever extends.
 
 While it holds, no new run starts: requests and scheduled jobs queue, and the cron skips its ticks
-(tick outcome `limited`). `owner` gets one message per hit, e.g. `⏸ Usage limit hit: pausing agent
+(tick outcome `limited`). `owner` gets one message per hit, for example `⏸ Usage limit hit: pausing agent
 runs until 07:02 (resets 7am Europe/London). 2 requests queued.` (a run reporting to `owner`, like
 the cron's, has its report in the same message). When the pause ends the queue and the cron pick up
 silently. The run's history row has `outcome: limited`. `claude:status` and `npm run agent:status`
 show the pause (`Paused: usage limit hit, until 07:02 (resets 7am Europe/London)`), and so do the
 office snapshot's `pauses.limit` and the dashboard's Now and Office tabs.
 
-To end it early (e.g. after a plan upgrade), send `claude:resume` with no alias or run `npm run
+To end it early (for example, after a plan upgrade), send `claude:resume` with no alias or run `npm run
 agent:resume`: they clear it along with any pauses by hand, and queued requests start (after
 `agent:resume`, on the runner's next queue check, within 15s). If the limit
 hasn't really lifted, the next run hits it again and sets a new pause.
@@ -72,7 +76,7 @@ hasn't really lifted, the next run hits it again and sets a new pause.
 An issue run the limit cuts short stops there. When the agent's own pass hits it, post-run commits
 the leftover work as WIP on the issue branch and skips the review and the autofix; when the autofix
 pass hits it, its leftover work is committed as WIP (not pushed) and nothing merges. No autofix pass
-starts while the pause holds. The run's result is `limited` and its one report says so, e.g.
+starts while the pause holds. The run's result is `limited` and its one report says so, for example
 `⏸ #7 — Fix it: the agent hit its usage limit. Its leftover work is committed as WIP \`abc1234\` on
 its branch. The cron resumes the issue after the reset.` A limited cron run isn't progress and
 records no PR attempt, so the cron works the issue again after the reset.
@@ -120,8 +124,8 @@ deletes stale active files on startup and on every cron tick, and keeps orphaned
 `claude issue:<alias>:<n>` branches **in place** in the target repo (no clone or worktree; see the
 ADR), under one lock like any other run:
 
-1. **Workspace**: `<alias>` must be in the allowlist (`CLAUDE_WORKSPACE_MAP` and/or the JSON
-   `CLAUDE_WORKSPACE_MAP_FILE`), resolved with realpath. Only issue runs use the allowlist.
+1. **Workspace**: `<alias>` must be in the allowlist (`CLAUDE_WORKSPACE_MAP`, the JSON
+   `CLAUDE_WORKSPACE_MAP_FILE`, or both), resolved with realpath. Only issue runs use the allowlist.
 2. **Prep**: `gh issue view` (the repo comes from `CLAUDE_ISSUE_REPO_MAP`, else the workspace's GitHub
    `origin`; unlike the bot, there is no fallback to WhatsappBot), then with a clean tree: fetch, check out and fast-forward the default branch (`main`
    or `master`, from `origin/HEAD`), and create `claude/issue-<n>-<slug>`. If that issue already
@@ -603,9 +607,16 @@ redis-cli HGETALL agent-runner:cron:last-started   # hdel a field to let the cro
 
 ## Safe restart
 
-`npm run safe-restart`: refuse if a run is active → set the pause flag → `pm2 restart agent-runner`
-→ wait for `/status` → clear the pause. The runner never clears a pause it didn't set. Agent runs
-are told the same rule in their prompt preamble.
+`npm run safe-restart` does these steps in order:
+
+1. Refuse if a run is active or the runner is already paused.
+2. Set the pause flag.
+3. Check the lock again, and refuse if a run started in between.
+4. Run `pm2 restart agent-runner`.
+5. Wait for `/status` to answer.
+6. Clear the pause flag, whatever the outcome.
+
+The runner never clears a pause it didn't set. The prompt preamble gives agent runs the same rule.
 
 ## Layout
 
@@ -623,6 +634,8 @@ are told the same rule in their prompt preamble.
 - `src/safeRestart.ts` + `bin/safe-restart.ts`: restart decision logic and the CLI.
 - `src/joplin.ts`: Joplin Data API client.
 - `src/workspaces.ts`: the issue-run workspace allowlist.
+- `src/narrow.ts`: narrows `unknown` at a boundary (parsed JSON, caught errors). Redis payloads, `gh`
+  JSON, Claude stream-json and HTTP bodies are parsed with it.
 - `src/issuePipeline/`: issue runs. `index.ts` is the entry point (`prepare` before the agent,
   `finish` after it, `commitInterruptedWork` for startup recovery), shared by manual runs and the
   cron. `gitWorkspace.ts` (branching, commits), `githubPr.ts` (PR, merge), `githubIssue.ts`,
@@ -645,3 +658,8 @@ are told the same rule in their prompt preamble.
 npm test            # typecheck, then node:test with injected fakes; the Redis contract test uses DB 15 if Redis is up
 npm run typecheck   # strict tsc over src, bin and test, then strict checkJs over dashboard/
 ```
+
+To see the service itself answer, use the `verify` skill. `.claude/skills/verify/sandbox.sh smoke`
+starts a copy of this checkout on its own port, Redis DB and logs, drives it through
+`POST /command`, `/status` and the office feed with a stub agent, and checks that production was
+left alone.
