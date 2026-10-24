@@ -17,6 +17,7 @@
     "agent:pause": "node bin/agent-cli.ts pause",
     "agent:resume": "node bin/agent-cli.ts resume",
     "repo-insight": "node bin/repo-insight.ts",
+    "issue-grill": "node bin/issue-grill.ts",
     "repo-insight:decide": "node bin/repo-insight-dry-run.ts",
     "repo-insight:bootstrap": "node bin/repo-insight-bootstrap.ts"
   },
