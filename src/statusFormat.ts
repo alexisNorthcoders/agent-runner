@@ -21,6 +21,7 @@ function byHandText(d: StatusSnapshot) {
 
 /** The usage-limit pause, e.g. `usage limit hit, until 07:02 (resets 7am Europe/London)`, or ''. */
 export const usageLimitText = (d: StatusSnapshot) => (d.usageLimit ? `usage limit hit, ${describeUsageLimitPause(d.usageLimit, d.now)}` : '');
+
 export type Colors = Record<'dim' | 'green' | 'red' | 'yellow' | 'bold' | 'cyan', (s: string) => string>;
 
 export const plain: Colors = { dim: (s) => s, green: (s) => s, red: (s) => s, yellow: (s) => s, bold: (s) => s, cyan: (s) => s };

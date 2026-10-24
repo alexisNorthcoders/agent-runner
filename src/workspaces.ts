@@ -1,7 +1,3 @@
-import { readFile, realpath, stat } from 'fs/promises';
-import { resolve as pathResolve } from 'path';
-import { errorText, isRecord } from './narrow.ts';
-
 /**
  * The workspace allowlist for issue runs: the only repos an issue run may branch, commit and push
  * in. It's a security boundary, so every configured path is canonicalized with realpath and a
@@ -13,14 +9,16 @@ import { errorText, isRecord } from './narrow.ts';
  * - `CLAUDE_ISSUE_DEFAULT_ALIAS`: the alias `claude issue:<n>` uses when no alias is given
  */
 
+import { readFile, realpath, stat } from 'fs/promises';
+import { resolve as pathResolve } from 'path';
+import { errorText, isRecord } from './narrow.ts';
+
 const ALIAS_RE = /^[a-zA-Z0-9_-]+$/;
 
-/**
- * @param str `alias=value,alias=value`
- */
+/** Parses `alias=value,alias=value`. Entries without a valid alias or a value are skipped. */
 export function parseCompactMap(str: string | undefined): Map<string, string> {
   const out: Map<string, string> = new Map();
-  for (const segment of String(str || '').split(',')) {
+  for (const segment of (str ?? '').split(',')) {
     const p = segment.trim();
     const eq = p.indexOf('=');
     if (eq <= 0) continue;
@@ -31,7 +29,7 @@ export function parseCompactMap(str: string | undefined): Map<string, string> {
   return out;
 }
 
-/** @returns canonical realpath of a directory */
+/** The canonical realpath of a directory. Throws when the path is missing or not a directory. */
 async function canonicalDir(rawPath: string): Promise<string> {
   let rp;
   try {
@@ -71,7 +69,7 @@ async function loadMapFile(file: string): Promise<Map<string, string>> {
  * applies without a restart.
  */
 export function createWorkspaceAllowlist({ env = process.env }: { env?: Record<string, string | undefined> } = {}) {
-  /** @returns alias → configured (not yet canonical) path */
+  /** Alias to configured path, not yet canonical. */
   async function configuredAliases(): Promise<Map<string, string>> {
     const file = env.CLAUDE_WORKSPACE_MAP_FILE?.trim();
     return new Map([...parseCompactMap(env.CLAUDE_WORKSPACE_MAP), ...(file ? await loadMapFile(file) : [])]);
@@ -97,9 +95,7 @@ export function createWorkspaceAllowlist({ env = process.env }: { env?: Record<s
       return out;
     },
 
-    /**
-     * @param alias null → `CLAUDE_ISSUE_DEFAULT_ALIAS`
-     */
+    /** A null `alias` means `CLAUDE_ISSUE_DEFAULT_ALIAS`. */
     async resolveIssueWorkspace(alias: string | null): Promise<{ alias: string; root: string }> {
       const aliases = await configuredAliases();
       const wanted = alias ?? env.CLAUDE_ISSUE_DEFAULT_ALIAS?.trim() ?? '';

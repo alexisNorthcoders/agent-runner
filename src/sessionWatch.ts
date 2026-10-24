@@ -1,12 +1,3 @@
-import { open, readdir, realpath as fsRealpath, stat } from 'fs/promises';
-import { basename, join } from 'path';
-import { applyTranscriptLines, emptyTranscript, listClaudeCwds, subagentCount } from './agentBackend/claudeTranscripts.ts';
-import { errorText } from './narrow.ts';
-import { canonicalPath, workspaceOfPaths } from './workspaceInference.ts';
-import type { TranscriptState } from './agentBackend/claudeTranscripts.ts';
-import type { NotifyChange } from './stateChanges.ts';
-import type { OfficeSession } from './officeWire.ts';
-
 /**
  * The session watch: which interactive agent sessions are open on this machine, which workspace
  * each is in, and whether the agent is working or waiting for the owner, for the office and
@@ -18,6 +9,15 @@ import type { OfficeSession } from './officeWire.ts';
  * from its tail). A session is open while its transcript is that recent; running agent processes
  * (`/proc`, best effort) only cap the sessions counted per cwd. Prompts and replies are never kept.
  */
+
+import { open, readdir, realpath as fsRealpath, stat } from 'fs/promises';
+import { basename, join } from 'path';
+import { applyTranscriptLines, emptyTranscript, listClaudeCwds, subagentCount } from './agentBackend/claudeTranscripts.ts';
+import { errorText } from './narrow.ts';
+import { canonicalPath, workspaceOfPaths } from './workspaceInference.ts';
+import type { TranscriptState } from './agentBackend/claudeTranscripts.ts';
+import type { NotifyChange } from './stateChanges.ts';
+import type { OfficeSession } from './officeWire.ts';
 
 export type TranscriptFile = { path: string; size: number; mtimeMs: number };
 

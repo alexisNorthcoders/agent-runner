@@ -1,15 +1,15 @@
-import { createServer } from 'http';
-import { errorText, recordOrEmpty } from './narrow.ts';
-import type { IncomingMessage, ServerResponse } from 'http';
-import type { createRunner } from './runner.ts';
-import type { createOfficeFeed } from './officeFeed.ts';
-
 /**
  * Localhost-only command API for the bot (bind to 127.0.0.1; there is no auth):
  *   POST /command {text, replyTo} → {reply}
  *   GET  /status                  → {busy, activeRun, paused, queued}
  *   GET  /office/feed             → the office feed, an SSE stream of snapshots (read-only)
  */
+
+import { createServer } from 'http';
+import { errorText, recordOrEmpty } from './narrow.ts';
+import type { IncomingMessage, ServerResponse } from 'http';
+import type { createRunner } from './runner.ts';
+import type { createOfficeFeed } from './officeFeed.ts';
 
 const MAX_BODY_BYTES = 256 * 1024;
 

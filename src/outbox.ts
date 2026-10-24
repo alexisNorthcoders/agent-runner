@@ -12,7 +12,7 @@ export const OUTBOX_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function createOutbox({ store, key = OUTBOX_KEY, retentionMs = OUTBOX_RETENTION_MS, now = Date.now }: { store: Store; key?: string; retentionMs?: number; now?: () => number }) {
   return {
-    /** @returns stream entry id */
+    /** Appends a message and returns its stream entry id. */
     async send({ replyTo, text, runId }: { replyTo: string; text: string; runId?: string | null }): Promise<string> {
       if (!replyTo) throw new Error('outbox: replyTo is required');
       const t = now();

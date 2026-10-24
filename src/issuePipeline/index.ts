@@ -1,3 +1,10 @@
+/**
+ * The GitHub issue pipeline behind `claude issue:<alias>:<n>` and the cron tracer: the two
+ * share `prepare` (fetch the issue, branch in place, build the prompt, with resume context) and
+ * `finish` (post-run, then one short outbox message). The runner owns the lock and the agent
+ * process in between.
+ */
+
 import { appendFile } from 'fs/promises';
 import { createExec } from './exec.ts';
 import { createGithubIssues } from './githubIssue.ts';
@@ -15,12 +22,6 @@ import type { Exec } from './exec.ts';
 import type { FetchLike } from './llm.ts';
 import type { SendMail } from './mailer.ts';
 
-/**
- * The GitHub issue pipeline behind `claude issue:<alias>:<n>` and the cron tracer: the two
- * share `prepare` (fetch the issue, branch in place, build the prompt, with resume context) and
- * `finish` (post-run, then one short outbox message). The runner owns the lock and the agent
- * process in between.
- */
 export type IssueRef = { number: number; repo: string; title: string };
 
 /** `limited`: the agent (the first pass or the autofix) hit its usage limit, so the run stopped short. */

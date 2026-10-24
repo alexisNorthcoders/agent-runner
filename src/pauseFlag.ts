@@ -1,12 +1,13 @@
-import { randomUUID } from 'crypto';
-import type { Store } from './redisStore.ts';
-
 /**
  * Runner-wide pause flag in Redis. While it is set the runner starts no new runs (and the cron
  * skips its ticks). Whoever sets it gets a token and only that token clears it, so
  * the runner never clears a pause it didn't set, e.g. on startup mid safe-restart. The TTL is a
  * safety net for a setter that dies before clearing.
  */
+
+import { randomUUID } from 'crypto';
+import type { Store } from './redisStore.ts';
+
 export type PauseRecord = { token: string | null; reason: string; pausedAt: string | null };
 
 export const PAUSE_KEY = 'agent-runner:paused';
@@ -14,7 +15,7 @@ export const DEFAULT_PAUSE_TTL_SECONDS = 10 * 60;
 
 export function createPauseFlag({ store, ttlSeconds = DEFAULT_PAUSE_TTL_SECONDS, key = PAUSE_KEY, now = Date.now }: { store: Store; ttlSeconds?: number; key?: string; now?: () => number }) {
   return {
-    /** @returns token, or null if already paused */
+    /** Returns the token that clears the pause, or null if already paused. */
     async set(reason: string): Promise<string | null> {
       const token = randomUUID();
       const record = { token, reason, pausedAt: new Date(now()).toISOString() };

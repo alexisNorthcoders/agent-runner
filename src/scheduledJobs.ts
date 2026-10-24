@@ -1,11 +1,3 @@
-import { readFile } from 'fs/promises';
-import { isAbsolute } from 'path';
-import { OWNER } from './outbox.ts';
-import { errorText, isRecord } from './narrow.ts';
-import type { Store } from './redisStore.ts';
-import type { createOutbox } from './outbox.ts';
-import type { JobScheduleEntry } from './officeWire.ts';
-
 /**
  * Scheduled jobs: commands the runner runs at a fixed UTC time, once a day or on a set weekday or day of the month, in place of crontab
  * lines. A due job joins the run queue as a `job` request and runs as-is under the lock (src/jobProcess.ts),
@@ -20,6 +12,15 @@ import type { JobScheduleEntry } from './officeWire.ts';
  *   without running if its time has already passed (its first run is tomorrow), else for yesterday
  *   (it runs today). That keeps a job moved over from crontab from running twice on the day it's moved.
  */
+
+import { readFile } from 'fs/promises';
+import { isAbsolute } from 'path';
+import { OWNER } from './outbox.ts';
+import { errorText, isRecord } from './narrow.ts';
+import type { Store } from './redisStore.ts';
+import type { createOutbox } from './outbox.ts';
+import type { JobScheduleEntry } from './officeWire.ts';
+
 /**
  * `at` is the time of day, `HH:MM` UTC. `weekday` (0–6, 0 = Sunday) or `monthDay` (1–28), never both,
  * limit the job to that UTC weekday or day of the month; without either it runs daily. `logFile` gets the command's stdout and stderr appended,

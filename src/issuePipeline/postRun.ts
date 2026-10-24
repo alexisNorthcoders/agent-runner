@@ -1,3 +1,10 @@
+/**
+ * Everything after the agent exits on an issue run: commit, push, open (or reuse) the PR, LLM
+ * review posted as a PR comment, one autofix pass on `VERDICT: REQUEST_CHANGES`, merge when the
+ * review gate passes, wait for the issue to close, the summary email, and back to the default
+ * branch. Each step can be turned off with its `CLAUDE_POST_RUN*` flag.
+ */
+
 import { readFile } from 'fs/promises';
 import { basename, join } from 'path';
 import { autoMergeAllowedByReviewGate, ghMessageLooksLikePrAlreadyExists, normalizePrReviewComment, parseAutofixNoChanges, pickPrResultAfterGhFlow } from './decisionLogic.ts';
@@ -13,12 +20,6 @@ import type { createLlm } from './llm.ts';
 import type { SendMail } from './mailer.ts';
 import type { PipelineSettings } from './settings.ts';
 
-/**
- * Everything after the agent exits on an issue run: commit, push, open (or reuse) the PR, LLM
- * review posted as a PR comment, one autofix pass on `VERDICT: REQUEST_CHANGES`, merge when the
- * review gate passes, wait for the issue to close, the summary email, and back to the default
- * branch. Each step can be turned off with its `CLAUDE_POST_RUN*` flag.
- */
 export type PostRunResult = {
   ran: boolean;
   note: string;

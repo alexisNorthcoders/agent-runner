@@ -1,11 +1,12 @@
-import nodemailer from 'nodemailer';
-import { errorText } from '../narrow.ts';
-import type { PipelineSettings } from './settings.ts';
-
 /**
  * Gmail SMTP for the post-close summary email (`GMAIL_EMAIL` / `GMAIL_PASSWORD`, an app password,
  * to `CLAUDE_REVIEW_EMAIL_TO`, default `GMAIL_EMAIL`).
  */
+
+import nodemailer from 'nodemailer';
+import { errorText } from '../narrow.ts';
+import type { PipelineSettings } from './settings.ts';
+
 export type SendMail = (subject: string, body: { text: string; html: string }) => Promise<{ ok: boolean; to?: string; error?: string }>;
 
 const escapeHtml = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

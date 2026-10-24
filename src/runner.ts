@@ -1,3 +1,10 @@
+/**
+ * The runner: turns a `claude…` command into at most one agent run at a time and reports every
+ * outcome through the outbox. A request that arrives while busy (or paused) waits in the run queue
+ * and starts when the runs ahead of it have finished. HTTP (src/http.ts) and startup (src/main.ts)
+ * are thin shells over it.
+ */
+
 import { randomUUID } from 'crypto';
 import { readFile, stat } from 'fs/promises';
 import { join } from 'path';
@@ -31,13 +38,6 @@ import type { NotifyChange } from './stateChanges.ts';
 import type { RunAgent, PostRunResult } from './issuePipeline/postRun.ts';
 import type { ScheduledJob } from './scheduledJobs.ts';
 import type { ActiveLog } from './logTail.ts';
-
-/**
- * The runner: turns a `claude…` command into at most one agent run at a time and reports every
- * outcome through the outbox. A request that arrives while busy (or paused) waits in the run queue
- * and starts when the runs ahead of it have finished. HTTP (src/http.ts) and startup (src/main.ts)
- * are thin shells over it.
- */
 
 const MAX_OUTBOX_TEXT = 30_000;
 const STDERR_TAIL = 800;
@@ -253,7 +253,9 @@ export function createRunner({
         onChange('inferred-workspace');
       },
     });
-    return (t) => void inference.touch(t);
+    return (t) => {
+      void inference.touch(t);
+    };
   }
 
   const setPhase = (a: ActiveRun, phase: ActiveRun['phase']) => {
@@ -893,7 +895,7 @@ export function createRunner({
   /**
    * The Parent run for a `claude:more`: the newest freeform or Joplin run in history, whatever its
    * outcome. A refusal's one line when there is none or it can't be resumed.
-   * @param runRef a run-id prefix: continue that run instead
+   * @param runRef a run-id prefix. Continue that run instead.
    */
   async function pickParent(runRef?: string): Promise<ContinuationParent | string> {
     const rows = await history.read();
@@ -937,7 +939,7 @@ export function createRunner({
   /**
    * Add a `claude:more` message to a Continuation of the same Parent already waiting in the queue,
    * so one agent gets both texts in order. Null when none is waiting.
-   * @param replyTo only the same sender's waiting request is added to: its report goes to them
+   * @param replyTo only the same sender's waiting request is added to, since its report goes to them
    * @param model a model prefix on this message replaces the queued request's model
    * @returns the reply
    */

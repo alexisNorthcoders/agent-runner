@@ -1,3 +1,10 @@
+/**
+ * Runs a scheduled job's command as-is: `sh -c <command>` in its directory, with stdout and stderr
+ * both appended to the log file through one file descriptor, exactly like a crontab line's
+ * `>> file 2>&1`. Nothing else is written to the file. The command runs in its own process group,
+ * so a stop or timeout kills everything it started.
+ */
+
 import { spawn } from 'child_process';
 import { closeSync, openSync } from 'fs';
 import { mkdir } from 'fs/promises';
@@ -6,12 +13,6 @@ import { augmentedPathEnv } from './processPath.ts';
 import { errorText } from './narrow.ts';
 import type { ChildProcess } from 'child_process';
 
-/**
- * Runs a scheduled job's command as-is: `sh -c <command>` in its directory, with stdout and stderr
- * both appended to the log file through one file descriptor, exactly like a crontab line's
- * `>> file 2>&1`. Nothing else is written to the file. The command runs in its own process group,
- * so a stop or timeout kills everything it started.
- */
 export type JobOutcome = 'success' | 'failed' | 'timeout' | 'stopped' | 'spawn_error';
 
 export type JobResult = { outcome: JobOutcome; exitCode: number | null; signal: string | null; error?: string };

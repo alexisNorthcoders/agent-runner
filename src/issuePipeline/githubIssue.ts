@@ -1,13 +1,13 @@
-import { parseCompactMap } from '../workspaces.ts';
-import { errorText, isRecord, numberOrNull, recordOrEmpty, stringOrNull } from '../narrow.ts';
-import type { Exec } from './exec.ts';
-import type { PipelineSettings } from './settings.ts';
-
 /**
  * Reads a GitHub issue with `gh` and renders it as the agent's prompt. Which repo the issue lives
  * in comes from `CLAUDE_ISSUE_REPO_MAP` for the alias, else the workspace's GitHub `origin`. Also
  * the cron's repo-wide lookups: open issues, their `blocked_by` count, and open agent PRs.
  */
+
+import { parseCompactMap } from '../workspaces.ts';
+import { errorText, isRecord, numberOrNull, recordOrEmpty, stringOrNull } from '../narrow.ts';
+import type { Exec } from './exec.ts';
+import type { PipelineSettings } from './settings.ts';
 
 export type OpenIssue = { number: number; title: string; labels: string[] };
 

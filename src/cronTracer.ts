@@ -1,17 +1,3 @@
-import { OWNER } from './outbox.ts';
-import { issueKey, prAttemptStateKey } from './cronState.ts';
-import { classifyGithubPrMergeability } from './issuePipeline/githubPr.ts';
-import { errorText } from './narrow.ts';
-import type { OpenIssue, OpenAgentPr, createGithubIssues } from './issuePipeline/githubIssue.ts';
-import type { CronStateStore } from './cronState.ts';
-import type { createRunner } from './runner.ts';
-import type { createRunLock } from './runLock.ts';
-import type { createPauseFlag } from './pauseFlag.ts';
-import type { createManualPause } from './manualPause.ts';
-import type { createUsageLimitPause } from './usageLimitPause.ts';
-import type { createOutbox } from './outbox.ts';
-import type { CronTickOutcome } from './officeWire.ts';
-
 /**
  * The cron issue tracer: every interval, find the next `ready-for-agent` issue across the cron's
  * workspaces (in alias order, one issue per tick) and run it through `runner.startIssueRun`, the
@@ -37,6 +23,20 @@ import type { CronTickOutcome } from './officeWire.ts';
  * - Each tick first deletes stale active-run files (owner and agent both gone), so status doesn't
  *   show a dead run forever.
  */
+
+import { OWNER } from './outbox.ts';
+import { issueKey, prAttemptStateKey } from './cronState.ts';
+import { classifyGithubPrMergeability } from './issuePipeline/githubPr.ts';
+import { errorText } from './narrow.ts';
+import type { OpenIssue, OpenAgentPr, createGithubIssues } from './issuePipeline/githubIssue.ts';
+import type { CronStateStore } from './cronState.ts';
+import type { createRunner } from './runner.ts';
+import type { createRunLock } from './runLock.ts';
+import type { createPauseFlag } from './pauseFlag.ts';
+import type { createManualPause } from './manualPause.ts';
+import type { createUsageLimitPause } from './usageLimitPause.ts';
+import type { createOutbox } from './outbox.ts';
+import type { CronTickOutcome } from './officeWire.ts';
 
 const READY_FOR_AGENT_LABEL = 'ready-for-agent';
 /** Issue run results that count as lasting progress. */
@@ -128,7 +128,7 @@ export async function classifyReadyIssues(github: Pick<ReturnType<typeof createG
   return { runnable, blocked, parked: parked.sort((a, b) => a.number - b.number) };
 }
 
-function truncate(s: string, max: number = 1500) {
+function truncate(s: string, max = 1500) {
   const t = String(s || '').replace(/\s+/g, ' ').trim();
   return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
 }

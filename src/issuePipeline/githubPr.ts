@@ -1,3 +1,8 @@
+/**
+ * `gh` calls for the PR half of post-run: open or find the PR, comment the review, wait for
+ * mergeability, merge (auto or direct, with the repo's allowed method), and poll the issue closed.
+ */
+
 import { writeFile, unlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -6,11 +11,6 @@ import { errorText, isRecord, recordOrEmpty } from '../narrow.ts';
 import { pollGithubIssueClosedOrTimeout } from './issueClosePoll.ts';
 import type { Exec } from './exec.ts';
 import type { PipelineSettings } from './settings.ts';
-
-/**
- * `gh` calls for the PR half of post-run: open or find the PR, comment the review, wait for
- * mergeability, merge (auto or direct, with the repo's allowed method), and poll the issue closed.
- */
 
 /** GitHub caps comments below 64 KiB; stay under with margin. */
 const GITHUB_PR_COMMENT_MAX_CHARS = 62_000;

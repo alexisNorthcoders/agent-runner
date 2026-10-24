@@ -1,17 +1,18 @@
-import { errorText } from './narrow.ts';
-import type { Store } from './redisStore.ts';
-
 /**
  * The runner's one internal "state changed" notification. Anything that changes what the status
  * views would show calls `notify`, and the office feed (src/officeFeed.ts) subscribes so it pushes
  * a new snapshot on change instead of polling. Notifications carry only a reason, for logs and
- * tests: subscribers re-read the state themselves, so a burst of changes can be coalesced.
+ * tests. Subscribers re-read the state themselves, so a burst of changes can be coalesced.
  *
  * Sources: every Redis state write (lock, queue, pauses, cron state) through `notifyingStore`, the
  * runner's in-memory changes (agent progress, phase, a run starting and ending), and writes by
  * other processes (the `agent:pause` CLI, safe-restart), which publish them on a Redis channel
  * (`STATE_CHANNEL` in src/redisStore.ts) the runner subscribes to.
  */
+
+import { errorText } from './narrow.ts';
+import type { Store } from './redisStore.ts';
+
 export type NotifyChange = (reason: string) => void;
 
 export function createStateChanges({ logger = console }: { logger?: Pick<Console, 'warn'> } = {}) {
@@ -26,7 +27,7 @@ export function createStateChanges({ logger = console }: { logger?: Pick<Console
         }
       }
     },
-    /** @returns unsubscribe */
+    /** Returns a function that unsubscribes. */
     subscribe(fn: NotifyChange): () => void {
       subscribers.add(fn);
       return () => subscribers.delete(fn);

@@ -1,24 +1,27 @@
-import { ALL, DEFAULT_MANUAL_PAUSE_SECONDS, MAX_MANUAL_PAUSE_SECONDS, parseDuration } from './manualPause.ts';
-
 /**
  * Parses the raw WhatsApp text the bot forwards (`claude…`) into a runner command. Pure.
  * User-facing commands keep the `claude` prefix even though the runner itself is agent-neutral.
  */
-export type Command = { kind: 'freeform'; prompt: string; model?: string } |
-{ kind: 'joplin'; noteQuery: string; model?: string } |
-{ kind: 'more'; instructions: string; runRef?: string; model?: string } |
-{ kind: 'issue'; issueNumber: number; alias: string | null; extraInstructions: string } |
-{ kind: 'stop' } |
-{ kind: 'restart' } |
-{ kind: 'status' } |
-{ kind: 'history'; count: number } |
-{ kind: 'queue'; clear: boolean } |
-  PauseCommand |
-{ kind: 'error'; message: string };
+
+import { ALL, DEFAULT_MANUAL_PAUSE_SECONDS, MAX_MANUAL_PAUSE_SECONDS, parseDuration } from './manualPause.ts';
+
+export type Command =
+  | { kind: 'freeform'; prompt: string; model?: string }
+  | { kind: 'joplin'; noteQuery: string; model?: string }
+  | { kind: 'more'; instructions: string; runRef?: string; model?: string }
+  | { kind: 'issue'; issueNumber: number; alias: string | null; extraInstructions: string }
+  | { kind: 'stop' }
+  | { kind: 'restart' }
+  | { kind: 'status' }
+  | { kind: 'history'; count: number }
+  | { kind: 'queue'; clear: boolean }
+  | PauseCommand
+  | { kind: 'error'; message: string };
 
 /** `scope` is `all` or a workspace alias; a resume with no scope clears every pause. */
-export type PauseCommand = { kind: 'pause'; scope: string; seconds: number; reason: string } |
-{ kind: 'resume'; scope: string | null };
+export type PauseCommand =
+  | { kind: 'pause'; scope: string; seconds: number; reason: string }
+  | { kind: 'resume'; scope: string | null };
 
 export const USAGE = `Usage:
 claude <instructions>  run the agent in ~/Projects
