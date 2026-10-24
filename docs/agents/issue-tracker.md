@@ -34,7 +34,8 @@ GitHub shares one number space across issues and PRs, so a bare `#42` may be eit
 
 ## When a skill says "publish to the issue tracker"
 
-Create a GitHub issue.
+Create a GitHub issue. Label it per `docs/agents/triage-labels.md`: a spec never gets
+`ready-for-agent`, and a ticket that gets `ready-for-agent` also gets a `model:` label.
 
 ## When a skill says "fetch the relevant ticket"
 
