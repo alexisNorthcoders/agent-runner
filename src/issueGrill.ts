@@ -75,10 +75,12 @@ const lastNonEmptyLine = (text: string) => text.split('\n').map((l) => l.trim())
  * check the decision-log comment landed. Returns the report line, or throws when no alias could be
  * read or the session left no decision log.
  */
-export async function runIssueGrill({ lookups, resolveWorkspace, launchSession }: {
+export async function runIssueGrill({ lookups, resolveWorkspace, launchSession, progress }: {
     lookups: Pick<ReturnType<typeof createIssueGrillLookups>, 'candidates' | 'isGrilled'>;
     resolveWorkspace: (alias: string) => Promise<{ root: string }>;
     launchSession: (p: { cwd: string; prompt: string }) => Promise<{ text: string }>;
+    /** Hears the pick before the session starts, so the live log names the issue for the whole run. */
+    progress: (line: string) => void;
   }): Promise<string> {
   const { candidates, failures, aliases } = await lookups.candidates();
   const pick = pickGrillCandidate(candidates);
@@ -87,6 +89,7 @@ export async function runIssueGrill({ lookups, resolveWorkspace, launchSession }
     return `issue-grill: nothing to grill${failures.length ? ` (failed: ${failures.join('; ')})` : ''}`;
   }
   const { root } = await resolveWorkspace(pick.alias);
+  progress(`issue-grill: grilling ${pick.alias} #${pick.number} "${pick.title}" (${pick.url})`);
   const { text } = await launchSession({ cwd: root, prompt: `/self-grill ${pick.url}` });
   if (!(await lookups.isGrilled(pick.repo, pick.number))) {
     throw new Error(`issue-grill: ${pick.alias} #${pick.number} finished without a decision log: ${lastNonEmptyLine(text).slice(0, 300)}`);
