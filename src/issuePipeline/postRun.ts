@@ -1,13 +1,13 @@
 /**
  * Everything after the agent exits on an issue run: commit, push, open (or reuse) the PR, LLM
- * review posted as a PR comment, one autofix pass on `VERDICT: REQUEST_CHANGES`, merge when the
- * review gate passes, wait for the issue to close, the summary email, and back to the default
- * branch. Each step can be turned off with its `CLAUDE_POST_RUN*` flag.
+ * review posted as a PR comment, one autofix pass on `VERDICT: REQUEST_CHANGES` and a second review
+ * of it, merge when the review gate passes, wait for the issue to close, the summary email, and
+ * back to the default branch. Each step can be turned off with its `CLAUDE_POST_RUN*` flag.
  */
 
 import { readFile } from 'fs/promises';
 import { basename, join } from 'path';
-import { autoMergeAllowedByReviewGate, ghMessageLooksLikePrAlreadyExists, normalizePrReviewComment, parseAutofixNoChanges, pickPrResultAfterGhFlow } from './decisionLogic.ts';
+import { VERDICT_APPROVE, autoMergeAllowedByReviewGate, ghMessageLooksLikePrAlreadyExists, normalizePrReviewComment, parseAutofixNoChanges, pickPrResultAfterGhFlow } from './decisionLogic.ts';
 import { runPostReviewAutofixMergeFlow } from './reviewFollowUp.ts';
 import { githubMergeMethodSummaryLabel } from './githubPr.ts';
 import { truncate } from './gitWorkspace.ts';
@@ -133,9 +133,11 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
   }
 
   /**
-   * Exactly one agent pass after REQUEST_CHANGES, then commit + push on the same branch.
+   * Exactly one agent pass after REQUEST_CHANGES, then commit + push on the same branch, then a
+   * second review of the whole branch. Only that review's APPROVE lets the PR merge: nothing else
+   * checks that the pass fixed what the first review asked for.
    */
-  async function runAutofix({ repo, issueNumber, prUrl, bodyMarkdown, prompt, runAgent }: { repo: string; issueNumber: number; prUrl: string; bodyMarkdown: string; prompt: string; runAgent: RunAgent }): Promise<AutofixResult> {
+  async function runAutofix({ repo, issueNumber, prUrl, bodyMarkdown, prompt, runAgent, prBase, codingStandards }: { repo: string; issueNumber: number; prUrl: string; bodyMarkdown: string; prompt: string; runAgent: RunAgent; prBase: string; codingStandards: string }): Promise<AutofixResult> {
     log('post-review autofix: starting a single agent pass', { issueNumber });
     const pre = await git.headSha(repo).catch(() => '');
     const agent = await runAgent({
@@ -212,7 +214,19 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
     if (!pushResult.ok) {
       return { ok: false, mergeBlocked: true, detail: `Autofix commit ${commit.sha} could not be pushed: ${pushResult.error}`, commit, pushResult, agentOutcome };
     }
-    return { ok: true, mergeBlocked: false, detail: `Autofix applied one pass, committed \`${commit.sha}\`, and pushed to origin.`, commit, pushResult, agentOutcome };
+    const pushed = `Autofix applied one pass, committed \`${commit.sha}\`, and pushed to origin.`;
+    const diff = await git.reviewDiffText(repo, { prBase }, { dirty: false, headMoved: true }, null, true);
+    const second = await llm.review(diff, prompt, codingStandards);
+    const { fullComment, verdict } = normalizePrReviewComment(second.text);
+    log('LLM review after autofix', { outcome: second.outcome, verdict, model: second.model, tokens: second.usage.total });
+    if (second.outcome !== 'success') {
+      return { ok: false, mergeBlocked: true, detail: `${pushed} The review after it did not complete (${second.outcome}), so nothing checked the fix.`, commit, pushResult, agentOutcome };
+    }
+    log('post-review PR comment', await prs.comment(repo, prUrl, fullComment));
+    if (verdict !== VERDICT_APPROVE) {
+      return { ok: false, mergeBlocked: true, detail: `${pushed} The review after it still requests changes (see its PR comment).`, commit, pushResult, agentOutcome };
+    }
+    return { ok: true, mergeBlocked: false, detail: `${pushed} The review after it approved.`, commit, pushResult, agentOutcome };
   }
 
   async function sendIssueClosedEmail(repo: string, issueNumber: number, prUrl: string | undefined) {
@@ -353,7 +367,7 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
       prAfterPushEnabled: () => settings.pr,
       commitOk: commit.ok,
       pushResultOk: Boolean(pushResult?.ok),
-      runSinglePostReviewAutofix: (p) => runAutofix({ repo, issueNumber, prUrl: p.prUrl, bodyMarkdown: p.bodyMarkdown, prompt: userPrompt, runAgent }),
+      runSinglePostReviewAutofix: (p) => runAutofix({ repo, issueNumber, prUrl: p.prUrl, bodyMarkdown: p.bodyMarkdown, prompt: userPrompt, runAgent, prBase: workBranch.prBase, codingStandards }),
       tryGhPrReviewComment: prs.comment,
       tryGhPrQueueAutoMerge: prs.queueAutoMerge,
       waitForGithubIssueClosed: prs.waitForIssueClosed,
@@ -423,7 +437,7 @@ export function createPostRun({ git, prs, llm, sendMail, settings, log = () => {
         }
       } else if (reviewOutcome === 'success' && !autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix })) {
         parts.push(
-          'Auto-merge was **not** queued: requires **VERDICT: APPROVE**, or **VERDICT: REQUEST_CHANGES** together with a **successful autofix** commit pushed to the PR branch or an autofix decline (`AUTOFIX_NO_CHANGES`).'
+          'Auto-merge was **not** queued: requires **VERDICT: APPROVE**, or **VERDICT: REQUEST_CHANGES** together with a **successful autofix** commit pushed to the PR branch that a second review approved, or an autofix decline (`AUTOFIX_NO_CHANGES`).'
         );
       }
     }

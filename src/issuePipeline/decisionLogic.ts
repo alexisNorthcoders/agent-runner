@@ -41,8 +41,8 @@ export function ghMessageLooksLikePrAlreadyExists(msg: string | null | undefined
 }
 
 /**
- * REQUEST_CHANGES passes once the autofix pass either pushed a fix or declined the feedback with
- * `AUTOFIX_NO_CHANGES` (the agent overrules the reviewer).
+ * REQUEST_CHANGES passes once the autofix pass either pushed a fix that a second review approved
+ * (`ok`), or declined the feedback with `AUTOFIX_NO_CHANGES` (the agent overrules the reviewer).
  */
 export function autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix }: { reviewOutcome: string; reviewVerdict: string; postReviewAutofix: { ok?: boolean; noChanges?: boolean; mergeBlocked?: boolean; detail?: string } | null }) {
   if (reviewOutcome !== 'success') return false;

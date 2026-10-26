@@ -265,7 +265,7 @@ describe('issue pipeline: finish', () => {
     assert.equal(fin.message, 'ℹ️ #7 — Fix it: the agent made no changes.');
   });
 
-  it('full post-run: commit, push, PR, review asks for changes, one autofix, merge, issue closed, email, back to main', async () => {
+  it('full post-run: commit, push, PR, review asks for changes, one autofix, a second review approves it, merge, issue closed, email, back to main', async () => {
     const { origin, repo } = await cloneWithOrigin();
     const PR = 'https://github.com/o/r/pull/5';
     let merged = false;
@@ -307,9 +307,12 @@ describe('issue pipeline: finish', () => {
     const fetchFn = async (url: string, init: { body: string }) => {
       llmUrls.push(url);
       const body: { messages: { content: string }[] } = JSON.parse(init.body);
+      const reviews = llmUrls.filter((u) => !u.includes('deepinfra')).length;
       const content = url.includes('deepinfra')
         ? 'We shipped the fix.'
-        : (assert.match(body.messages[1].content, /\+fixed/), 'VERDICT: REQUEST_CHANGES\n\n- `fix.txt`: also handle the edge case');
+        : reviews === 1
+          ? (assert.match(body.messages[1].content, /\+fixed/), 'VERDICT: REQUEST_CHANGES\n\n- `fix.txt`: also handle the edge case')
+          : (assert.match(body.messages[1].content, /\+edge case/), 'VERDICT: APPROVE');
       return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 10 } }) };
     };
     const mails: { subject: string; body: Parameters<SendMail>[1] }[] = [];
@@ -345,6 +348,7 @@ describe('issue pipeline: finish', () => {
     assert.equal(autofixPrompts.length, 1);
     assert.match(autofixPrompts[0], /also handle the edge case/);
     assert.match(comments[0], /^VERDICT: REQUEST_CHANGES/);
+    assert.match(comments[1], /^VERDICT: APPROVE/);
     assert.equal(fin.post.commit?.message, 'fix: Fix it (#7)');
     assert.equal(fin.post.postReviewAutofix?.ok, true);
     assert.equal(fin.post.prAutoMergeResult?.mergedDirectly, true);
@@ -352,11 +356,60 @@ describe('issue pipeline: finish', () => {
     assert.equal(mails.length, 1);
     assert.match(mails[0].subject, /^\[.+\] Issue #7 closed: Fix it$/);
     assert.match(mails[0].body.text, /^Issue #7: Fix it\nIssue: https:\/\/github\.com\/o\/r\/issues\/7\nPull request: \S+\n\n---\n\nWe shipped the fix\.$/);
-    assert.equal(llmUrls.length, 2);
+    assert.equal(llmUrls.length, 3);
     // back on an up-to-date main that has both the agent's and the autofix commit
     assert.equal(await git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']), 'main');
     assert.equal(await git(repo, ['rev-parse', 'HEAD']), await git(origin, ['rev-parse', 'main']));
     assert.equal(await readFile(join(repo, 'fix.txt'), 'utf8'), 'fixed\nedge case\n');
+  });
+
+  it('an autofix the second review still rejects: no merge, the PR stays open on its branch', async () => {
+    const { repo } = await cloneWithOrigin();
+    const PR = 'https://github.com/o/r/pull/5';
+    const comments: string[] = [];
+    const gh = async (args: string[]) => {
+      const [a, b] = args;
+      if (a === 'issue' && b === 'view') return args.includes('state') ? JSON.stringify({ state: 'OPEN' }) : ISSUE_JSON;
+      if (a === 'pr' && b === 'list') return '[]';
+      if (a === 'pr' && b === 'create') return `${PR}\n`;
+      if (a === 'pr' && b === 'comment') {
+        comments.push(await readFile(args[args.indexOf('--body-file') + 1], 'utf8'));
+        return '';
+      }
+      if (a === 'pr' && b === 'merge') assert.fail('must not merge');
+      throw new Error(`unexpected gh ${args.join(' ')}`);
+    };
+    let reviews = 0;
+    const fetchFn = async () => {
+      reviews++;
+      const content = reviews === 1 ? 'VERDICT: REQUEST_CHANGES\n\n- `fix.txt`: make the check pass' : 'VERDICT: REQUEST_CHANGES\n\n- `fix.txt`: the check still fails';
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 10 } }) };
+    };
+    const p = pipeline(gh, { OPENAI_API_KEY: 'k' }, { fetchFn });
+    const prep = await p.prepare({ issueNumber: 7, alias: 'a', workspaceRoot: repo });
+    await writeFile(join(repo, 'fix.txt'), 'fixed\n');
+    let autofixes = 0;
+    const fin = await p.finish({
+      repo,
+      prompt: prep.prompt,
+      issue: prep.issue,
+      agent: { outcome: 'success', exitCode: 0, stderr: '' },
+      preAgentHeadSha: prep.preAgentHeadSha,
+      logPath: join(repo, '..', `${Date.now()}-rereview.log`),
+      runAgent: async () => {
+        autofixes++;
+        await writeFile(join(repo, 'fix.txt'), 'relabelled\n');
+        return { outcome: 'success', exitCode: 0, text: 'Done.', stderr: '' };
+      },
+    });
+    assert.equal(autofixes, 1);
+    assert.equal(reviews, 2);
+    assert.equal(fin.post.prAutoMergeResult, null);
+    assert.equal(fin.post.postReviewAutofix?.mergeBlocked, true);
+    assert.match(fin.message, /^⚠️ #7 — Fix it: merge blocked by the autofix pass — needs a look\.$/);
+    assert.match(comments[1], /^VERDICT: REQUEST_CHANGES\n\n- `fix\.txt`: the check still fails/);
+    assert.match(comments[2], /still requests changes/);
+    assert.notEqual(await git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']), 'main');
   });
 
   it('an approved PR whose merge only hit network errors: says so, with the usual message', async () => {

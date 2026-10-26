@@ -69,6 +69,7 @@ const REVIEW_SYSTEM_PROMPT = [
   `For ${VERDICT_REQUEST_CHANGES}: list only the specific blocking issues (usually 1-3, never padded) as bullets, each naming the file/location, what is wrong, and what to do about it — precise enough that a single automated pass can fix it without asking a follow-up question.`,
   'If the diff is empty or not really code, still pick the more appropriate verdict and explain briefly.',
   'The diff is your only view of the code. A blocking issue must be visible in the diff itself: when a concern depends on code outside it (what a field holds, what a helper returns), raise it as a note naming the assumption, not as a blocker.',
+  `When the intent lists acceptance criteria, check the diff against each one. A criterion the diff plainly does not deliver (it asks for a check to pass, and the diff only changes how the failure is reported) is a material problem (${VERDICT_REQUEST_CHANGES}); name the criterion. A criterion the diff cannot show (a PR description, a manual run) is not a blocker.`,
   `When the user message includes the repository's coding standards, a clear violation of one of them in the diff is a material problem (${VERDICT_REQUEST_CHANGES}); cite the rule.`,
 ].join('\n');
 

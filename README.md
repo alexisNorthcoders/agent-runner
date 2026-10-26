@@ -133,7 +133,8 @@ ADR), under one lock like any other run:
    (commits, uncommitted files, an open PR and its conflicts). A prep failure is the HTTP reply.
 3. **Agent**: Claude with the `/implement` skill, in the repo.
 4. **Post-run** (`src/issuePipeline/postRun.ts`): commit, push, open or reuse the PR (`Fixes #n`), an
-   LLM review posted as a PR comment, **one** autofix agent pass on `VERDICT: REQUEST_CHANGES`, then
+   LLM review posted as a PR comment, **one** autofix agent pass on `VERDICT: REQUEST_CHANGES` and a
+   second review of the whole branch (a second `REQUEST_CHANGES` leaves the PR open, unmerged), then
    merge (auto-merge, or a direct merge when there's no gate) with the repo's allowed method, wait
    for the issue to close, the summary email, and back to the default branch. If the agent didn't
    finish, its leftover work is committed as a WIP snapshot so the next run resumes.
