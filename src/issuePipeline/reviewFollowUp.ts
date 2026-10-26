@@ -74,7 +74,7 @@ export async function runPostReviewAutofixMergeFlow({
         logPost('post-review autofix decline PR comment', declineComment);
       } else if (postReviewAutofix.mergeBlocked && prResult.ok) {
         const gateBody = [
-          '**agent-runner — automated autofix failed**',
+          '**agent-runner — merge blocked after the autofix**',
           '',
           postReviewAutofix.detail,
           '',
