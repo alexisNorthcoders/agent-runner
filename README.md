@@ -139,7 +139,8 @@ ADR), under one lock like any other run:
    for the issue to close, the summary email, and back to the default branch. If the agent didn't
    finish, its leftover work is committed as a WIP snapshot so the next run resumes.
 5. **One outbox message**: `✅ #n merged — title`, `✅ #n PR open …`, or `⚠️ #n: <problem> — needs a
-   look.` The full narrative is appended to the run log.
+   look.` A failed summary email is a footnote on the `✅` line, since the merge already happened.
+   The full narrative is appended to the run log.
 
 Each post-run step has a `CLAUDE_POST_RUN*` flag (see `.env.example`). `claude:stop` stops the
 agent or the autofix pass; post-run's `gh`/`git` steps themselves run to completion.
@@ -168,7 +169,8 @@ in-process cron (`CRON_ISSUE_TRACER_DISABLE=1` in its `.env`) before enabling th
   so the next tick retries it (an empty run, which the runner otherwise keeps quiet about, gets a
   one-line note to `owner`).
 - **Open agent PRs** are worked once per PR state (head commit + base tip). While that state is
-  unchanged the issue is parked, and the owner is told once.
+  unchanged the issue is parked, and the owner is told once, unless the run that left it there
+  made progress: its own `✅ PR open` or `⚠️ merge blocked` message already said so.
 - If the issue can't be fetched or branched, the owner is told and the next tick retries.
 
 State is in Redis (below) and starts fresh: nothing is migrated from the bot's JSON files.
