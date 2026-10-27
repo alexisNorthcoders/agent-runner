@@ -39,6 +39,11 @@ describe('buildIssueRunMessage', () => {
     assert.ok(!msg.includes('\n'));
   });
 
+  it('still leads with merged when only the post-close summary email failed', () => {
+    const msg = buildIssueRunMessage({ issue, agentOk: true, post: { ...okPost, postCloseChangesEmail: { ok: false, step: 'deepinfra', error: 'HTTP 429' } } });
+    assert.equal(msg, '✅ #114 merged — Fix the thing (summary email failed: deepinfra)');
+  });
+
   it('returns PR open with url when no merge was queued', () => {
     const msg = buildIssueRunMessage({
       issue,

@@ -9,9 +9,11 @@
  *   not picked again in its repo, even while still open. A failed, empty or timed-out run is
  *   retried next tick.
  * - An issue with an open agent PR is worked once per PR state (head commit + base tip). While the
- *   state is unchanged the issue is parked, and the owner is told once. The exception is a PR that
- *   passed review but whose merge failed only on a network error: no attempt is recorded, and it is
- *   not progress, so the next tick works it again and post-run retries the merge. A run the usage
+ *   state is unchanged the issue is parked, and the owner is told once, unless the run that left
+ *   it there made progress: its own message (`✅ PR open`, `⚠️ merge blocked`) already said so.
+ *   The exception is a PR that passed review but whose merge failed only on a network error: no
+ *   attempt is recorded, and it is not progress, so the next tick works it again and post-run
+ *   retries the merge. A run the usage
  *   limit cut short (result `limited`) records no attempt either, so the issue is worked again
  *   after the reset.
  * - An issue whose last NO_CHANGES_LIMIT runs all made no changes is parked (skipped), and the
@@ -189,13 +191,17 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
 
   /**
    * After a run, remember the state its PR (if one is open now) was left in, so an unchanged
-   * blocked PR is parked instead of re-run next tick.
+   * blocked PR is parked instead of re-run next tick. `reported`: the run's own message already
+   * told the owner where this PR stands, so parking it in this state sends no second notice.
    */
-  async function recordPrState(repo: string, issueNumber: number) {
+  async function recordPrState(repo: string, issueNumber: number, reported: boolean) {
     try {
       const { openPrs, baseShaByBranch } = await loadOpenAgentPrs(github, repo);
       const pr = openPrs.get(issueNumber);
-      if (pr) await state.setPrAttempt(repo, issueNumber, prStateKey(pr, baseShaByBranch));
+      if (!pr) return;
+      const stateKey = prStateKey(pr, baseShaByBranch);
+      await state.setPrAttempt(repo, issueNumber, stateKey);
+      if (reported) await state.setParkNotice(repo, issueNumber, stateKey);
     } catch (err) {
       logger.warn(`cron: could not record the PR state of ${repo}#${issueNumber}: ${errorText(err)}`);
     }
@@ -211,6 +217,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
     }
     // no PR attempt when the PR's state isn't a verdict on it: the merge is retried, or the run was cut short
     let skipPrAttempt = false;
+    let progress = false;
     try {
       const run = await started.done;
       const result = run?.result;
@@ -226,6 +233,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
         await state.setLastStarted(repo, issue.number);
         await state.clearNoChanges(repo, issue.number);
         outcome.result = 'progress';
+        progress = true;
       } else {
         // failed, timeout, limited and no_changes stay distinct in the tick state; none of them is progress
         outcome.result = result || 'no_progress';
@@ -247,7 +255,7 @@ export function createCronTracer({ startIssueRun, lock, pause, manualPause, usag
       outcome.note = truncate(e, 200);
       await tell(`Cron (${alias}): the run for ${repo}#${issue.number} failed: ${truncate(e)}`);
     } finally {
-      if (!skipPrAttempt) await recordPrState(repo, issue.number);
+      if (!skipPrAttempt) await recordPrState(repo, issue.number, progress);
     }
     return outcome;
   }

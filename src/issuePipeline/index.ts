@@ -105,18 +105,18 @@ export function buildIssueRunMessage({ issue, agentOk, agent, post, postErrMessa
   if (post.pushResult && !post.pushResult.ok) return attention(`push failed (${post.pushResult.error ?? 'unknown error'})`);
   if (post.prResult && !post.prResult.ok) return attention(`PR creation failed (${post.prResult.error ?? 'unknown error'})`);
   if (post.postReviewAutofix?.mergeBlocked) return attention('merge blocked by the autofix pass');
-  if (post.postCloseChangesEmail && !post.postCloseChangesEmail.ok) {
-    return attention(`post-close summary email failed (${post.postCloseChangesEmail.step ?? 'unknown step'})`);
-  }
   if (post.prAutoMergeResult && !post.prAutoMergeResult.ok) return attention(`auto-merge was not enabled (${post.prAutoMergeResult.error ?? 'unknown error'})`);
 
   const url = post.prResult?.url ? ` ${post.prResult.url}` : '';
   const title = issue.title ? ` — ${issue.title}` : '';
+  // the email comes after the merge, so its failure is a footnote, not the headline
+  const email = post.postCloseChangesEmail;
+  const emailNote = email && !email.ok ? ` (summary email failed: ${email.step ?? 'unknown step'})` : '';
   const merge = post.prAutoMergeResult;
-  if (merge?.ok && (merge.mergedDirectly || post.issueCloseWait?.closed)) return `✅ #${issue.number} merged${title}`;
-  if (merge?.ok) return `✅ #${issue.number} merge queued${title}${url}`;
-  if (post.prResult?.ok) return `✅ #${issue.number} PR open${title}${url}`;
-  return `✅ #${issue.number} pushed${title}`;
+  if (merge?.ok && (merge.mergedDirectly || post.issueCloseWait?.closed)) return `✅ #${issue.number} merged${title}${emailNote}`;
+  if (merge?.ok) return `✅ #${issue.number} merge queued${title}${url}${emailNote}`;
+  if (post.prResult?.ok) return `✅ #${issue.number} PR open${title}${url}${emailNote}`;
+  return `✅ #${issue.number} pushed${title}${emailNote}`;
 }
 
 /**

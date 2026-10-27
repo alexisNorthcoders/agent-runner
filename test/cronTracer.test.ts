@@ -474,7 +474,7 @@ describe('cron tick: open agent PRs', () => {
       assert.deepEqual(h.ran(), ['bot#5', 'bot#5']);
     });
 
-    it('for a real reason: saves the PR attempt and sets the PR aside, as before', async () => {
+    it('for a real reason: saves the PR attempt and sets the PR aside without a second notice', async () => {
       const h = mergeFailed({ result: 'pr_open', mergeNetworkError: false });
       h.setIssues({ [REPO]: [ready(5), ready(6)], [REPO_P]: [] });
       assert.deepEqual(await h.tracer.tick(), { kind: 'ran', repo: REPO, issue: 5, result: 'progress' });
@@ -484,6 +484,12 @@ describe('cron tick: open agent PRs', () => {
       await h.state.setLastStarted(REPO, 6); // so only the parked PR keeps #5 from running
       assert.deepEqual(await h.tracer.tick(), { kind: 'no_eligible' });
       assert.deepEqual(h.ran(), ['bot#5']);
+      assert.deepEqual(h.sent.filter((m) => m.text.includes('parking')), [], "the run's own message already said the merge was blocked");
+
+      // someone pushes to the PR outside a run: a new state, so the owner hears about it
+      h.setOpenPrs(new Map([[REPO, new Map([[5, { ...approvedPr, headSha: 'head2' }]])]]));
+      await h.state.setPrAttempt(REPO, 5, 'head2:base0');
+      await h.tracer.tick();
       const notes = h.sent.filter((m) => m.text.includes('parking'));
       assert.equal(notes.length, 1);
       assert.match(notes[0].text, /the review \/ merge gate did not let it merge/);
