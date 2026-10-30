@@ -101,6 +101,24 @@ describe('spec:approve and spec:revise preconditions', () => {
     assert.match(String(r), /Not revised.*spec to review.*claude spec:approve:bot:5.*Nothing changed/);
   });
 
+  const orders: Array<[string, string[], 'approve' | 'revise']> = [
+    ['log, proposal, chatter', [log, proposal(1), 'thanks'], 'revise'],
+    ['several proposals', [log, proposal(1), proposal(2)], 'revise'],
+    ['re-grill after proposal', [log, proposal(1), log], 'approve'],
+    ['re-grill after several proposals', [log, proposal(1), proposal(2), 'tweak', log], 'approve'],
+    ['proposal after re-grill', [log, proposal(1), log, proposal(2)], 'revise'],
+    ['re-grill, proposal, re-grill', [log, proposal(1), log, proposal(2), log], 'approve'],
+  ];
+  for (const [name, comments, fits] of orders) {
+    const other = fits === 'approve' ? 'revise' : 'approve';
+    it(`${name}: ${fits} runs, ${other} is refused naming ${fits}`, async () => {
+      const issue = { ...spec, comments };
+      assert.ok(typeof (await run(fits, issue)) !== 'string');
+      assert.match(String(await run(other, issue)), /Nothing changed/);
+      assert.match(String(await run(other, issue)), new RegExp(`claude spec:${fits}:bot:5`));
+    });
+  }
+
   it('landed is the new proposal comment link, and null without a new proposal', async () => {
     const before = await run('revise', proposed);
     assert.ok(typeof before !== 'string');
