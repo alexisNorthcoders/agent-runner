@@ -17,7 +17,10 @@ export type SpecState = 'not-a-spec' | 'to-review' | 'breakdown-to-approve';
 
 const PROPOSAL_MARKER = /^Ticket proposal \(draft (\d+)\)\s*(\n|$)/;
 const RECORD_MARKER = /^Published tickets\s*(\n|$)/;
+const RECORD_DRAFT = /^From: Ticket proposal \(draft (\d+)\)\s*$/m;
 const isRecord = (body: string) => RECORD_MARKER.test(body.trimStart());
+/** Whether a comment is a `Published tickets` record made from this draft of the Ticket proposal. */
+const isRecordOfDraft = (body: string, draft: string | undefined) => isRecord(body) && body.match(RECORD_DRAFT)?.[1] === draft;
 const isProposal = (body: string) => PROPOSAL_MARKER.test(body.trimStart());
 const proposalCount = (comments: readonly string[]) => comments.filter(isProposal).length;
 
@@ -65,23 +68,25 @@ export type SpecRun = {
 const PAST: Record<SpecRunAction, string> = { regrill: 'regrilled', approve: 'approved', revise: 'revised', publish: 'published' };
 
 /**
- * Why a Ticket proposal can't be published yet, or null. A `Published tickets` comment is the record
- * an earlier publish left, not feedback, so it doesn't count as a comment after the proposal.
+ * Why a Ticket proposal can't be published yet, or null. A `Published tickets` comment made from
+ * this very proposal is the record an earlier publish left, not feedback, so it doesn't count as a
+ * comment after the proposal. Any other later comment does.
  */
 function publishRefusal(comments: readonly string[], ref: string): string | null {
   const proposal = latestProposal(comments);
   if (specState(comments) !== 'breakdown-to-approve' || !proposal) return `it has no Ticket proposal yet, so approve it with claude spec:approve:${ref}`;
-  if (comments.slice(proposal.index + 1).some((c) => !isRecord(c))) return `someone commented after the latest Ticket proposal, so answer it with claude spec:revise:${ref} first`;
+  const draft = comments[proposal.index].match(PROPOSAL_MARKER)?.[1];
+  if (comments.slice(proposal.index + 1).some((c) => !isRecordOfDraft(c, draft))) return `someone commented after the latest Ticket proposal, so answer it with claude spec:revise:${ref} first`;
   return null;
 }
 
-/** The link to every proposed ticket's issue when the latest `Published tickets` record lists them all, else null. */
+/** The link to every proposed ticket's issue when the latest `Published tickets` record of the latest proposal lists them all, else null. */
 function publishedLinks(issue: Pick<IssueDetail, 'url' | 'comments'>): string | null {
   const proposal = latestProposal(issue.comments);
-  const record = issue.comments.findLast(isRecord);
-  if (!proposal || !record) return null;
+  if (!proposal) return null;
   const draft = issue.comments[proposal.index].match(PROPOSAL_MARKER)?.[1];
-  if (record.match(/^From: Ticket proposal \(draft (\d+)\)\s*$/m)?.[1] !== draft) return null;
+  const record = issue.comments.slice(proposal.index + 1).findLast((c) => isRecordOfDraft(c, draft));
+  if (!record) return null;
   const rows = new Map([...record.matchAll(/^- (\d+): #(\d+)\s*$/gm)].map((m) => [Number(m[1]), Number(m[2])]));
   const repoUrl = issue.url.replace(/\/\d+$/, '');
   const links: string[] = [];

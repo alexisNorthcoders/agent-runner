@@ -154,6 +154,12 @@ describe('spec:publish', () => {
     assert.ok(typeof (await run({ ...proposed, comments: [log, twoTickets, record('- 1: #8')] })) !== 'string');
   });
 
+  it('refuses a later comment even beside its own record, and a record of another draft', async () => {
+    const stale = record('- 1: #8').replace('draft 1', 'draft 2');
+    assert.match(String(await run({ ...proposed, comments: [log, twoTickets, record('- 1: #8'), 'one more thing'] })), /commented after/);
+    assert.match(String(await run({ ...proposed, comments: [log, twoTickets, stale] })), /commented after/);
+  });
+
   it('landed links every proposed ticket, and is null with a gap, no record or another draft', async () => {
     const before = await run(proposed);
     assert.ok(typeof before !== 'string');
@@ -162,5 +168,7 @@ describe('spec:publish', () => {
     assert.equal(await landed([log, twoTickets, record('- 1: #8')]), null);
     assert.equal(await landed([log, twoTickets]), null);
     assert.equal(await landed([log, twoTickets, record('- 1: #8', '- 2: #9').replace('draft 1', 'draft 2')]), null);
+    assert.equal(await landed([record('- 1: #8', '- 2: #9'), log, twoTickets]), null);
+    assert.equal(await landed([log, twoTickets, record('- 1: #8', '- 2: #9'), record('- 1: #8')]), null);
   });
 });
