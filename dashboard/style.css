@@ -169,3 +169,11 @@ dd {
 #panel summary {
   cursor: pointer;
 }
+.spec-actions {
+  margin-left: 0.5rem;
+}
+.copy-command {
+  font: inherit;
+  font-size: 0.75rem;
+  margin-right: 0.25rem;
+}

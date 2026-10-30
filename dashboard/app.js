@@ -1,7 +1,7 @@
 // The office dashboard: listens to the office feed (`feed`, next to this page), draws the office
 // floor on a canvas, and renders the panel's Now, Issues, History and Office tabs as text and tables. No
 // build step, no dependencies. The snapshot shape is `OfficeSnapshot` in src/officeWire.ts.
-import { ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, what } from './format.js';
+import { SPEC_ACTIONS, ago, describeCronOutcome, formatCost, formatDuration, formatTokens, formatTotals, remaining, shortModel, specCommand, what } from './format.js';
 import { cartSlots, clickFilter, deskAt, fitScene, folderSlots, inTraySlots, inside, layoutOffice, placeName, placeRect, sessionDesk, stickyNote, workerRect } from './layout.js';
 import { applyLogEvent } from './logPane.js';
 import { drawOffice } from './officeView.js';
@@ -210,6 +210,33 @@ const issueLink = (i, extra) => h('li', null, h('a', { href: i.url, target: '_bl
 /** @param {string} title @param {Node[]} items */
 const issueList = (title, items) => (items.length ? [h('h4', null, `${title} (${items.length})`), h('ul', null, ...items)] : []);
 
+/** @param {'spec' | 'breakdown'} kind @param {string} alias @param {number} number */
+function specButtons(kind, alias, number) {
+  return h(
+    'span',
+    { class: 'spec-actions' },
+    ...SPEC_ACTIONS[kind].map((action) => {
+      const command = specCommand(action, alias, number);
+      const button = h('button', { type: 'button', class: 'copy-command', title: `Copy: ${command}` }, action);
+      button.addEventListener('click', () => {
+        navigator.clipboard.writeText(command).then(
+          () => flash(button, action, 'copied'),
+          () => flash(button, action, 'copy failed')
+        );
+      });
+      return button;
+    })
+  );
+}
+
+/** @param {HTMLElement} el @param {string} label @param {string} message */
+function flash(el, label, message) {
+  el.textContent = message;
+  setTimeout(() => {
+    el.textContent = label;
+  }, 1500);
+}
+
 /**
  * The issues waiting on you, across `repos`, most actionable first. Each names its repo when there
  * is more than one.
@@ -220,16 +247,24 @@ function needsYou(repos) {
    * @template {{ number: number, title: string, url: string }} I
    * @param {(r: import('../src/officeWire.ts').OfficeIssueRepo) => I[]} pick @param {(i: I) => string} [note]
    * @param {(i: I) => string} [href] where the number links, if not the issue
+   * @param {'spec' | 'breakdown'} [kind] adds this kind's copy buttons
    */
-  const across = (pick, note, href) =>
-    repos.flatMap((r) => pick(r).map((i) => issueLink(href ? { ...i, url: href(i) } : i, h('span', { class: 'dim' }, [repos.length > 1 ? r.alias : '', note?.(i) ?? ''].filter(Boolean).map((x) => ` · ${x}`).join('')))));
+  const across = (pick, note, href, kind) =>
+    repos.flatMap((r) =>
+      pick(r).map((i) =>
+        issueLink(
+          href ? { ...i, url: href(i) } : i,
+          h('span', null, h('span', { class: 'dim' }, [repos.length > 1 ? r.alias : '', note?.(i) ?? ''].filter(Boolean).map((x) => ` · ${x}`).join('')), kind ? specButtons(kind, r.alias, i.number) : null)
+        )
+      )
+    );
   /** @param {import('../src/officeWire.ts').OfficeSpec} i */
   const confidence = (i) => (i.lowConfidence ? `${i.lowConfidence} low-confidence` : 'no low-confidence calls');
   /** @param {import('../src/officeWire.ts').OfficeBreakdown} i */
   const tickets = (i) => `${i.tickets} ticket${i.tickets === 1 ? '' : 's'}`;
   const lists = [
-    ...issueList('Breakdowns to approve', across((r) => r.breakdownsToApprove, tickets, (i) => i.proposalUrl)),
-    ...issueList('Specs to review', across((r) => r.specsToReview, confidence)),
+    ...issueList('Breakdowns to approve', across((r) => r.breakdownsToApprove, tickets, (i) => i.proposalUrl, 'breakdown')),
+    ...issueList('Specs to review', across((r) => r.specsToReview, confidence, undefined, 'spec')),
     ...issueList('Waiting for triage', across((r) => r.needsTriage)),
     ...issueList('Ready for human', across((r) => r.readyForHuman)),
     ...issueList('Needs info', across((r) => r.needsInfo)),
