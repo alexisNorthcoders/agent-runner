@@ -24,6 +24,14 @@ the harness's `CLAUDE*` variables.
 After the first start, **restart it only with `npm run safe-restart`** (or `claude:restart` from
 WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-restart).
 
+`/draft-tickets` lives in `skills/` and is linked into `~/.claude/skills` from the live checkout. On a
+fresh machine, recreate the link:
+
+```sh
+mkdir -p ~/.claude/skills
+for s in ~/Projects/agent-runner/skills/*/; do ln -sfn "${s%/}" ~/.claude/skills/; done
+```
+
 ## Commands (the `text` of `POST /command`)
 
 | Text | Effect |
@@ -678,6 +686,7 @@ The runner never clears a pause it didn't set. The prompt preamble gives agent r
 - `logs/agent-runs/`: one `<runId>.log` per run (plus `<runId>-autofix.log`), `active/<runId>.json`
   per in-flight run (live progress), `runs.jsonl` history (an issue run's `costUsd` includes its
   autofix pass; a run a restart cut off gets an `outcome: interrupted` row on startup).
+- `skills/`: personal skills, linked into `~/.claude/skills` (see [Setup](#setup)). `draft-tickets` posts a spec's ticket breakdown as a `Ticket proposal (draft <n>)` comment.
 
 ## Tests
 
