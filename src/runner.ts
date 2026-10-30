@@ -710,14 +710,14 @@ export function createRunner({
         { prompt: prepared.prompt, cwd: prepared.root },
         async (result, a) => {
           if (result.outcome !== 'success') return { text: `${formatRunResult(record, result)}${a.requeued ? `\n${REQUEUED_NOTE}` : ''}` };
-          let landed;
+          let landed: string | null;
           try {
             landed = await specs.landed(prepared);
           } catch (err) {
-            landed = false;
+            landed = null;
             logger.warn(`run ${record.runId}: cannot check the spec comment:`, errorText(err));
           }
-          if (landed) return { text: `${capitalize(record.label)} finished: ${specRunExpectation(prepared.action)} was posted.\n${prepared.url}\n\n${lastNonEmptyLine(result.text) || '(no final message)'}` };
+          if (landed) return { text: `${capitalize(record.label)} finished: ${specRunExpectation(prepared.action)} was posted.\n${landed}\n\n${lastNonEmptyLine(result.text) || '(no final message)'}` };
           return {
             text: `${capitalize(record.label)} failed: the session finished without ${specRunExpectation(prepared.action)}: ${lastNonEmptyLine(result.text).slice(0, 300) || '(no final message)'}\n${prepared.url}\nLog: ${result.logPath}`,
             history: { outcome: 'failed' },

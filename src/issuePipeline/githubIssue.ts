@@ -15,7 +15,7 @@ export type SuggestedIssue = { number: number; title: string; url: string; state
 
 export type TriageSuggestion = { number: number; title: string; url: string; createdAt: string; comments: string[] };
 
-export type IssueDetail = { number: number; title: string; url: string; state: 'open' | 'closed'; labels: string[]; comments: string[] };
+export type IssueDetail = { number: number; title: string; url: string; state: 'open' | 'closed'; labels: string[]; comments: string[]; /** Each comment's link, in the same order as `comments`. */ commentUrls?: string[] };
 
 export type OpenAgentPr = { url: string; headSha: string; baseRefName: string; mergeable: string; mergeStateStatus: string };
 
@@ -36,6 +36,9 @@ function assertRepoSlug(repo: string): string {
 
 const commentBodies = (comments: unknown): string[] =>
   Array.isArray(comments) ? comments.map((c) => recordOrEmpty(c).body).filter((body): body is string => typeof body === 'string') : [];
+
+const commentUrls = (comments: unknown): string[] =>
+  Array.isArray(comments) ? comments.map((c) => String(recordOrEmpty(c).url ?? '')) : [];
 
 const labelNames = (labels: unknown): string[] =>
   Array.isArray(labels)
@@ -247,6 +250,7 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
         state: String(row.state ?? '').toLowerCase() === 'open' ? 'open' : 'closed',
         labels: labelNames(row.labels),
         comments: commentBodies(row.comments),
+        commentUrls: commentUrls(row.comments),
       };
     },
 

@@ -42,6 +42,8 @@ for s in ~/Projects/agent-runner/skills/*/; do ln -sfn "${s%/}" ~/.claude/skills
 | `claude issue:<n> [extra instructions]` | The same, in the `CLAUDE_ISSUE_DEFAULT_ALIAS` workspace. |
 | `claude spec:reject:<alias>:<n>` | Reject a self-grilled spec: label issue `n` `wontfix`, close it as not planned and reply with its link. No agent runs. The issue must be open, `agent-suggested` + `needs-triage` and have a decision log, else the reply says why and nothing changes (`src/specCommands.ts`). |
 | `claude spec:reject:<n>` | The same, in the default issue workspace. |
+| `claude spec:approve:<alias>:<n>` | Queue a spec run of `/draft-tickets` on a spec to review. It succeeds only when a new `Ticket proposal (draft <n>)` comment appears, and the reply links it. Refused on a breakdown to approve (use `spec:revise`). |
+| `claude spec:revise:<alias>:<n> [notes]` | The same on a breakdown to approve (a Ticket proposal newer than the latest decision log), with the notes as extra feedback. Refused on a spec to review (use `spec:approve`). A re-grill after a proposal sends the spec back to spec to review. |
 | `claude:stop` | Kill the active run, or the active [scheduled job](#scheduled-jobs)'s command. Its "stopped" report lands in the outbox, and the next queued request starts. |
 | `claude:queue` | List the requests waiting for the agent. |
 | `claude:queue clear` | Drop every waiting request. |
