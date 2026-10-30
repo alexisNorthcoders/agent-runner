@@ -529,7 +529,7 @@ export function padlock(ctx, r) {
   ctx.fillRect(x + 1, y + 1, 1, 1);
 }
 
-/** A sticky note with how many issues wait for a human (9+ shows +). @param {Ctx} ctx @param {Rect} r @param {number} n */
+/** A sticky note with how many issues wait on you (9+ shows +). @param {Ctx} ctx @param {Rect} r @param {number} n */
 export function stickyNote(ctx, r, n) {
   ctx.fillStyle = PALETTE.stickyEdge;
   ctx.fillRect(r.x + 1, r.y + 1, r.w, r.h);

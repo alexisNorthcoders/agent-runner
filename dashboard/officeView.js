@@ -324,7 +324,7 @@ function drawFolders(ctx, layout, scene) {
 /**
  * A cubicle's pending issues: letters in its in-tray (a padlock on a blocked one; a slot holding
  * the overflow is a pile), but those the mail carrier hasn't dropped yet, and a sticky note while
- * issues wait for a human.
+ * issues wait on you.
  * @param {Ctx} ctx @param {Rect} r the cubicle @param {import('./scene.js').SceneCubicle} c @param {Map<string, Set<number>>} undelivered
  */
 function drawPending(ctx, r, c, undelivered) {

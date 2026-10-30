@@ -4,7 +4,7 @@ import { createIssueScan } from '../src/issueScan.ts';
 import { createCronState } from '../src/cronState.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';
 import { notifyingStore } from '../src/stateChanges.ts';
-import type { OpenAgentPr, OpenIssue } from '../src/issuePipeline/githubIssue.ts';
+import type { OpenAgentPr, OpenIssue, TriageSuggestion } from '../src/issuePipeline/githubIssue.ts';
 import type { Store } from '../src/redisStore.ts';
 
 type IssueScanDeps = Parameters<typeof createIssueScan>[0];
@@ -15,11 +15,14 @@ const issue = (number: number, ...labels: string[]): OpenIssue => ({ number, tit
 const link = (repo: string, n: number) => `https://github.com/${repo}/issues/${n}`;
 const pr = (url: string, headSha = 'h'): OpenAgentPr => ({ url, headSha, baseRefName: 'main', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' });
 
+const suggestion = (repo: string, number: number, ...comments: string[]): TriageSuggestion => ({ number, title: `Task ${number}`, url: link(repo, number), createdAt: '2026-09-01T00:00:00Z', comments });
+
 /**
- * A `gh` fake per repo: its open issues, open agent PRs (by issue), blockers per issue (a number,
- * or an Error to throw), and the tip of `main`. `fail` makes every call for the repo throw.
+ * A `gh` fake per repo: its open issues, its open `agent-suggested` + `needs-triage` issues with
+ * their comments, open agent PRs (by issue), blockers per issue (a number, or an Error to throw),
+ * and the tip of `main`. `fail` makes every call for the repo throw.
  */
-type RepoFixture = { issues?: OpenIssue[]; prs?: Map<number, OpenAgentPr>; blockers?: Record<number, number | Error>; fail?: boolean };
+type RepoFixture = { issues?: OpenIssue[]; suggestions?: TriageSuggestion[]; prs?: Map<number, OpenAgentPr>; blockers?: Record<number, number | Error>; fail?: boolean };
 
 function fakeGithub(repos: Record<string, RepoFixture>) {
   const calls: string[] = [];
@@ -39,6 +42,7 @@ function fakeGithub(repos: Record<string, RepoFixture>) {
       calls.push(`issues ${repo}`);
       return of(repo).issues ?? [];
     },
+    listTriageSuggestions: async (repo: string) => of(repo).suggestions ?? [],
     listOpenAgentPrsByIssue: async (repo: string) => of(repo).prs ?? new Map(),
     branchHeadSha: async () => 'm',
     blockedByCount: async (repo: string, n: number) => {
@@ -76,7 +80,7 @@ describe('issue scan', () => {
     assert.equal(scan.current(), null);
   });
 
-  it('lists each workspace repo: runnable, blocked and parked ready-for-agent issues, ready-for-human, and triage counts', async () => {
+  it('lists each workspace repo: runnable, blocked and parked ready-for-agent issues, and the issues waiting on you', async () => {
     const github = fakeGithub({
       [REPO]: {
         issues: [
@@ -89,6 +93,12 @@ describe('issue scan', () => {
           issue(8, 'needs-triage', 'bug'),
           issue(10, 'needs-info'),
           issue(11),
+          issue(12, 'agent-suggested', 'needs-triage'),
+          issue(13, 'agent-suggested', 'needs-triage'),
+        ],
+        suggestions: [
+          suggestion(REPO, 13),
+          suggestion(REPO, 12, 'Looks useful', 'Self-grill decision log (1 rounds)\n1. Old. LOW-CONFIDENCE.', ' Self-grill decision log (2 rounds)\n1. A? Decision: yes. LOW-CONFIDENCE (UX).\n2. B? Decision: no.\n3. C? Decision: later. LOW-CONFIDENCE.'),
         ],
         blockers: { 4: 2, 9: new Error('gh api boom') },
         prs: new Map([[5, pr('https://github.com/o/bot/pull/50')]]),
@@ -115,8 +125,14 @@ describe('issue scan', () => {
         ],
         parked: [{ number: 5, title: 'Task 5', url: link(REPO, 5), prUrl: 'https://github.com/o/bot/pull/50' }],
         readyForHuman: [{ number: 6, title: 'Task 6', url: link(REPO, 6) }],
-        needsTriage: 2,
-        needsInfo: 1,
+        // the latest decision log counts, one LOW-CONFIDENCE per decision line
+        specsToReview: [{ number: 12, title: 'Task 12', url: link(REPO, 12), lowConfidence: 2 }],
+        grillQueue: [{ number: 13, title: 'Task 13', url: link(REPO, 13) }],
+        needsTriage: [
+          { number: 7, title: 'Task 7', url: link(REPO, 7) },
+          { number: 8, title: 'Task 8', url: link(REPO, 8) },
+        ],
+        needsInfo: [{ number: 10, title: 'Task 10', url: link(REPO, 10) }],
       },
       {
         alias: 'plat',
@@ -127,8 +143,10 @@ describe('issue scan', () => {
         blocked: [],
         parked: [],
         readyForHuman: [{ number: 1, title: 'Task 1', url: link(REPO_P, 1) }],
-        needsTriage: 0,
-        needsInfo: 0,
+        specsToReview: [],
+        grillQueue: [],
+        needsTriage: [],
+        needsInfo: [],
       },
     ]);
     assert.deepEqual(changes, ['issue-scan']);
@@ -179,7 +197,7 @@ describe('issue scan', () => {
     const { scan } = setup({ github: fakeGithub({ [REPO]: { fail: true } }), aliases: ['bot'] });
     await scan.scan();
     assert.deepEqual(scan.current()?.repos, [
-      { alias: 'bot', repo: null, scannedAt: null, stale: true, runnable: [], blocked: [], parked: [], readyForHuman: [], needsTriage: 0, needsInfo: 0 },
+      { alias: 'bot', repo: null, scannedAt: null, stale: true, runnable: [], blocked: [], parked: [], readyForHuman: [], specsToReview: [], grillQueue: [], needsTriage: [], needsInfo: [] },
     ]);
   });
 
