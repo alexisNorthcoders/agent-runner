@@ -37,6 +37,7 @@ Stop without writing anything, and say why, when any of these holds:
 - The issue is closed. If the record lists every proposed ticket, the spec is already published, so say that and finish successfully.
 - There is no record, and a comment came after the proposal. That comment is feedback the proposal hasn't answered.
 - There is a record, and it names a different draft from the proposal.
+- There is more than one record, or a record breaks its format (step 3): a row that doesn't parse, a number listed twice, or a number the proposal doesn't have.
 - The proposal breaks its format (below). List every problem.
 
 ## 2. Parse the proposal
@@ -57,9 +58,11 @@ Done when every ticket has all five values and a triage label, and nothing has b
 
 ## 3. Prepare the labels and the record
 
+This is the first step that writes. Reach it only when steps 1 and 2 found nothing to stop for, so a spec with no proposal gets no labels and no record.
+
 `gh label list --repo R --limit 500 --json name`, then `gh label create <name> --repo R` for each model or triage label the tickets use that is missing.
 
-If there is no record, create it, keeping its `id`. If there is one, its `id` came with the comments in step 1.
+If there is no record, create it, keeping its `id`, and start with no rows. If there is one, its `id` came with the comments in step 1: keep its existing rows as the starting rows, because they are the only memory of what earlier runs created.
 
 ```markdown
 Published tickets
@@ -99,7 +102,7 @@ Go through the tickets in proposal order, so blockers come first. Do all of thes
    <the ticket's checkbox lines>
    ```
 
-2. **Record.** If the row is new, add it and rewrite the record right away, before anything else happens to this ticket.
+2. **Record.** If this ticket's number has no row yet, append its row to the rows you hold and PATCH the record with the whole body: marker, `From:` line and every row, old and new. Do this right away, before anything else happens to this ticket. If it already has a row, leave the record alone. Keep that row's issue, never replace it, and never POST a second record.
 
 3. **Sub-issue.** `gh api --paginate repos/R/issues/N/sub_issues --jq '.[].number'`. If the ticket is missing, add it with its database id (`gh api repos/R/issues/<ticket> --jq .id`):
 
