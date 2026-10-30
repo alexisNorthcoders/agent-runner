@@ -1081,9 +1081,7 @@ export function createRunner({
         case 'spec': {
           if (!specs) return { reply: 'claude spec: is not configured on this runner.' };
           if (cmd.action === 'reject') return { reply: await specs.reject(cmd) };
-          // refuse a non-spec now; the run checks again when it starts
-          const prepared = await specs.prepare({ ...cmd, action: cmd.action });
-          if (typeof prepared === 'string') return { reply: prepared };
+          // the queued run checks the spec precondition once, when it starts
           return { reply: (await submit({ kind: 'spec', action: cmd.action, issueNumber: cmd.issueNumber, alias: cmd.alias, notes: cmd.notes }, replyTo)).reply };
         }
         case 'status':
