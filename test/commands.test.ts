@@ -202,12 +202,14 @@ describe('parseCommand: spec:', () => {
   it('parses spec:reject with an alias, without one, and with notes', () => {
     assert.deepEqual(parseCommand('claude spec:reject:bot:12'), { kind: 'spec', action: 'reject', issueNumber: 12, alias: 'bot', notes: '' });
     assert.deepEqual(parseCommand('claude spec:reject:12'), { kind: 'spec', action: 'reject', issueNumber: 12, alias: null, notes: '' });
+    assert.deepEqual(parseCommand('claude spec:approve:bot:12'), { kind: 'spec', action: 'approve', issueNumber: 12, alias: 'bot', notes: '' });
+    assert.deepEqual(parseCommand('claude spec:revise:12 merge 2 and 3'), { kind: 'spec', action: 'revise', issueNumber: 12, alias: null, notes: 'merge 2 and 3' });
     assert.deepEqual(parseCommand('claude spec:regrill:bot:12 split auth'), { kind: 'spec', action: 'regrill', issueNumber: 12, alias: 'bot', notes: 'split auth' });
     assert.deepEqual(parseCommand('claude spec:Reject:bot:12 too big'), { kind: 'spec', action: 'reject', issueNumber: 12, alias: 'bot', notes: 'too big' });
   });
 
   it('replies with the usage for malformed commands and unknown actions', () => {
-    for (const text of ['claude spec:', 'claude spec:reject', 'claude spec:reject:', 'claude spec:reject:bot:', 'claude spec:reject:0', 'claude spec:reject:12abc', 'claude spec:approve:bot:12', 'claude spec:12', 'claude sonnet: spec:reject:12']) {
+    for (const text of ['claude spec:', 'claude spec:reject', 'claude spec:reject:', 'claude spec:reject:bot:', 'claude spec:reject:0', 'claude spec:reject:12abc', 'claude spec:publish:bot:12', 'claude spec:12', 'claude sonnet: spec:reject:12']) {
       const c = parseCommand(text);
       assert.ok(c.kind === 'error', text);
       assert.match(c.message, /spec:reject/, text);
@@ -217,5 +219,7 @@ describe('parseCommand: spec:', () => {
   it('is listed in the help text', () => {
     assert.match(USAGE, /^claude spec:reject:<alias>:<n>/m);
     assert.match(USAGE, /^claude spec:regrill:<alias>:<n>/m);
+    assert.match(USAGE, /^claude spec:approve:<alias>:<n>/m);
+    assert.match(USAGE, /^claude spec:revise:<alias>:<n>/m);
   });
 });

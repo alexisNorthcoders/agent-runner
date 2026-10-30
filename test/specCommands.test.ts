@@ -5,6 +5,7 @@ import { GRILL_LOG_MARKER } from '../src/issueGrill.ts';
 import type { IssueDetail } from '../src/issuePipeline/githubIssue.ts';
 
 const log = `${GRILL_LOG_MARKER}\n- decision`;
+const proposal = (n: number) => `Ticket proposal (draft ${n})\n\n## Tickets`;
 
 describe('specState', () => {
   const cases: Array<[string, string[], string]> = [
@@ -12,6 +13,12 @@ describe('specState', () => {
     ['only chatter', ['thanks', 'looks fine'], 'not-a-spec'],
     ['one log', ['hi', log], 'to-review'],
     ['several logs', [log, 'edit', `${log} again`], 'to-review'],
+    ['proposal after grill', [log, 'ok', proposal(1)], 'breakdown-to-approve'],
+    ['re-grill after proposal', [log, proposal(1), 'tweak it', log], 'to-review'],
+    ['several proposals', [log, proposal(1), proposal(2)], 'breakdown-to-approve'],
+    ['proposal then re-grill then proposal', [log, proposal(1), log, proposal(2)], 'breakdown-to-approve'],
+    ['proposal with no decision log', [proposal(1)], 'not-a-spec'],
+    ['marker quoted mid-comment', [log, 'see Ticket proposal (draft 1)'], 'to-review'],
   ];
   for (const [name, comments, want] of cases) it(name, () => assert.equal(specState(comments), want));
 });
@@ -62,5 +69,61 @@ describe('spec:reject', () => {
       github: { resolveIssueRepo: async () => 'o/r', issueDetail: async () => { throw new Error('boom'); }, rejectIssue: async () => {} },
     });
     assert.match(await commands.reject(cmd), /boom/);
+  });
+});
+
+describe('spec:approve and spec:revise preconditions', () => {
+  const run = (action: 'approve' | 'revise', issue: IssueDetail) =>
+    setup(issue).commands.prepare({ kind: 'spec', action, issueNumber: 5, alias: 'bot', notes: 'fewer tickets' });
+  const proposed: IssueDetail = { ...spec, comments: [log, proposal(1)], commentUrls: ['u/1', 'u/2'] };
+
+  it('approve on a spec to review builds a /draft-tickets run', async () => {
+    const r = await run('approve', spec);
+    assert.ok(typeof r !== 'string');
+    assert.equal(r.prompt, '/draft-tickets https://github.com/o/r/issues/5');
+    assert.equal(r.proposalsBefore, 0);
+  });
+
+  it('revise on a breakdown to approve passes the notes', async () => {
+    const r = await run('revise', proposed);
+    assert.ok(typeof r !== 'string');
+    assert.equal(r.prompt, '/draft-tickets https://github.com/o/r/issues/5 fewer tickets');
+    assert.equal(r.proposalsBefore, 1);
+  });
+
+  it('refuses approve on a breakdown to approve and names revise', async () => {
+    const r = await run('approve', proposed);
+    assert.match(String(r), /Not approved.*breakdown to approve.*claude spec:revise:bot:5.*Nothing changed/);
+  });
+
+  it('refuses revise on a spec to review and names approve', async () => {
+    const r = await run('revise', spec);
+    assert.match(String(r), /Not revised.*spec to review.*claude spec:approve:bot:5.*Nothing changed/);
+  });
+
+  const orders: Array<[string, string[], 'approve' | 'revise']> = [
+    ['log, proposal, chatter', [log, proposal(1), 'thanks'], 'revise'],
+    ['several proposals', [log, proposal(1), proposal(2)], 'revise'],
+    ['re-grill after proposal', [log, proposal(1), log], 'approve'],
+    ['re-grill after several proposals', [log, proposal(1), proposal(2), 'tweak', log], 'approve'],
+    ['proposal after re-grill', [log, proposal(1), log, proposal(2)], 'revise'],
+    ['re-grill, proposal, re-grill', [log, proposal(1), log, proposal(2), log], 'approve'],
+  ];
+  for (const [name, comments, fits] of orders) {
+    const other = fits === 'approve' ? 'revise' : 'approve';
+    it(`${name}: ${fits} runs, ${other} is refused naming ${fits}`, async () => {
+      const issue = { ...spec, comments };
+      assert.ok(typeof (await run(fits, issue)) !== 'string');
+      assert.match(String(await run(other, issue)), /Nothing changed/);
+      assert.match(String(await run(other, issue)), new RegExp(`claude spec:${fits}:bot:5`));
+    });
+  }
+
+  it('landed is the new proposal comment link, and null without a new proposal', async () => {
+    const before = await run('revise', proposed);
+    assert.ok(typeof before !== 'string');
+    const after = setup({ ...proposed, comments: [log, proposal(1), proposal(2)], commentUrls: ['u/1', 'u/2', 'u/3'] });
+    assert.equal(await after.commands.landed(before), 'u/3');
+    assert.equal(await setup(proposed).commands.landed(before), null);
   });
 });

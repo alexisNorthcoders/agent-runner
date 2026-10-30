@@ -2073,6 +2073,27 @@ describe('runner: spec regrill', () => {
     assert.equal(await queue.length(), 0);
   });
 
+  it('approve runs /draft-tickets and reports the new proposal comment link', async () => {
+    const comments = [log];
+    const urls = ['c/1'];
+    const ws = { resolveIssueWorkspace: async (alias: string | null) => ({ alias: alias ?? 'bot', root: '/ws/bot' }) };
+    const { runner, starts, outboxEntries } = setup({
+      workspaces: ws,
+      specs: createSpecCommands({
+        workspaces: ws,
+        github: { resolveIssueRepo: async () => 'o/r', issueDetail: async () => ({ ...spec, comments: [...comments], commentUrls: [...urls] }), rejectIssue: async () => {} },
+      }),
+    });
+    const { reply } = await runner.handleCommand({ text: 'claude spec:approve:bot:5', replyTo: 'jid-1' });
+    assert.match(reply, /Started run run-1: spec approve bot#5/);
+    assert.equal(starts[0].opts.prompt, '/draft-tickets https://github.com/o/r/issues/5');
+    comments.push('Ticket proposal (draft 1)\n\n## Tickets');
+    urls.push('c/2');
+    starts[0].finish('success', 'done');
+    await runner.idle();
+    assert.match(outboxEntries()[0].text, /finished: a new Ticket proposal comment was posted\.\nc\/2/);
+  });
+
   it('queues behind a busy run and starts later with the spec label', async () => {
     const { runner, starts, queue, history, postLog } = specSetup();
     await runner.handleCommand({ text: 'claude something else', replyTo: 'jid-1' });
