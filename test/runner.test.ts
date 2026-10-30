@@ -2094,6 +2094,35 @@ describe('runner: spec regrill', () => {
     assert.match(outboxEntries()[0].text, /finished: a new Ticket proposal comment was posted\.\nc\/2/);
   });
 
+  it('publish runs /publish-tickets on sonnet, fails on a gap and reports the links once complete', async () => {
+    const proposal = 'Ticket proposal (draft 1)\n\n## Tickets\n\n### 1. A\n\n### 2. B\n\n## Reasoning';
+    const record = (...rows: string[]) => ['Published tickets', 'From: Ticket proposal (draft 1)', '', ...rows].join('\n');
+    const comments = [log, proposal];
+    const ws = { resolveIssueWorkspace: async (alias: string | null) => ({ alias: alias ?? 'bot', root: '/ws/bot' }) };
+    const { runner, starts, outboxEntries, history } = setup({
+      workspaces: ws,
+      specs: createSpecCommands({
+        workspaces: ws,
+        github: { resolveIssueRepo: async () => 'o/r', issueDetail: async () => ({ ...spec, comments: [...comments] }), rejectIssue: async () => {} },
+      }),
+    });
+    const { reply } = await runner.handleCommand({ text: 'claude spec:publish:bot:5', replyTo: 'jid-1' });
+    assert.match(reply, /Started run run-1: spec publish bot#5.*model sonnet/);
+    assert.equal(starts[0].opts.prompt, '/publish-tickets https://github.com/o/r/issues/5');
+    assert.equal(starts[0].opts.model, 'sonnet');
+    comments.push(record('- 1: #8'));
+    starts[0].finish('success', 'stopped early');
+    await runner.idle();
+    assert.match(outboxEntries()[0].text, /failed: the session finished without a Published tickets comment listing every proposed ticket/);
+    assert.equal(history.at(-1)?.outcome, 'failed');
+
+    await runner.handleCommand({ text: 'claude spec:publish:bot:5', replyTo: 'jid-1' });
+    comments[2] = record('- 1: #8', '- 2: #9');
+    starts[1].finish('success', 'done');
+    await runner.idle();
+    assert.match(outboxEntries()[1].text, /finished.*\n1\. https:\/\/github\.com\/o\/r\/issues\/8\n2\. https:\/\/github\.com\/o\/r\/issues\/9/);
+  });
+
   it('queues behind a busy run and starts later with the spec label', async () => {
     const { runner, starts, queue, history, postLog } = specSetup();
     await runner.handleCommand({ text: 'claude something else', replyTo: 'jid-1' });

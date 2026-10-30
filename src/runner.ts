@@ -707,7 +707,7 @@ export function createRunner({
     try {
       const started = await launch(
         record,
-        { prompt: prepared.prompt, cwd: prepared.root },
+        { prompt: prepared.prompt, cwd: prepared.root, ...(prepared.model ? { model: prepared.model, modelSource: 'label' } : {}) },
         async (result, a) => {
           if (result.outcome !== 'success') return { text: `${formatRunResult(record, result)}${a.requeued ? `\n${REQUEUED_NOTE}` : ''}` };
           let landed: string | null;

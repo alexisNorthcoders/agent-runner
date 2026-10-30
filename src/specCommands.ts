@@ -15,7 +15,12 @@ import type { Command, SpecRunAction } from './commands.ts';
  */
 export type SpecState = 'not-a-spec' | 'to-review' | 'breakdown-to-approve';
 
-const PROPOSAL_MARKER = /^Ticket proposal \(draft \d+\)\s*(\n|$)/;
+const PROPOSAL_MARKER = /^Ticket proposal \(draft (\d+)\)\s*(\n|$)/;
+const RECORD_MARKER = /^Published tickets\s*(\n|$)/;
+const RECORD_DRAFT = /^From: Ticket proposal \(draft (\d+)\)\s*$/m;
+const isRecord = (body: string) => RECORD_MARKER.test(body.trimStart());
+/** Whether a comment is a `Published tickets` record made from this draft of the Ticket proposal. */
+const isRecordOfDraft = (body: string, draft: string | undefined) => isRecord(body) && body.match(RECORD_DRAFT)?.[1] === draft;
 const isProposal = (body: string) => PROPOSAL_MARKER.test(body.trimStart());
 const proposalCount = (comments: readonly string[]) => comments.filter(isProposal).length;
 
@@ -52,13 +57,46 @@ export type SpecRun = {
   title: string;
   url: string;
   prompt: string;
+  /** The model the action runs on, when it isn't the runner's default. */
+  model?: string;
   /** Decision logs the issue had before the run. */
   logsBefore: number;
   /** Ticket proposals the issue had before the run. */
   proposalsBefore: number;
 };
 
-const PAST: Record<SpecRunAction, string> = { regrill: 'regrilled', approve: 'approved', revise: 'revised' };
+const PAST: Record<SpecRunAction, string> = { regrill: 'regrilled', approve: 'approved', revise: 'revised', publish: 'published' };
+
+/**
+ * Why a Ticket proposal can't be published yet, or null. A `Published tickets` comment made from
+ * this very proposal is the record an earlier publish left, not feedback, so it doesn't count as a
+ * comment after the proposal. Any other later comment does.
+ */
+function publishRefusal(comments: readonly string[], ref: string): string | null {
+  const proposal = latestProposal(comments);
+  if (specState(comments) !== 'breakdown-to-approve' || !proposal) return `it has no Ticket proposal yet, so approve it with claude spec:approve:${ref}`;
+  const draft = comments[proposal.index].match(PROPOSAL_MARKER)?.[1];
+  if (comments.slice(proposal.index + 1).some((c) => !isRecordOfDraft(c, draft))) return `someone commented after the latest Ticket proposal, so answer it with claude spec:revise:${ref} first`;
+  return null;
+}
+
+/** The link to every proposed ticket's issue when the latest `Published tickets` record of the latest proposal lists them all, else null. */
+function publishedLinks(issue: Pick<IssueDetail, 'url' | 'comments'>): string | null {
+  const proposal = latestProposal(issue.comments);
+  if (!proposal) return null;
+  const draft = issue.comments[proposal.index].match(PROPOSAL_MARKER)?.[1];
+  const record = issue.comments.slice(proposal.index + 1).findLast((c) => isRecordOfDraft(c, draft));
+  if (!record) return null;
+  const rows = new Map([...record.matchAll(/^- (\d+): #(\d+)\s*$/gm)].map((m) => [Number(m[1]), Number(m[2])]));
+  const repoUrl = issue.url.replace(/\/\d+$/, '');
+  const links: string[] = [];
+  for (let n = 1; n <= proposal.tickets; n++) {
+    const created = rows.get(n);
+    if (!created) return null;
+    links.push(`${n}. ${repoUrl}/${created}`);
+  }
+  return links.join('\n');
+}
 
 type Before = Pick<SpecRun, 'logsBefore' | 'proposalsBefore'>;
 
@@ -73,6 +111,10 @@ const RUN_ACTIONS: Record<SpecRunAction, {
   prompt: (url: string, notes: string) => string;
   landed: (before: Before, issue: Pick<IssueDetail, 'url' | 'comments' | 'commentUrls'>) => string | null;
   expected: string;
+  /** The model to run on, in place of the runner's default. */
+  model?: string;
+  /** A reason the issue can't take this action, beyond the spec state. */
+  refusal?: (comments: readonly string[], ref: string) => string | null;
   needs?: { state: SpecState; otherwise: Partial<Record<SpecState, string>> };
 }> = {
   regrill: {
@@ -92,6 +134,13 @@ const RUN_ACTIONS: Record<SpecRunAction, {
     landed: (before, issue) => (proposalCount(issue.comments) > before.proposalsBefore ? linkTo(issue, issue.comments.findLastIndex(isProposal)) : null),
     expected: 'a new Ticket proposal comment',
     needs: { state: 'breakdown-to-approve', otherwise: { 'to-review': 'it has no Ticket proposal yet, so approve it with claude spec:approve' } },
+  },
+  publish: {
+    prompt: (url) => `/publish-tickets ${url}`,
+    landed: (_before, issue) => publishedLinks(issue),
+    expected: 'a Published tickets comment listing every proposed ticket',
+    model: 'sonnet',
+    refusal: publishRefusal,
   },
 };
 
@@ -113,7 +162,10 @@ export function createSpecCommands({ workspaces, github }: {
         const issue = await github.issueDetail(repo, cmd.issueNumber);
         const refusal = specRefusal(issue);
         if (refusal) return `Not ${PAST[cmd.action]}: ${repo}#${cmd.issueNumber} (${issue.url}) is not a spec to review: ${refusal}. Nothing changed.`;
-        const needs = RUN_ACTIONS[cmd.action].needs;
+        const action = RUN_ACTIONS[cmd.action];
+        const blocked = action.refusal?.(issue.comments, `${ws.alias}:${cmd.issueNumber}`);
+        if (blocked) return `Not ${PAST[cmd.action]}: ${repo}#${cmd.issueNumber} (${issue.url}): ${blocked}. Nothing changed.`;
+        const needs = action.needs;
         const state = specState(issue.comments);
         if (needs && state !== needs.state) {
           const fits = needs.otherwise[state];
@@ -127,7 +179,8 @@ export function createSpecCommands({ workspaces, github }: {
           issueNumber: cmd.issueNumber,
           title: issue.title,
           url: issue.url,
-          prompt: RUN_ACTIONS[cmd.action].prompt(issue.url, cmd.notes),
+          prompt: action.prompt(issue.url, cmd.notes),
+          ...(action.model ? { model: action.model } : {}),
           logsBefore: grillLogCount(issue.comments),
           proposalsBefore: proposalCount(issue.comments),
         };

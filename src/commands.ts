@@ -19,7 +19,7 @@ export type Command =
   | PauseCommand
   | { kind: 'error'; message: string };
 
-export const SPEC_ACTIONS = ['reject', 'regrill', 'approve', 'revise'] as const;
+export const SPEC_ACTIONS = ['reject', 'regrill', 'approve', 'revise', 'publish'] as const;
 export type SpecAction = (typeof SPEC_ACTIONS)[number];
 const isSpecAction = (name: string): name is SpecAction => SPEC_ACTIONS.some((a) => a === name);
 
@@ -43,6 +43,7 @@ claude spec:reject:<n>  the same, in the default issue workspace
 claude spec:regrill:<alias>:<n> [notes]  run /self-grill again on a spec to review, with your notes and the comments since its last decision log (queued like any run)
 claude spec:approve:<alias>:<n>  run /draft-tickets on a spec to review: it posts a Ticket proposal comment (queued like any run)
 claude spec:revise:<alias>:<n> [notes]  run /draft-tickets again on a breakdown to approve, with your notes as feedback (queued like any run)
+claude spec:publish:<alias>:<n>  run /publish-tickets on a breakdown to approve: it creates the proposed tickets as issues and replies with their links (queued like any run)
 claude:more [haiku|sonnet|opus:] [run-id prefix] <instructions>  continue the newest freeform or Joplin run (or the run with that id prefix): it resumes that run's conversation, on its model unless you name one
 claude:stop  kill the active run (queued requests still run)
 claude:queue  list the requests waiting for the agent
@@ -53,7 +54,7 @@ claude:restart  safely restart agent-runner (refused while a run is active)
 claude:status  active run, pause, last cron tick and recent runs
 claude:history [n]  the last n finished runs with cost and tokens`;
 
-const SPEC_USAGE = 'Usage: claude spec:reject:<n> or claude spec:reject:<alias>:<n>, claude spec:regrill:<n> or claude spec:regrill:<alias>:<n> [notes], claude spec:approve:<n> or claude spec:approve:<alias>:<n>, claude spec:revise:<n> or claude spec:revise:<alias>:<n> [notes]';
+const SPEC_USAGE = 'Usage: claude spec:reject:<n> or claude spec:reject:<alias>:<n>, claude spec:regrill:<n> or claude spec:regrill:<alias>:<n> [notes], claude spec:approve:<n> or claude spec:approve:<alias>:<n>, claude spec:revise:<n> or claude spec:revise:<alias>:<n> [notes], claude spec:publish:<n> or claude spec:publish:<alias>:<n>';
 
 const MODEL_PREFIX_USAGE = 'Usage: claude haiku|sonnet|opus: <instructions or joplin:<note>>';
 
