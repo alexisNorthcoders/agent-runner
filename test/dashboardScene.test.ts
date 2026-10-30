@@ -568,7 +568,7 @@ describe('office scene: pending issues', () => {
     blocked: [],
     parked: [],
     readyForHuman: [],
-    specsToReview: [],
+    specsToReview: [], breakdownsToApprove: [],
     grillQueue: [],
     needsTriage: [],
     needsInfo: [],
@@ -586,11 +586,12 @@ describe('office scene: pending issues', () => {
     assert.deepEqual(scene.cubicles[1].inTray, []);
   });
 
-  it('puts the issues waiting on you on a sticky note, specs first, and leaves the grill queue and needs-info off it', () => {
-    const dotsRepo = repo('dots', { readyForHuman: [item(4)], specsToReview: [{ ...item(9), lowConfidence: 2 }], grillQueue: [item(10)], needsTriage: [item(3)], needsInfo: [item(1)] });
+  it('puts the issues waiting on you on a sticky note, breakdowns then specs first, and leaves the grill queue and needs-info off it', () => {
+    const dotsRepo = repo('dots', { readyForHuman: [item(4)], breakdownsToApprove: [{ ...item(11), proposalUrl: 'https://github.com/o/bot/issues/11#c', tickets: 3 }], specsToReview: [{ ...item(9), lowConfidence: 2 }], grillQueue: [item(10)], needsTriage: [item(3)], needsInfo: [item(1)] });
     const scene = reduceScene(snap({ issues: issues(dotsRepo) }), null, up);
     const dots = scene.cubicles.find((c) => c.alias === 'dots');
     assert.deepEqual(dots?.sticky, [
+      { number: 11, title: 'Task 11', kind: 'breakdown', tickets: 3 },
       { number: 9, title: 'Task 9', kind: 'spec', lowConfidence: 2 },
       { number: 3, title: 'Task 3', kind: 'triage' },
       { number: 4, title: 'Task 4', kind: 'ready-for-human' },

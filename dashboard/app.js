@@ -219,12 +219,16 @@ function needsYou(repos) {
   /**
    * @template {{ number: number, title: string, url: string }} I
    * @param {(r: import('../src/officeWire.ts').OfficeIssueRepo) => I[]} pick @param {(i: I) => string} [note]
+   * @param {(i: I) => string} [href] where the number links, if not the issue
    */
-  const across = (pick, note) =>
-    repos.flatMap((r) => pick(r).map((i) => issueLink(i, h('span', { class: 'dim' }, [repos.length > 1 ? r.alias : '', note?.(i) ?? ''].filter(Boolean).map((x) => ` · ${x}`).join('')))));
+  const across = (pick, note, href) =>
+    repos.flatMap((r) => pick(r).map((i) => issueLink(href ? { ...i, url: href(i) } : i, h('span', { class: 'dim' }, [repos.length > 1 ? r.alias : '', note?.(i) ?? ''].filter(Boolean).map((x) => ` · ${x}`).join('')))));
   /** @param {import('../src/officeWire.ts').OfficeSpec} i */
   const confidence = (i) => (i.lowConfidence ? `${i.lowConfidence} low-confidence` : 'no low-confidence calls');
+  /** @param {import('../src/officeWire.ts').OfficeBreakdown} i */
+  const tickets = (i) => `${i.tickets} ticket${i.tickets === 1 ? '' : 's'}`;
   const lists = [
+    ...issueList('Breakdowns to approve', across((r) => r.breakdownsToApprove, tickets, (i) => i.proposalUrl)),
     ...issueList('Specs to review', across((r) => r.specsToReview, confidence)),
     ...issueList('Waiting for triage', across((r) => r.needsTriage)),
     ...issueList('Ready for human', across((r) => r.readyForHuman)),
@@ -438,7 +442,7 @@ function lastRun(o) {
 const issueTip = (i) => `#${i.number} ${i.title}${i.blocked ? ' (blocked)' : ''}`;
 
 /** @param {import('./scene.js').SceneStickyItem} i */
-const stickyTip = (i) => `#${i.number} ${i.title} (${i.kind === 'spec' ? `spec to review, ${i.lowConfidence} low-confidence` : i.kind === 'triage' ? 'needs triage' : 'ready for human'})`;
+const stickyTip = (i) => `#${i.number} ${i.title} (${i.kind === 'breakdown' ? `breakdown to approve, ${i.tickets} ticket${i.tickets === 1 ? '' : 's'}` : i.kind === 'spec' ? `spec to review, ${i.lowConfidence} low-confidence` : i.kind === 'triage' ? 'needs triage' : 'ready for human'})`;
 
 /**
  * A pending issue under the pointer: an in-tray letter, a sticky note, or a folder on the boss's desk.

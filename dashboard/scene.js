@@ -7,9 +7,10 @@
  *   A `ready-for-agent` issue waiting in a cubicle's in-tray; a `blocked` one has a padlock.
  *
  * @typedef {{ number: number, title: string, kind: 'spec', lowConfidence: number }
+ *   | { number: number, title: string, kind: 'breakdown', tickets: number }
  *   | { number: number, title: string, kind: 'triage' | 'ready-for-human' }} SceneStickyItem
- *   An issue waiting on you, on a cubicle's sticky note: a self-grilled spec to review (with how
- *   many decisions are `LOW-CONFIDENCE`), an issue to triage, or a `ready-for-human` issue.
+ *   An issue waiting on you, on a cubicle's sticky note: a breakdown to approve (with its ticket
+ *   count), a self-grilled spec to review (with how many decisions are `LOW-CONFIDENCE`), an issue to triage, or a `ready-for-human` issue.
  *
  * @typedef {'janitor' | 'analyst' | 'clerk'} JobWorker
  *   A scheduled job's worker: a janitor with a mop (cleanup), an analyst with a chart easel
@@ -34,7 +35,7 @@
  *   (named and keyed by its room label), then a scripts room per room with clerk jobs (`<name>
  *   scripts`, keyed `<alias>#scripts`). `name` is its department sign. `inTray`: its repo's runnable
  *   issues, then its blocked ones, but the one being worked at its desk. `sticky`: its
- *   repo's issues waiting on you (specs to review, then issues to triage, then `ready-for-human`),
+ *   repo's issues waiting on you (breakdowns to approve, then specs to review, then issues to triage, then `ready-for-human`),
  *   a sticky note on the cubicle while there are any. The grill queue and `needs-info` stay off it. `jobs`: the
  *   scheduled jobs whose room it is, in config order, each at its own desk after the workspace's
  *   (a clerk's job in its room's scripts room). `sessions`: the ids of the visitors at their own
@@ -411,6 +412,7 @@ function reduceBoss(run, prev, now) {
 
 /** @param {import('../src/officeWire.ts').OfficeIssueRepo | undefined} repo @returns {SceneStickyItem[]} */
 const stickyItems = (repo) => [
+  ...(repo?.breakdownsToApprove ?? []).map((i) => ({ number: i.number, title: i.title, kind: /** @type {const} */ ('breakdown'), tickets: i.tickets })),
   ...(repo?.specsToReview ?? []).map((i) => ({ number: i.number, title: i.title, kind: /** @type {const} */ ('spec'), lowConfidence: i.lowConfidence })),
   ...(repo?.needsTriage ?? []).map((i) => ({ number: i.number, title: i.title, kind: /** @type {const} */ ('triage') })),
   ...(repo?.readyForHuman ?? []).map((i) => ({ number: i.number, title: i.title, kind: /** @type {const} */ ('ready-for-human') })),

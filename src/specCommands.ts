@@ -26,6 +26,13 @@ export function specState(comments: readonly string[]): SpecState {
   return comments.findLastIndex(isProposal) > lastLog ? 'breakdown-to-approve' : 'to-review';
 }
 
+/** The latest Ticket proposal: where it is among the comments, and how many tickets it breaks the spec into. */
+export function latestProposal(comments: readonly string[]): { index: number; tickets: number } | null {
+  const index = comments.findLastIndex(isProposal);
+  if (index < 0) return null;
+  return { index, tickets: (comments[index].match(/^### \d+\./gm) ?? []).length };
+}
+
 /** Why a spec command can't act on this issue, or null when it can. */
 export function specRefusal(issue: Pick<IssueDetail, 'state' | 'labels' | 'comments'>): string | null {
   if (issue.state !== 'open') return 'it is closed';

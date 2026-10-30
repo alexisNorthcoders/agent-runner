@@ -135,16 +135,19 @@ The runner's periodic read of every **Workspace** repo's open issues with `gh` (
 _Avoid_: issue poll, sync
 
 **Pending issues**:
-A repo's `ready-for-agent` issues, split into runnable, blocked (an open native dependency) and parked (an open agent PR the cron has already attempted in its current state), plus the issues waiting on you: specs to review, the grill queue, issues to triage, `ready-for-human` and `needs-info` issues. Blocked and parked follow the cron issue tracer's rules.
+A repo's `ready-for-agent` issues, split into runnable, blocked (an open native dependency) and parked (an open agent PR the cron has already attempted in its current state), plus the issues waiting on you: breakdowns to approve, specs to review, the grill queue, issues to triage, `ready-for-human` and `needs-info` issues. Blocked and parked follow the cron issue tracer's rules.
 
 **In-tray**:
 The tray in front of a **Cubicle**'s desk with a letter per runnable issue, and a letter with a padlock per blocked one.
 
 **Sticky note**:
-The note on a **Cubicle**'s monitor while its repo has issues waiting on you: specs to review, issues to triage (not `agent-suggested`) and `ready-for-human` issues.
+The note on a **Cubicle**'s monitor while its repo has issues waiting on you: breakdowns to approve, specs to review, issues to triage (not `agent-suggested`) and `ready-for-human` issues.
 
 **Spec to review**:
 An `agent-suggested` + `needs-triage` issue that `issue_grill` has self-grilled: its body is now a spec and it has a `Self-grill decision log` comment. Without the comment it is in the **Grill queue**.
+
+**Breakdown to approve**:
+A self-grilled spec with a `Ticket proposal` comment newer than its latest decision log (`specState` in `src/specCommands.ts`). The office lists it with the proposal's ticket count, linking the proposal; a re-grill sends it back to a **Spec to review**.
 
 **Parked folder**:
 A folder with a red clip on the boss's desk for each PR the cron has parked, beside the folders of rooms whose last run left a PR open.

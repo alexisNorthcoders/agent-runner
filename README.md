@@ -301,7 +301,8 @@ issues of every allowlisted workspace's GitHub repo with `gh` on startup, every
 for the feed (`issues` above), so the page never talks to GitHub. Per repo: its `ready-for-agent`
 issues split into **runnable**, **blocked** and **parked**, its `ready-for-human` and `needs-info`
 issues, and its `needs-triage` issues. An `agent-suggested` + `needs-triage` issue with a
-`Self-grill decision log` comment is a **spec to review**, one without is in the **grill queue**,
+`Self-grill decision log` comment is a **spec to review** (a **breakdown to approve** once a
+`Ticket proposal` comment follows the latest log), one without is in the **grill queue**,
 and the other `needs-triage` issues wait for triage.
 
 Blocked and parked are the cron issue tracer's rules, from its own helpers: blocked is an open
@@ -389,6 +390,7 @@ interactive session's `cwd`.
         "blocked": [ /* ready-for-agent with an open native dependency (or a failed lookup) */ ],
         "parked": [ { "number": 5, "title": "…", "url": "…", "prUrl": "https://github.com/…/pull/9" } ],
         "readyForHuman": [ /* same shape as runnable */ ],
+        "breakdownsToApprove": [ { "number": 86, "title": "…", "url": "…", "proposalUrl": "…#issuecomment-…", "tickets": 4 } ],  // self-grilled, with a Ticket proposal after the latest decision log
         "specsToReview": [ { "number": 85, "title": "…", "url": "…", "lowConfidence": 3 } ],  // self-grilled suggestions
         "grillQueue": [ /* agent-suggested + needs-triage, not grilled yet */ ],
         "needsTriage": [ /* needs-triage, not agent-suggested */ ],
@@ -464,7 +466,7 @@ wall, and the bullpen and its aisles open straight onto the lane. It shows the o
   cubicle's in-tray, and a blocked one a letter with a padlock (the issue being worked at the desk
   is left out). A PR the cron has parked is a folder with a red clip on the boss's desk, labelled
   with its issue number, after the rooms' PR-open folders. A cubicle whose repo has issues waiting
-  on you (specs to review, issues to triage, `ready-for-human` issues) has a sticky note on its
+  on you (breakdowns to approve, specs to review, issues to triage, `ready-for-human` issues) has a sticky note on its
   monitor with how many. Hover any of them for the issues; a full tray or desk piles the rest into
   its last slot. The grill queue and `needs-info` issues are only in the Issues tab.
 - **Mail:** a new issue doesn't just appear in its tray: the mail carrier hands it out. When the
@@ -565,7 +567,7 @@ Hovering a room (a cubicle, the Freeform room or the Joplin room) shows its last
 and its PR. The mapping (`restingState` in `scene.js`) falls back to showing nothing for an outcome
 it doesn't know.
 
-The **Issues** tab opens with **Needs you**: across the repos, the specs to review (with how many
+The **Issues** tab opens with **Needs you**: across the repos, the breakdowns to approve (with their ticket count, linking the proposal comment), the specs to review (with how many
 decisions their decision log marks `LOW-CONFIDENCE`), the issues waiting for triage, the
 `ready-for-human` and `needs-info` issues, then the grill queue. Below that it lists each repo's
 `ready-for-agent` issues, with links to the issues and the parked PRs, and when it was scanned (in

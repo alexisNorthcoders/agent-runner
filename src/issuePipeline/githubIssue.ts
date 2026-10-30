@@ -13,7 +13,7 @@ export type OpenIssue = { number: number; title: string; labels: string[] };
 
 export type SuggestedIssue = { number: number; title: string; url: string; state: 'open' | 'closed'; labels: string[] };
 
-export type TriageSuggestion = { number: number; title: string; url: string; createdAt: string; comments: string[] };
+export type TriageSuggestion = { number: number; title: string; url: string; createdAt: string; comments: string[]; /** Each comment's link, in the same order as `comments`. */ commentUrls?: string[] };
 
 export type IssueDetail = { number: number; title: string; url: string; state: 'open' | 'closed'; labels: string[]; comments: string[]; /** Each comment's link, in the same order as `comments`. */ commentUrls?: string[] };
 
@@ -229,6 +229,7 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
           url: String(row.url ?? ''),
           createdAt: String(row.createdAt ?? ''),
           comments: commentBodies(row.comments),
+          commentUrls: commentUrls(row.comments),
         }))
         .filter((row) => Number.isInteger(row.number) && row.number > 0);
     },

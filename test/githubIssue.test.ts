@@ -126,14 +126,14 @@ describe('cron lookups', () => {
 
   it('lists open triage suggestions with their comment bodies', async () => {
     const rows = [
-      { number: 5, title: 'A', url: 'u5', createdAt: '2026-01-02T00:00:00Z', comments: [{ body: 'one' }, { body: 'two' }, {}] },
+      { number: 5, title: 'A', url: 'u5', createdAt: '2026-01-02T00:00:00Z', comments: [{ body: 'one', url: 'c1' }, { body: 'two', url: 'c2' }, {}] },
       { number: 6, title: 'B', url: 'u6', createdAt: '2026-01-03T00:00:00Z' },
       { number: 0, title: 'junk' },
     ];
     const { api, calls } = issues(() => JSON.stringify(rows));
     assert.deepEqual(await api.listTriageSuggestions('o/r'), [
-      { number: 5, title: 'A', url: 'u5', createdAt: '2026-01-02T00:00:00Z', comments: ['one', 'two'] },
-      { number: 6, title: 'B', url: 'u6', createdAt: '2026-01-03T00:00:00Z', comments: [] },
+      { number: 5, title: 'A', url: 'u5', createdAt: '2026-01-02T00:00:00Z', comments: ['one', 'two'], commentUrls: ['c1', 'c2', ''] },
+      { number: 6, title: 'B', url: 'u6', createdAt: '2026-01-03T00:00:00Z', comments: [], commentUrls: [] },
     ]);
     assert.deepEqual(calls[0][1], ['issue', 'list', '--repo', 'o/r', '--label', 'agent-suggested', '--label', 'needs-triage', '--state', 'open', '--json', 'number,title,url,createdAt,comments', '--limit', '500']);
   });
