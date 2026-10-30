@@ -10,19 +10,21 @@
  * scan only reads the cron's PR attempts; it never writes cron state.
  *
  * The `agent-suggested` + `needs-triage` issues are split by the decision log `issue_grill` checks
- * for (src/issueGrill.ts): grilled ones are specs to review, the rest are the grill queue.
+ * for (src/issueGrill.ts): grilled ones are specs to review, or breakdowns to approve once they have
+ * a Ticket proposal (the spec state in src/specCommands.ts), and the rest are the grill queue.
  *
  * A repo whose scan fails keeps its last good data, marked `stale` (so does every repo when the
  * allowlist can't be read). Errors are logged here, not put in the feed, which carries no paths.
  */
 
 import { classifyReadyIssues, hasLabel } from './cronTracer.ts';
+import { latestProposal, specState } from './specCommands.ts';
 import { latestGrillLog, lowConfidenceCount } from './issueGrill.ts';
 import { errorText } from './narrow.ts';
 import { AGENT_SUGGESTED_LABEL, NEEDS_TRIAGE_LABEL } from './issuePipeline/githubIssue.ts';
 import type { createGithubIssues } from './issuePipeline/githubIssue.ts';
 import type { NotifyChange } from './stateChanges.ts';
-import type { OfficeIssue, OfficeIssueRepo, OfficeIssues, OfficeSpec } from './officeWire.ts';
+import type { OfficeIssue, OfficeIssueRepo, OfficeIssues, OfficeSpec, OfficeBreakdown } from './officeWire.ts';
 
 export const ISSUE_SCAN_INTERVAL_MS = 5 * 60_000;
 
@@ -57,11 +59,14 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
     const item = (r: { number: number; title: string }): OfficeIssue => ({ number: r.number, title: r.title, url: `https://github.com/${repo}/issues/${r.number}` });
     const titles = new Map(rows.map((r) => [r.number, r.title]));
     const labelled = (label: string) => rows.filter((r) => hasLabel(r, label)).sort(byNumber);
+    const breakdownsToApprove: OfficeBreakdown[] = [];
     const specsToReview: OfficeSpec[] = [];
     const grillQueue: OfficeIssue[] = [];
     for (const sug of (await github.listTriageSuggestions(repo)).sort(byNumber)) {
       const log = latestGrillLog(sug.comments);
-      if (log) specsToReview.push({ ...item(sug), lowConfidence: lowConfidenceCount(log) });
+      const proposal = specState(sug.comments) === 'breakdown-to-approve' ? latestProposal(sug.comments) : null;
+      if (proposal) breakdownsToApprove.push({ ...item(sug), proposalUrl: sug.commentUrls?.[proposal.index] || item(sug).url, tickets: proposal.tickets });
+      else if (log) specsToReview.push({ ...item(sug), lowConfidence: lowConfidenceCount(log) });
       else grillQueue.push(item(sug));
     }
     return {
@@ -74,6 +79,7 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
       parked: ready.parked
         .map((p) => ({ ...item({ number: p.number, title: titles.get(p.number) ?? '' }), prUrl: p.url })),
       readyForHuman: labelled(READY_FOR_HUMAN_LABEL).map(item),
+      breakdownsToApprove,
       specsToReview,
       grillQueue,
       needsTriage: labelled(NEEDS_TRIAGE_LABEL).filter((r) => !hasLabel(r, AGENT_SUGGESTED_LABEL)).map(item),
@@ -85,7 +91,7 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
   function staleRepo(alias: string): OfficeIssueRepo {
     const last = result?.repos.find((r) => r.alias === alias);
     if (last) return { ...last, stale: true };
-    return { alias, repo: null, scannedAt: null, stale: true, runnable: [], blocked: [], parked: [], readyForHuman: [], specsToReview: [], grillQueue: [], needsTriage: [], needsInfo: [] };
+    return { alias, repo: null, scannedAt: null, stale: true, runnable: [], blocked: [], parked: [], readyForHuman: [], breakdownsToApprove: [], specsToReview: [], grillQueue: [], needsTriage: [], needsInfo: [] };
   }
 
   async function scanOnce() {

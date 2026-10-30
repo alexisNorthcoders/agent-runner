@@ -15,7 +15,7 @@ const issue = (number: number, ...labels: string[]): OpenIssue => ({ number, tit
 const link = (repo: string, n: number) => `https://github.com/${repo}/issues/${n}`;
 const pr = (url: string, headSha = 'h'): OpenAgentPr => ({ url, headSha, baseRefName: 'main', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' });
 
-const suggestion = (repo: string, number: number, ...comments: string[]): TriageSuggestion => ({ number, title: `Task ${number}`, url: link(repo, number), createdAt: '2026-09-01T00:00:00Z', comments });
+const suggestion = (repo: string, number: number, ...comments: string[]): TriageSuggestion => ({ number, title: `Task ${number}`, url: link(repo, number), createdAt: '2026-09-01T00:00:00Z', comments, commentUrls: comments.map((_, i) => `${link(repo, number)}#issuecomment-${i}`) });
 
 /**
  * A `gh` fake per repo: its open issues, its open `agent-suggested` + `needs-triage` issues with
@@ -98,6 +98,7 @@ describe('issue scan', () => {
         ],
         suggestions: [
           suggestion(REPO, 13),
+          suggestion(REPO, 14, 'Self-grill decision log (1 rounds)\n1. A? Decision: yes.', 'Ticket proposal (draft 1)\n\n## Tickets\n\n### 1. One\n\n### 2. Two\n\n### 3. Three\n'),
           suggestion(REPO, 12, 'Looks useful', 'Self-grill decision log (1 rounds)\n1. Old. LOW-CONFIDENCE.', ' Self-grill decision log (2 rounds)\n1. A? Decision: yes. LOW-CONFIDENCE (UX).\n2. B? Decision: no.\n3. C? Decision: later. LOW-CONFIDENCE.'),
         ],
         blockers: { 4: 2, 9: new Error('gh api boom') },
@@ -125,6 +126,8 @@ describe('issue scan', () => {
         ],
         parked: [{ number: 5, title: 'Task 5', url: link(REPO, 5), prUrl: 'https://github.com/o/bot/pull/50' }],
         readyForHuman: [{ number: 6, title: 'Task 6', url: link(REPO, 6) }],
+        // a Ticket proposal after the latest decision log makes it a breakdown to approve, linking the proposal
+        breakdownsToApprove: [{ number: 14, title: 'Task 14', url: link(REPO, 14), proposalUrl: `${link(REPO, 14)}#issuecomment-1`, tickets: 3 }],
         // the latest decision log counts, one LOW-CONFIDENCE per decision line
         specsToReview: [{ number: 12, title: 'Task 12', url: link(REPO, 12), lowConfidence: 2 }],
         grillQueue: [{ number: 13, title: 'Task 13', url: link(REPO, 13) }],
@@ -143,7 +146,7 @@ describe('issue scan', () => {
         blocked: [],
         parked: [],
         readyForHuman: [{ number: 1, title: 'Task 1', url: link(REPO_P, 1) }],
-        specsToReview: [],
+        breakdownsToApprove: [], specsToReview: [],
         grillQueue: [],
         needsTriage: [],
         needsInfo: [],
@@ -197,7 +200,7 @@ describe('issue scan', () => {
     const { scan } = setup({ github: fakeGithub({ [REPO]: { fail: true } }), aliases: ['bot'] });
     await scan.scan();
     assert.deepEqual(scan.current()?.repos, [
-      { alias: 'bot', repo: null, scannedAt: null, stale: true, runnable: [], blocked: [], parked: [], readyForHuman: [], specsToReview: [], grillQueue: [], needsTriage: [], needsInfo: [] },
+      { alias: 'bot', repo: null, scannedAt: null, stale: true, runnable: [], blocked: [], parked: [], readyForHuman: [], breakdownsToApprove: [], specsToReview: [], grillQueue: [], needsTriage: [], needsInfo: [] },
     ]);
   });
 
