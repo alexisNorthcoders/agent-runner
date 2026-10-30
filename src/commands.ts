@@ -10,6 +10,7 @@ export type Command =
   | { kind: 'joplin'; noteQuery: string; model?: string }
   | { kind: 'more'; instructions: string; runRef?: string; model?: string }
   | { kind: 'issue'; issueNumber: number; alias: string | null; extraInstructions: string }
+  | { kind: 'spec'; action: SpecAction; issueNumber: number; alias: string | null; notes: string }
   | { kind: 'stop' }
   | { kind: 'restart' }
   | { kind: 'status' }
@@ -17,6 +18,10 @@ export type Command =
   | { kind: 'queue'; clear: boolean }
   | PauseCommand
   | { kind: 'error'; message: string };
+
+export const SPEC_ACTIONS = ['reject'] as const;
+export type SpecAction = (typeof SPEC_ACTIONS)[number];
+const isSpecAction = (name: string): name is SpecAction => SPEC_ACTIONS.some((a) => a === name);
 
 /** `scope` is `all` or a workspace alias; a resume with no scope clears every pause. */
 export type PauseCommand =
@@ -29,6 +34,8 @@ claude joplin:<note title or id>  use a Joplin note as the instructions
 claude haiku|sonnet|opus: <instructions or joplin:<note>>  the same, on that model (not for issue runs: they use the issue's label)
 claude issue:<alias>:<n> [extra instructions]  implement GitHub issue <n> in the <alias> workspace, then PR, review and merge
 claude issue:<n> [extra instructions]  the same, in the default issue workspace
+claude spec:reject:<alias>:<n>  label a self-grilled spec wontfix and close it as not planned (no agent runs)
+claude spec:reject:<n>  the same, in the default issue workspace
 claude:more [haiku|sonnet|opus:] [run-id prefix] <instructions>  continue the newest freeform or Joplin run (or the run with that id prefix): it resumes that run's conversation, on its model unless you name one
 claude:stop  kill the active run (queued requests still run)
 claude:queue  list the requests waiting for the agent
@@ -38,6 +45,8 @@ claude:resume [<alias>]  end a pause early (no alias: every pause, the usage lim
 claude:restart  safely restart agent-runner (refused while a run is active)
 claude:status  active run, pause, last cron tick and recent runs
 claude:history [n]  the last n finished runs with cost and tokens`;
+
+const SPEC_USAGE = 'Usage: claude spec:reject:<n> or claude spec:reject:<alias>:<n> [notes]';
 
 const MODEL_PREFIX_USAGE = 'Usage: claude haiku|sonnet|opus: <instructions or joplin:<note>>';
 
@@ -121,6 +130,7 @@ export function parseCommand(text: string): Command {
   const task = prefix ? prefix[2].trim() : body;
   if (prefix) {
     if (!task) return { kind: 'error', message: MODEL_PREFIX_USAGE };
+    if (/^spec:/i.test(task)) return { kind: 'error', message: `A model prefix doesn't apply to spec commands.\n\n${SPEC_USAGE}` };
     if (/^issue:/i.test(task)) return { kind: 'error', message: `A model prefix doesn't apply to issue runs: they use the model from the issue's label.\n\n${MODEL_PREFIX_USAGE}` };
   }
   const withModel = model ? { model } : {};
@@ -139,6 +149,14 @@ export function parseCommand(text: string): Command {
       return { kind: 'error', message: 'Usage: claude issue:<n> or claude issue:<alias>:<n> [extra instructions]' };
     }
     return { kind: 'issue', issueNumber, alias: m[1] ?? null, extraInstructions: m[3].trim() };
+  }
+
+  if (/^spec:/i.test(body)) {
+    const m = body.match(/^spec:\s*([a-zA-Z0-9_-]+)\s*:\s*(?:([a-zA-Z0-9_-]+)\s*:\s*)?(\d+)(?=$|\s)\s*([\s\S]*)$/i);
+    const action = m?.[1].toLowerCase() ?? '';
+    const issueNumber = m ? parseInt(m[3], 10) : 0;
+    if (!m || !isSpecAction(action) || issueNumber < 1) return { kind: 'error', message: SPEC_USAGE };
+    return { kind: 'spec', action, issueNumber, alias: m[2] ?? null, notes: m[4].trim() };
   }
 
   return { kind: 'freeform', prompt: task, ...withModel };

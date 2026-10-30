@@ -197,3 +197,23 @@ describe('parseCommand: claude:more with a model prefix', () => {
     assert.equal(parseCommand('claude:more opus:').kind, 'error');
   });
 });
+
+describe('parseCommand: spec:', () => {
+  it('parses spec:reject with an alias, without one, and with notes', () => {
+    assert.deepEqual(parseCommand('claude spec:reject:bot:12'), { kind: 'spec', action: 'reject', issueNumber: 12, alias: 'bot', notes: '' });
+    assert.deepEqual(parseCommand('claude spec:reject:12'), { kind: 'spec', action: 'reject', issueNumber: 12, alias: null, notes: '' });
+    assert.deepEqual(parseCommand('claude spec:Reject:bot:12 too big'), { kind: 'spec', action: 'reject', issueNumber: 12, alias: 'bot', notes: 'too big' });
+  });
+
+  it('replies with the usage for malformed commands and unknown actions', () => {
+    for (const text of ['claude spec:', 'claude spec:reject', 'claude spec:reject:', 'claude spec:reject:bot:', 'claude spec:reject:0', 'claude spec:reject:12abc', 'claude spec:approve:bot:12', 'claude spec:12', 'claude sonnet: spec:reject:12']) {
+      const c = parseCommand(text);
+      assert.ok(c.kind === 'error', text);
+      assert.match(c.message, /spec:reject/, text);
+    }
+  });
+
+  it('is listed in the help text', () => {
+    assert.match(USAGE, /^claude spec:reject:<alias>:<n>/m);
+  });
+});

@@ -32,6 +32,8 @@ WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-resta
 | `claude joplin:<note title or id>` | Use a note from the `WhatsApp Bot` notebook as the instructions (Joplin Data API). |
 | `claude issue:<alias>:<n> [extra instructions]` | Implement GitHub issue `n` in the allowlisted `<alias>` workspace, then commit, PR, review and merge. See [Issue runs](#issue-runs). |
 | `claude issue:<n> [extra instructions]` | The same, in the `CLAUDE_ISSUE_DEFAULT_ALIAS` workspace. |
+| `claude spec:reject:<alias>:<n>` | Reject a self-grilled spec: label issue `n` `wontfix`, close it as not planned and reply with its link. No agent runs. The issue must be open, `agent-suggested` + `needs-triage` and have a decision log, else the reply says why and nothing changes (`src/specCommands.ts`). |
+| `claude spec:reject:<n>` | The same, in the default issue workspace. |
 | `claude:stop` | Kill the active run, or the active [scheduled job](#scheduled-jobs)'s command. Its "stopped" report lands in the outbox, and the next queued request starts. |
 | `claude:queue` | List the requests waiting for the agent. |
 | `claude:queue clear` | Drop every waiting request. |
@@ -654,6 +656,7 @@ The runner never clears a pause it didn't set. The prompt preamble gives agent r
 - `src/scheduledJobs.ts`: scheduled jobs' config and once-a-day scheduler, over `runner.submitJob`.
   `src/jobProcess.ts` runs a job's command with its output appended to the log file.
 - `src/repoInsight.ts` + `bin/repo-insight*.ts`: the `repo_insight` job. It picks an idle workspace in rotation, explores it in a read-only agent session and files one `agent-suggested` issue.
+- `src/specCommands.ts`: the `claude spec:…` commands: the spec state and the reject path, with no agent.
 - `src/issueGrill.ts` + `bin/issue-grill.ts`: the `issue_grill` job. It grills one of those issues into a spec in a headless `/self-grill` session.
 - `src/safeRestart.ts` + `bin/safe-restart.ts`: restart decision logic and the CLI.
 - `src/joplin.ts`: Joplin Data API client.

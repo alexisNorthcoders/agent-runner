@@ -31,6 +31,7 @@ import { createJobScheduler, jobSchedule, loadJobsFile } from './scheduledJobs.t
 import { createIssueScan } from './issueScan.ts';
 import { createSessionWatch } from './sessionWatch.ts';
 import { errorText } from './narrow.ts';
+import { createSpecCommands } from './specCommands.ts';
 
 async function main() {
   const config = loadConfig();
@@ -98,6 +99,7 @@ async function main() {
     launchSafeRestart,
     workspaces,
     issues,
+    specs: createSpecCommands({ workspaces, github: issues.github }),
     jobs: createJobLauncher(),
     workspaceRoot: config.workspaceRoot,
     logsDir: config.logsDir,
