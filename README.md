@@ -44,6 +44,7 @@ for s in ~/Projects/agent-runner/skills/*/; do ln -sfn "${s%/}" ~/.claude/skills
 | `claude spec:reject:<n>` | The same, in the default issue workspace. |
 | `claude spec:approve:<alias>:<n>` | Queue a spec run of `/draft-tickets` on a spec to review. It succeeds only when a new `Ticket proposal (draft <n>)` comment appears, and the reply links it. Refused on a breakdown to approve (use `spec:revise`). |
 | `claude spec:revise:<alias>:<n> [notes]` | The same on a breakdown to approve (a Ticket proposal newer than the latest decision log), with the notes as extra feedback. Refused on a spec to review (use `spec:approve`). A re-grill after a proposal sends the spec back to spec to review. |
+| `claude spec:publish:<alias>:<n>` | Queue a spec run of `/publish-tickets` on `model:sonnet` for a breakdown to approve. Refused when there is no Ticket proposal (approve it) or a comment came after the latest one (revise it first); the run's own `Published tickets` record doesn't count as a comment. It succeeds only when that record lists an issue for every proposed ticket, and the reply links them. A gap fails the run, and publishing again finishes the rest. |
 | `claude:stop` | Kill the active run, or the active [scheduled job](#scheduled-jobs)'s command. Its "stopped" report lands in the outbox, and the next queued request starts. |
 | `claude:queue` | List the requests waiting for the agent. |
 | `claude:queue clear` | Drop every waiting request. |

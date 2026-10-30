@@ -127,3 +127,40 @@ describe('spec:approve and spec:revise preconditions', () => {
     assert.equal(await setup(proposed).commands.landed(before), null);
   });
 });
+
+describe('spec:publish', () => {
+  const run = (issue: IssueDetail) => setup(issue).commands.prepare({ kind: 'spec', action: 'publish', issueNumber: 5, alias: 'bot', notes: '' });
+  const twoTickets = 'Ticket proposal (draft 1)\n\n## Tickets\n\n### 1. A\n\n### 2. B\n\n## Reasoning';
+  const record = (...rows: string[]) => ['Published tickets', 'From: Ticket proposal (draft 1)', '', ...rows].join('\n');
+  const proposed: IssueDetail = { ...spec, comments: [log, twoTickets] };
+
+  it('builds a /publish-tickets run on sonnet for a breakdown to approve', async () => {
+    const r = await run(proposed);
+    assert.ok(typeof r !== 'string');
+    assert.equal(r.prompt, '/publish-tickets https://github.com/o/r/issues/5');
+    assert.equal(r.model, 'sonnet');
+  });
+
+  it('refuses a spec with no proposal and says to approve', async () => {
+    assert.match(String(await run(spec)), /no Ticket proposal.*claude spec:approve:bot:5.*Nothing changed/);
+    assert.match(String(await run({ ...spec, comments: [log, twoTickets, log] })), /claude spec:approve:bot:5/);
+  });
+
+  it('refuses a comment after the proposal and says to revise', async () => {
+    assert.match(String(await run({ ...proposed, comments: [log, twoTickets, 'make it one ticket'] })), /commented after.*claude spec:revise:bot:5.*Nothing changed/);
+  });
+
+  it('accepts a retry whose only later comment is its own record', async () => {
+    assert.ok(typeof (await run({ ...proposed, comments: [log, twoTickets, record('- 1: #8')] })) !== 'string');
+  });
+
+  it('landed links every proposed ticket, and is null with a gap, no record or another draft', async () => {
+    const before = await run(proposed);
+    assert.ok(typeof before !== 'string');
+    const landed = (comments: string[]) => setup({ ...proposed, comments }).commands.landed(before);
+    assert.equal(await landed([log, twoTickets, record('- 1: #8', '- 2: #9')]), '1. https://github.com/o/r/issues/8\n2. https://github.com/o/r/issues/9');
+    assert.equal(await landed([log, twoTickets, record('- 1: #8')]), null);
+    assert.equal(await landed([log, twoTickets]), null);
+    assert.equal(await landed([log, twoTickets, record('- 1: #8', '- 2: #9').replace('draft 1', 'draft 2')]), null);
+  });
+});
