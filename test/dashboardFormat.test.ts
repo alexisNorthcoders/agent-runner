@@ -52,3 +52,11 @@ describe('dashboard countdown clock', () => {
     assert.equal(page.formatClock(3_723_000), '1:02:03');
   });
 });
+
+describe('dashboard spec command buttons', () => {
+  it('offers each state its actions, as full commands', () => {
+    const cmds = (kind: keyof typeof page.SPEC_ACTIONS) => page.SPEC_ACTIONS[kind].map((a) => page.specCommand(a, 'ar', 128));
+    assert.deepEqual(cmds('spec'), ['claude spec:approve:ar:128', 'claude spec:regrill:ar:128', 'claude spec:reject:ar:128']);
+    assert.deepEqual(cmds('breakdown'), ['claude spec:publish:ar:128', 'claude spec:revise:ar:128', 'claude spec:regrill:ar:128', 'claude spec:reject:ar:128']);
+  });
+});

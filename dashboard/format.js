@@ -99,3 +99,15 @@ export function formatClock(ms) {
   const m = Math.floor((s % 3600) / 60);
   return h ? `${h}:${two(m)}:${two(s % 60)}` : `${m}:${two(s % 60)}`;
 }
+
+/** The `claude spec:` actions each kind of Needs you row accepts, in the order the buttons show. */
+export const SPEC_ACTIONS = /** @type {const} */ ({
+  spec: ['approve', 'regrill', 'reject'],
+  breakdown: ['publish', 'revise', 'regrill', 'reject'],
+});
+
+/**
+ * The command to copy for `action` on issue `number` of the workspace `alias`.
+ * @param {string} action @param {string} alias @param {number} number
+ */
+export const specCommand = (action, alias, number) => `claude spec:${action}:${alias}:${number}`;
