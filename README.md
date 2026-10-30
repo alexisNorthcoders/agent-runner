@@ -21,6 +21,13 @@ Run `pm2 start` from a plain login shell. PM2 copies the calling shell's environ
 `pm2 save` keeps it, and agent runs inherit it. From a Claude Code shell, that would hand every run
 the harness's `CLAUDE*` variables.
 
+Personal skills that agent-runner's headless sessions use live in `skills/`, and each is linked into
+`~/.claude/skills` from the live checkout. On a fresh machine, recreate the links:
+
+```sh
+for s in ~/Projects/agent-runner/skills/*/; do ln -sfn "${s%/}" ~/.claude/skills/; done
+```
+
 After the first start, **restart it only with `npm run safe-restart`** (or `claude:restart` from
 WhatsApp), never with `pm2 restart agent-runner`. See [Safe restart](#safe-restart).
 
@@ -657,6 +664,7 @@ The runner never clears a pause it didn't set. The prompt preamble gives agent r
   `src/jobProcess.ts` runs a job's command with its output appended to the log file.
 - `src/repoInsight.ts` + `bin/repo-insight*.ts`: the `repo_insight` job. It picks an idle workspace in rotation, explores it in a read-only agent session and files one `agent-suggested` issue.
 - `src/specCommands.ts`: the `claude spec:…` commands: the spec state and the reject path, with no agent.
+- `skills/`: personal skills, linked into `~/.claude/skills` (see [Setup](#setup)). `draft-tickets` posts a spec's ticket breakdown as a `Ticket proposal (draft <n>)` comment.
 - `src/issueGrill.ts` + `bin/issue-grill.ts`: the `issue_grill` job. It grills one of those issues into a spec in a headless `/self-grill` session.
 - `src/safeRestart.ts` + `bin/safe-restart.ts`: restart decision logic and the CLI.
 - `src/joplin.ts`: Joplin Data API client.
