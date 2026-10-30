@@ -26,6 +26,7 @@ import type { AgentModelChoice, AgentResult, AgentProgress, AgentBackend, AgentT
 import type { RunRecord, createRunLock } from './runLock.ts';
 import type { JobResult, JobLauncher } from './jobProcess.ts';
 import type { createActiveRuns } from './activeRuns.ts';
+import type { SpecCommands } from './specCommands.ts';
 import type { IssueRunResult, IssuePipeline } from './issuePipeline/index.ts';
 import type { createPauseFlag } from './pauseFlag.ts';
 import type { createManualPause } from './manualPause.ts';
@@ -168,6 +169,7 @@ export type RunnerDeps = {
     list?: () => Promise<Array<{ alias: string; root: string }>>;
   };
   issues?: Pick<IssuePipeline, 'prepare' | 'finish' | 'commitInterruptedWork'>;
+  specs?: Pick<SpecCommands, 'reject'>;
   jobs?: Pick<JobLauncher, 'start'>;
   jobTimeoutMs?: number;
   readUsageFile?: (path: string) => Promise<string>;
@@ -203,6 +205,7 @@ export function createRunner({
   launchSafeRestart,
   workspaces,
   issues,
+  specs,
   jobs,
   jobTimeoutMs = DEFAULT_JOB_TIMEOUT_MINUTES * 60_000,
   workspaceRoot,
@@ -1013,6 +1016,8 @@ export function createRunner({
           const { reply } = await submit({ kind: 'more', instructions: cmd.instructions, parent, ...(cmd.model ? { model: cmd.model } : {}) }, replyTo);
           return { reply: running ? `Continuing run ${running.runId} ("${running.label}"), which is still running. ${reply}` : reply };
         }
+        case 'spec':
+          return { reply: specs ? await specs.reject(cmd) : 'claude spec: is not configured on this runner.' };
         case 'status':
           return { reply: renderStatusText(await statusSnapshot()) };
         case 'history':

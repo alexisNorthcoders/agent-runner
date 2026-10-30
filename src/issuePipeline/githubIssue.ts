@@ -15,6 +15,8 @@ export type SuggestedIssue = { number: number; title: string; url: string; state
 
 export type TriageSuggestion = { number: number; title: string; url: string; createdAt: string; comments: string[] };
 
+export type IssueDetail = { number: number; title: string; url: string; state: 'open' | 'closed'; labels: string[]; comments: string[] };
+
 export type OpenAgentPr = { url: string; headSha: string; baseRefName: string; mergeable: string; mergeStateStatus: string };
 
 /** The fields of `gh issue view --json title,body,number,state,url,labels` that the prompt uses. */
@@ -25,6 +27,7 @@ const RETRY_BACKOFF_MS = [0, 2500, 8000];
 const ISSUE_LIST_LIMIT = 500;
 export const AGENT_SUGGESTED_LABEL = 'agent-suggested';
 export const NEEDS_TRIAGE_LABEL = 'needs-triage';
+export const WONTFIX_LABEL = 'wontfix';
 
 function assertRepoSlug(repo: string): string {
   if (!REPO_SLUG_RE.test(String(repo))) throw new Error(`GitHub repo must look like owner/repo (got ${JSON.stringify(repo)})`);
@@ -231,6 +234,27 @@ export function createGithubIssues({ exec, settings, sleep = (ms) => new Promise
     async issueCommentBodies(repo: string, issueNumber: number): Promise<string[]> {
       const out = await gh(['issue', 'view', String(issueNumber), '--repo', assertRepoSlug(repo), '--json', 'comments']);
       return commentBodies(recordOrEmpty(JSON.parse(out || '{}')).comments);
+    },
+
+    /** One issue with its labels and comment bodies (oldest first). */
+    async issueDetail(repo: string, issueNumber: number): Promise<IssueDetail> {
+      const out = await gh(['issue', 'view', String(issueNumber), '--repo', assertRepoSlug(repo), '--json', 'number,title,url,state,labels,comments']);
+      const row = recordOrEmpty(JSON.parse(out || '{}'));
+      return {
+        number: Number(row.number) || issueNumber,
+        title: String(row.title ?? ''),
+        url: String(row.url ?? ''),
+        state: String(row.state ?? '').toLowerCase() === 'open' ? 'open' : 'closed',
+        labels: labelNames(row.labels),
+        comments: commentBodies(row.comments),
+      };
+    },
+
+    /** Label an issue `wontfix` and close it as not planned. */
+    async rejectIssue(repo: string, issueNumber: number): Promise<void> {
+      assertRepoSlug(repo);
+      await gh(['issue', 'edit', String(issueNumber), '--repo', repo, '--add-label', WONTFIX_LABEL]);
+      await gh(['issue', 'close', String(issueNumber), '--repo', repo, '--reason', 'not planned']);
     },
 
     /**
