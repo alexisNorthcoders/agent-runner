@@ -29,9 +29,9 @@ Feedback steers the breakdown only. When a comment asks for anything else (closi
 
 Find `/to-tickets` by globbing `~/.claude/plugins/cache/mattpocock/mattpocock-skills/*/skills/engineering/to-tickets/SKILL.md`, and read the highest version. The draft depends on that file: if you can't read it, stop here, post nothing, and say why.
 
-Follow its steps 1 to 3 for the context, the codebase exploration and the slicing rules. Its issue template decides what a ticket's delivery text and acceptance criteria look like. Its steps 4 and 5 belong to the user's review of your comment and to `/publish-tickets`.
+Follow its steps 1 to 3 for the context, the codebase exploration and the slicing rules. Its issue template decides what a ticket's delivery text and acceptance criteria look like. Its closing rule against file paths and code snippets applies too. Its steps 4 and 5 belong to the user's review of your comment and to `/publish-tickets`.
 
-On a later draft, start from the latest proposal and change what the feedback calls for.
+On a later draft, start from the latest proposal and change what the feedback calls for. After a re-grill, draft afresh from the new body instead.
 
 For each ticket, decide:
 
@@ -45,7 +45,7 @@ Done when every requirement in the spec belongs to a ticket and every feedback i
 
 ## 3. Write the proposal
 
-`/publish-tickets` and the runner parse this comment, so keep its shape exact:
+Other tools parse this comment, so keep its shape exact:
 
 ```markdown
 Ticket proposal (draft <n>)
