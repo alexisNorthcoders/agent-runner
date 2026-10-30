@@ -1,4 +1,6 @@
 import { isRecord, parseJsonObject, recordOrEmpty } from './narrow.ts';
+import { isSpecRunAction } from './commands.ts';
+import type { SpecRunAction } from './commands.ts';
 import { parseJob } from './scheduledJobs.ts';
 import type { ScheduledJob } from './scheduledJobs.ts';
 import type { Store } from './redisStore.ts';
@@ -39,6 +41,7 @@ export type QueuedRun = {
   { kind: 'joplin'; noteQuery: string; model?: string } |
   { kind: 'more'; instructions: string; parent: ContinuationParent; model?: string } |
   { kind: 'issue'; issueNumber: number; alias: string | null; extraInstructions: string } |
+  { kind: 'spec'; action: SpecRunAction; issueNumber: number; alias: string | null; notes: string } |
   { kind: 'job'; job: ScheduledJob };
   replyTo: string;
   label: string;
@@ -90,6 +93,10 @@ function parseCmd(c: unknown): QueuedCmd | null {
     case 'issue':
       return typeof c.issueNumber === 'number' && (c.alias === null || isString(c.alias)) && isString(c.extraInstructions)
         ? { kind: 'issue', issueNumber: c.issueNumber, alias: c.alias, extraInstructions: c.extraInstructions }
+        : null;
+    case 'spec':
+      return isString(c.action) && isSpecRunAction(c.action) && typeof c.issueNumber === 'number' && (c.alias === null || isString(c.alias)) && isString(c.notes)
+        ? { kind: 'spec', action: c.action, issueNumber: c.issueNumber, alias: c.alias, notes: c.notes }
         : null;
     case 'job': {
       const job = parseJob(c.job);
