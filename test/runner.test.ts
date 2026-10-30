@@ -8,6 +8,9 @@ import { createRunQueue } from '../src/runQueue.ts';
 import { createManualPause } from '../src/manualPause.ts';
 import { createOutbox, OUTBOX_KEY } from '../src/outbox.ts';
 import { createUsageLimitPause } from '../src/usageLimitPause.ts';
+import { createSpecCommands } from '../src/specCommands.ts';
+import { GRILL_LOG_MARKER } from '../src/issueGrill.ts';
+import type { IssueDetail } from '../src/issuePipeline/githubIssue.ts';
 import { createMemoryStore } from './helpers/memoryStore.ts';
 import type { AgentModelChoice, AgentOutcome, AgentProgress, AgentResult, AgentRun, AgentStartOptions, AgentTouch, AgentUsageLimit } from '../src/agentBackend/index.ts';
 import type { HistoryEntry } from '../src/runHistory.ts';
@@ -2014,5 +2017,74 @@ describe('runner: claude:more model and early end', () => {
     const text = last(outboxEntries()).text;
     assert.match(text, /session of run old-1 no longer exists/);
     assert.match(text, /Start a fresh run with claude <instructions>/);
+  });
+});
+
+describe('runner: spec regrill', () => {
+  const log = `${GRILL_LOG_MARKER}\n- decision`;
+  const spec = { number: 5, title: 'Add X', url: 'https://github.com/o/r/issues/5', state: 'open' as const, labels: ['agent-suggested', 'needs-triage'], comments: [log] };
+
+  function specSetup(issue: IssueDetail = spec) {
+    const comments = [...issue.comments];
+    const h = setup({
+      workspaces: { resolveIssueWorkspace: async (alias) => ({ alias: alias ?? 'bot', root: `/ws/${alias ?? 'bot'}` }) },
+      specs: createSpecCommands({
+        workspaces: { resolveIssueWorkspace: async (alias) => ({ alias: alias ?? 'bot', root: `/ws/${alias ?? 'bot'}` }) },
+        github: { resolveIssueRepo: async () => 'o/r', issueDetail: async () => ({ ...issue, comments: [...comments] }), rejectIssue: async () => {} },
+      }),
+    });
+    return { ...h, postLog: () => void comments.push(log) };
+  }
+  const regrill = (notes = '') => ({ text: `claude spec:regrill:bot:5 ${notes}`.trim(), replyTo: 'jid-1' });
+
+  it('runs /self-grill on the issue url and the notes in the workspace root, and succeeds when a new decision log lands', async () => {
+    const { runner, starts, history, outboxEntries, postLog, lock } = specSetup();
+    const { reply } = await runner.handleCommand(regrill('split the auth part'));
+    assert.match(reply, /Started run run-1: spec regrill bot#5 "Add X"/);
+    assert.equal(starts[0].opts.cwd, '/ws/bot');
+    assert.match(starts[0].opts.prompt, /^\/self-grill https:\/\/github\.com\/o\/r\/issues\/5\n/);
+    assert.match(starts[0].opts.prompt, /comments posted after it/);
+    assert.match(starts[0].opts.prompt, /split the auth part/);
+    assert.equal((await lock.current())?.kind, 'spec');
+    postLog();
+    starts[0].finish('success', 'Regrilled, 2 decisions changed');
+    await runner.idle();
+    assert.match(outboxEntries()[0].text, /^Spec regrill bot#5 "Add X" finished: a new decision log was posted\./);
+    assert.equal(history[0].kind, 'spec');
+    assert.equal(history[0].label, 'spec regrill bot#5 "Add X"');
+    assert.equal(history[0].outcome, 'success');
+    assert.equal(await lock.current(), null);
+  });
+
+  it('reports failure with the last line when the session leaves no new decision log', async () => {
+    const { runner, starts, history, outboxEntries } = specSetup();
+    await runner.handleCommand(regrill());
+    starts[0].finish('success', 'thinking\n\nI could not reach GitHub');
+    await runner.idle();
+    assert.match(outboxEntries()[0].text, /^Spec regrill bot#5 "Add X" failed: the session finished without a new decision log: I could not reach GitHub/);
+    assert.equal(history[0].outcome, 'failed');
+  });
+
+  it('refuses a non-spec without queueing or running anything', async () => {
+    const { runner, starts, queue } = specSetup({ ...spec, comments: [] });
+    const { reply } = await runner.handleCommand(regrill());
+    assert.match(reply, /Not regrilled.*no self-grill decision log.*Nothing changed/);
+    assert.equal(starts.length, 0);
+    assert.equal(await queue.length(), 0);
+  });
+
+  it('queues behind a busy run and starts later with the spec label', async () => {
+    const { runner, starts, queue, history, postLog } = specSetup();
+    await runner.handleCommand({ text: 'claude something else', replyTo: 'jid-1' });
+    const { reply } = await runner.handleCommand(regrill());
+    assert.match(reply, /^Queued \(position 1\): spec regrill bot#5\./);
+    assert.equal((await queue.list())[0].cmd.kind, 'spec');
+    starts[0].finish();
+    await runner.idle();
+    assert.equal(starts.length, 2);
+    postLog();
+    starts[1].finish();
+    await runner.idle();
+    assert.equal(history.at(-1)?.label, 'spec regrill bot#5 "Add X"');
   });
 });

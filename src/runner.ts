@@ -22,6 +22,8 @@ import { REQUEUED_NOTE } from './runQueue.ts';
 import { modelFromLabels } from './modelLabel.ts';
 import { sumJobUsage, USAGE_FILE_ENV } from './jobUsage.ts';
 import { errorText, isRecord } from './narrow.ts';
+import { lastNonEmptyLine } from './issueGrill.ts';
+import { specRunExpectation } from './specCommands.ts';
 import type { AgentModelChoice, AgentResult, AgentProgress, AgentBackend, AgentTouch, AgentStartOptions } from './agentBackend/index.ts';
 import type { RunRecord, createRunLock } from './runLock.ts';
 import type { JobResult, JobLauncher } from './jobProcess.ts';
@@ -169,7 +171,7 @@ export type RunnerDeps = {
     list?: () => Promise<Array<{ alias: string; root: string }>>;
   };
   issues?: Pick<IssuePipeline, 'prepare' | 'finish' | 'commitInterruptedWork'>;
-  specs?: Pick<SpecCommands, 'reject'>;
+  specs?: Pick<SpecCommands, 'reject' | 'prepare' | 'landed'>;
   jobs?: Pick<JobLauncher, 'start'>;
   jobTimeoutMs?: number;
   readUsageFile?: (path: string) => Promise<string>;
@@ -673,6 +675,63 @@ export function createRunner({
   }
 
   /**
+   * A spec run (`claude spec:<action>:…`): launch the action's session in the workspace root, then
+   * check the comment it should leave. A session that finishes without it fails the run.
+   */
+  async function startSpecRun(cmd: Extract<QueuedRun['cmd'], { kind: 'spec' }>, replyTo: string): Promise<StartReply> {
+    if (!workspaces || !specs) return { reply: 'claude spec: is not configured on this runner.', started: false };
+    let ws;
+    try {
+      ws = await workspaces.resolveIssueWorkspace(cmd.alias);
+    } catch (err) {
+      return { reply: `Agent workspace: ${errorText(err)}`, started: false };
+    }
+    const wsPause = await manualPause.forWorkspace(ws.alias);
+    if (wsPause) return { reply: `${ws.alias} is paused by hand (${describeManualPause(wsPause, now())}). Send claude:resume ${ws.alias} first.`, started: false };
+    const record = newRecord({
+      kind: 'spec',
+      label: labelFor(cmd),
+      replyTo,
+      workspaceRoot: ws.root,
+      workspaceAlias: ws.alias,
+      issueNumber: cmd.issueNumber,
+    });
+    const refused = await acquire(record);
+    if (refused) return { reply: refused.reply, started: false, refused: refused.why };
+    const prepared = await specs.prepare(cmd);
+    if (typeof prepared === 'string') {
+      await lock.release(record.runId).catch(() => {});
+      return { reply: prepared, started: false };
+    }
+    record.label = `spec ${cmd.action} ${ws.alias}#${cmd.issueNumber}${prepared.title ? ` "${oneLine(prepared.title, 50)}"` : ''}`;
+    try {
+      const started = await launch(
+        record,
+        { prompt: prepared.prompt, cwd: prepared.root },
+        async (result, a) => {
+          if (result.outcome !== 'success') return { text: `${formatRunResult(record, result)}${a.requeued ? `\n${REQUEUED_NOTE}` : ''}` };
+          let landed;
+          try {
+            landed = await specs.landed(prepared);
+          } catch (err) {
+            landed = false;
+            logger.warn(`run ${record.runId}: cannot check the spec comment:`, errorText(err));
+          }
+          if (landed) return { text: `${capitalize(record.label)} finished: ${specRunExpectation(prepared.action)} was posted.\n${prepared.url}\n\n${lastNonEmptyLine(result.text) || '(no final message)'}` };
+          return {
+            text: `${capitalize(record.label)} failed: the session finished without ${specRunExpectation(prepared.action)}: ${lastNonEmptyLine(result.text).slice(0, 300) || '(no final message)'}\n${prepared.url}\nLog: ${result.logPath}`,
+            history: { outcome: 'failed' },
+          };
+        },
+        queuedRun(cmd, replyTo)
+      );
+      return { reply: `Started run ${record.runId}: ${record.label}${modelSuffix(started.model)}.\nLog: ${record.logPath}`, started: true };
+    } catch (err) {
+      return { reply: `Could not start the agent: ${errorText(err)}`, started: false };
+    }
+  }
+
+  /**
    * The one entry point for issue runs, manual (`claude issue:…`) and cron: resolve the allowlisted
    * workspace, take the lock, fetch the issue and branch in place, run the agent with the
    * implement workflow, then post-run, then one outbox message. `done` (null when nothing started)
@@ -802,6 +861,7 @@ export function createRunner({
    */
   async function startCommand(cmd: QueuedRun['cmd'], replyTo: string): Promise<StartReply> {
     if (cmd.kind === 'job') return startJobRun(cmd.job);
+    if (cmd.kind === 'spec') return startSpecRun(cmd, replyTo);
     if (cmd.kind !== 'issue') return startRun(cmd, replyTo);
     const r = await startIssueRun({ ...cmd, replyTo });
     return { reply: r.reply, started: r.done != null, ...(r.refused ? { refused: r.refused } : {}) };
@@ -816,7 +876,9 @@ export function createRunner({
         ? `joplin:${cmd.noteQuery}`
         : cmd.kind === 'job'
           ? `scheduled job ${cmd.job.name}`
-          : `issue ${cmd.alias ? `${cmd.alias}#` : '#'}${cmd.issueNumber}`;
+          : cmd.kind === 'spec'
+            ? `spec ${cmd.action} ${cmd.alias ? `${cmd.alias}#` : '#'}${cmd.issueNumber}`
+            : `issue ${cmd.alias ? `${cmd.alias}#` : '#'}${cmd.issueNumber}`;
 
   const queuedRun = (cmd: QueuedRun['cmd'], replyTo: string): QueuedRun => ({ id: randomUUID(), cmd, replyTo, label: labelFor(cmd), queuedAt: new Date(now()).toISOString() });
 
@@ -1016,8 +1078,14 @@ export function createRunner({
           const { reply } = await submit({ kind: 'more', instructions: cmd.instructions, parent, ...(cmd.model ? { model: cmd.model } : {}) }, replyTo);
           return { reply: running ? `Continuing run ${running.runId} ("${running.label}"), which is still running. ${reply}` : reply };
         }
-        case 'spec':
-          return { reply: specs ? await specs.reject(cmd) : 'claude spec: is not configured on this runner.' };
+        case 'spec': {
+          if (!specs) return { reply: 'claude spec: is not configured on this runner.' };
+          if (cmd.action === 'reject') return { reply: await specs.reject(cmd) };
+          // refuse a non-spec now; the run checks again when it starts
+          const prepared = await specs.prepare({ ...cmd, action: cmd.action });
+          if (typeof prepared === 'string') return { reply: prepared };
+          return { reply: (await submit({ kind: 'spec', action: cmd.action, issueNumber: cmd.issueNumber, alias: cmd.alias, notes: cmd.notes }, replyTo)).reply };
+        }
         case 'status':
           return { reply: renderStatusText(await statusSnapshot()) };
         case 'history':

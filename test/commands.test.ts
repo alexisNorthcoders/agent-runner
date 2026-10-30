@@ -202,6 +202,7 @@ describe('parseCommand: spec:', () => {
   it('parses spec:reject with an alias, without one, and with notes', () => {
     assert.deepEqual(parseCommand('claude spec:reject:bot:12'), { kind: 'spec', action: 'reject', issueNumber: 12, alias: 'bot', notes: '' });
     assert.deepEqual(parseCommand('claude spec:reject:12'), { kind: 'spec', action: 'reject', issueNumber: 12, alias: null, notes: '' });
+    assert.deepEqual(parseCommand('claude spec:regrill:bot:12 split auth'), { kind: 'spec', action: 'regrill', issueNumber: 12, alias: 'bot', notes: 'split auth' });
     assert.deepEqual(parseCommand('claude spec:Reject:bot:12 too big'), { kind: 'spec', action: 'reject', issueNumber: 12, alias: 'bot', notes: 'too big' });
   });
 
@@ -215,5 +216,6 @@ describe('parseCommand: spec:', () => {
 
   it('is listed in the help text', () => {
     assert.match(USAGE, /^claude spec:reject:<alias>:<n>/m);
+    assert.match(USAGE, /^claude spec:regrill:<alias>:<n>/m);
   });
 });

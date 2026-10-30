@@ -32,6 +32,9 @@ const isGrillLog = (body: string) => body.trimStart().startsWith(GRILL_LOG_MARKE
 /** An issue's latest decision log, from its comments oldest first. Null when it was never grilled. */
 export const latestGrillLog = (comments: readonly string[]) => comments.findLast(isGrillLog) ?? null;
 
+/** How many decision logs an issue's comments hold. */
+export const grillLogCount = (comments: readonly string[]) => comments.filter(isGrillLog).length;
+
 /** How many decisions a decision log marks `LOW-CONFIDENCE`: one per line that says so. */
 export const lowConfidenceCount = (log: string) => log.split('\n').filter((l) => l.includes('LOW-CONFIDENCE')).length;
 
@@ -74,7 +77,7 @@ export function createIssueGrillLookups({ workspaces, github }: {
   };
 }
 
-const lastNonEmptyLine = (text: string) => text.split('\n').map((l) => l.trim()).filter(Boolean).pop() ?? '';
+export const lastNonEmptyLine = (text: string) => text.split('\n').map((l) => l.trim()).filter(Boolean).pop() ?? '';
 
 /**
  * Today's grill: pick the oldest ungrilled issue, run `/self-grill <issue url>` in its workspace root and

@@ -19,9 +19,13 @@ export type Command =
   | PauseCommand
   | { kind: 'error'; message: string };
 
-export const SPEC_ACTIONS = ['reject'] as const;
+export const SPEC_ACTIONS = ['reject', 'regrill'] as const;
 export type SpecAction = (typeof SPEC_ACTIONS)[number];
 const isSpecAction = (name: string): name is SpecAction => SPEC_ACTIONS.some((a) => a === name);
+
+/** The spec actions that run an agent session (and so queue), unlike `reject`. */
+export type SpecRunAction = Exclude<SpecAction, 'reject'>;
+export const isSpecRunAction = (name: string): name is SpecRunAction => isSpecAction(name) && name !== 'reject';
 
 /** `scope` is `all` or a workspace alias; a resume with no scope clears every pause. */
 export type PauseCommand =
@@ -36,6 +40,7 @@ claude issue:<alias>:<n> [extra instructions]  implement GitHub issue <n> in the
 claude issue:<n> [extra instructions]  the same, in the default issue workspace
 claude spec:reject:<alias>:<n>  label a self-grilled spec wontfix and close it as not planned (no agent runs)
 claude spec:reject:<n>  the same, in the default issue workspace
+claude spec:regrill:<alias>:<n> [notes]  run /self-grill again on a spec to review, with your notes and the comments since its last decision log (queued like any run)
 claude:more [haiku|sonnet|opus:] [run-id prefix] <instructions>  continue the newest freeform or Joplin run (or the run with that id prefix): it resumes that run's conversation, on its model unless you name one
 claude:stop  kill the active run (queued requests still run)
 claude:queue  list the requests waiting for the agent
@@ -46,7 +51,7 @@ claude:restart  safely restart agent-runner (refused while a run is active)
 claude:status  active run, pause, last cron tick and recent runs
 claude:history [n]  the last n finished runs with cost and tokens`;
 
-const SPEC_USAGE = 'Usage: claude spec:reject:<n> or claude spec:reject:<alias>:<n> [notes]';
+const SPEC_USAGE = 'Usage: claude spec:reject:<n> or claude spec:reject:<alias>:<n>, claude spec:regrill:<n> or claude spec:regrill:<alias>:<n> [notes]';
 
 const MODEL_PREFIX_USAGE = 'Usage: claude haiku|sonnet|opus: <instructions or joplin:<note>>';
 
