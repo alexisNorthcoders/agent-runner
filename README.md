@@ -287,8 +287,10 @@ The office shows the work waiting in each repo (`src/issueScan.ts`). The runner 
 issues of every allowlisted workspace's GitHub repo with `gh` on startup, every
 `ISSUE_SCAN_INTERVAL_MS` (default 5 minutes) and right after each run ends, and caches the result
 for the feed (`issues` above), so the page never talks to GitHub. Per repo: its `ready-for-agent`
-issues split into **runnable**, **blocked** and **parked**, its `ready-for-human` issues, and how
-many are `needs-triage` and `needs-info`.
+issues split into **runnable**, **blocked** and **parked**, its `ready-for-human` and `needs-info`
+issues, and its `needs-triage` issues. An `agent-suggested` + `needs-triage` issue with a
+`Self-grill decision log` comment is a **spec to review**, one without is in the **grill queue**,
+and the other `needs-triage` issues wait for triage.
 
 Blocked and parked are the cron issue tracer's rules, from its own helpers: blocked is an open
 native dependency (a failed lookup counts as blocked), and parked is an open agent PR whose current
@@ -375,7 +377,10 @@ interactive session's `cwd`.
         "blocked": [ /* ready-for-agent with an open native dependency (or a failed lookup) */ ],
         "parked": [ { "number": 5, "title": "…", "url": "…", "prUrl": "https://github.com/…/pull/9" } ],
         "readyForHuman": [ /* same shape as runnable */ ],
-        "needsTriage": 2, "needsInfo": 0 }
+        "specsToReview": [ { "number": 85, "title": "…", "url": "…", "lowConfidence": 3 } ],  // self-grilled suggestions
+        "grillQueue": [ /* agent-suggested + needs-triage, not grilled yet */ ],
+        "needsTriage": [ /* needs-triage, not agent-suggested */ ],
+        "needsInfo": [ /* needs-info */ ] }
     ]
   },
   "jobs": [                            // the scheduled jobs' config, in config order ([] if unreadable)
@@ -446,9 +451,10 @@ wall, and the bullpen and its aisles open straight onto the lane. It shows the o
 - **Pending issues** (from the [issue scan](#issue-scan)): each runnable issue is a letter in its
   cubicle's in-tray, and a blocked one a letter with a padlock (the issue being worked at the desk
   is left out). A PR the cron has parked is a folder with a red clip on the boss's desk, labelled
-  with its issue number, after the rooms' PR-open folders. A cubicle whose repo has `ready-for-human`
-  issues has a sticky note on its monitor with how many. Hover any of them for the issues; a full
-  tray or desk piles the rest into its last slot. Triage counts are only in the Issues tab.
+  with its issue number, after the rooms' PR-open folders. A cubicle whose repo has issues waiting
+  on you (specs to review, issues to triage, `ready-for-human` issues) has a sticky note on its
+  monitor with how many. Hover any of them for the issues; a full tray or desk piles the rest into
+  its last slot. The grill queue and `needs-info` issues are only in the Issues tab.
 - **Mail:** a new issue doesn't just appear in its tray: the mail carrier hands it out. When the
   scan turns up letters the page hasn't seen in a cubicle's tray before (not one coming back from
   the desk, and not any the page found when it opened), the carrier walks a round from the Queue
@@ -547,8 +553,11 @@ Hovering a room (a cubicle, the Freeform room or the Joplin room) shows its last
 and its PR. The mapping (`restingState` in `scene.js`) falls back to showing nothing for an outcome
 it doesn't know.
 
-The **Issues** tab lists each repo's pending issues, with links to the issues and the parked PRs,
-the triage counts, and when it was scanned (in red when that data is stale).
+The **Issues** tab opens with **Needs you**: across the repos, the specs to review (with how many
+decisions their decision log marks `LOW-CONFIDENCE`), the issues waiting for triage, the
+`ready-for-human` and `needs-info` issues, then the grill queue. Below that it lists each repo's
+`ready-for-agent` issues, with links to the issues and the parked PRs, and when it was scanned (in
+red when that data is stale).
 
 Clicking a cubicle (or its worker) filters the Issues and History tabs to that workspace, and outlines the
 cubicle. Clicking it again, or anywhere else on the floor, clears the filter.

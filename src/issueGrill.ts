@@ -29,6 +29,12 @@ export function pickGrillCandidate(cands: readonly GrillCandidate[]): GrillCandi
 
 const isGrillLog = (body: string) => body.trimStart().startsWith(GRILL_LOG_MARKER);
 
+/** An issue's latest decision log, from its comments oldest first. Null when it was never grilled. */
+export const latestGrillLog = (comments: readonly string[]) => comments.findLast(isGrillLog) ?? null;
+
+/** How many decisions a decision log marks `LOW-CONFIDENCE`: one per line that says so. */
+export const lowConfidenceCount = (log: string) => log.split('\n').filter((l) => l.includes('LOW-CONFIDENCE')).length;
+
 /**
  * Read-only GitHub lookups for `issue_grill`, behind an injectable `github`.
  */
@@ -51,7 +57,7 @@ export function createIssueGrillLookups({ workspaces, github }: {
           const repo = await github.resolveIssueRepo((await workspaces.resolveIssueWorkspace(alias)).root, alias);
           for (const issue of await github.listTriageSuggestions(repo)) {
             const key = `${repo}#${issue.number}`;
-            if (seen.has(key) || issue.comments.some(isGrillLog)) continue;
+            if (seen.has(key) || latestGrillLog(issue.comments)) continue;
             seen.add(key);
             candidates.push({ alias, repo, number: issue.number, title: issue.title, url: issue.url, createdAt: issue.createdAt });
           }
@@ -63,7 +69,7 @@ export function createIssueGrillLookups({ workspaces, github }: {
     },
 
     async isGrilled(repo: string, issueNumber: number): Promise<boolean> {
-      return (await github.issueCommentBodies(repo, issueNumber)).some(isGrillLog);
+      return latestGrillLog(await github.issueCommentBodies(repo, issueNumber)) !== null;
     },
   };
 }

@@ -34,10 +34,16 @@ export type OfficeIssue = { number: number; title: string; url: string };
 
 export type OfficeParkedIssue = OfficeIssue & { prUrl: string };
 
+/** A self-grilled suggestion. `lowConfidence`: the decisions its latest decision log marks `LOW-CONFIDENCE`. */
+export type OfficeSpec = OfficeIssue & { lowConfidence: number };
+
 /**
  * One workspace's repo. `scannedAt`: when this data was read (null if it never has been).
  * `stale`: the latest scan of it failed, so this is older data. `runnable`, `blocked` and
  * `parked` are its `ready-for-agent` issues, and `parked` carries the open PR's link.
+ * The rest wait on you. `specsToReview`: `agent-suggested` + `needs-triage` issues self-grilled into
+ * a spec. `grillQueue`: those not grilled yet, which `issue_grill` takes one a day.
+ * `needsTriage`: the other `needs-triage` issues. `needsInfo`: `needs-info` issues.
  */
 export type OfficeIssueRepo = {
   alias: string;
@@ -48,8 +54,10 @@ export type OfficeIssueRepo = {
   blocked: OfficeIssue[];
   parked: OfficeParkedIssue[];
   readyForHuman: OfficeIssue[];
-  needsTriage: number;
-  needsInfo: number;
+  specsToReview: OfficeSpec[];
+  grillQueue: OfficeIssue[];
+  needsTriage: OfficeIssue[];
+  needsInfo: OfficeIssue[];
 };
 
 /** `scannedAt`: when the latest scan ended. `repos`: in the allowlist's (alias) order. */

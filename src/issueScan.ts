@@ -9,22 +9,26 @@
  * attempted), **blocked** (an open native dependency, or a failed lookup), else **runnable**. The
  * scan only reads the cron's PR attempts; it never writes cron state.
  *
+ * The `agent-suggested` + `needs-triage` issues are split by the decision log `issue_grill` checks
+ * for (src/issueGrill.ts): grilled ones are specs to review, the rest are the grill queue.
+ *
  * A repo whose scan fails keeps its last good data, marked `stale` (so does every repo when the
  * allowlist can't be read). Errors are logged here, not put in the feed, which carries no paths.
  */
 
 import { classifyReadyIssues, hasLabel } from './cronTracer.ts';
+import { latestGrillLog, lowConfidenceCount } from './issueGrill.ts';
 import { errorText } from './narrow.ts';
-import type { createGithubIssues, OpenIssue } from './issuePipeline/githubIssue.ts';
+import { AGENT_SUGGESTED_LABEL, NEEDS_TRIAGE_LABEL } from './issuePipeline/githubIssue.ts';
+import type { createGithubIssues } from './issuePipeline/githubIssue.ts';
 import type { NotifyChange } from './stateChanges.ts';
-import type { OfficeIssue, OfficeIssueRepo, OfficeIssues } from './officeWire.ts';
+import type { OfficeIssue, OfficeIssueRepo, OfficeIssues, OfficeSpec } from './officeWire.ts';
 
 export const ISSUE_SCAN_INTERVAL_MS = 5 * 60_000;
 
 const byNumber = (a: { number: number }, b: { number: number }) => a.number - b.number;
 
 const READY_FOR_HUMAN_LABEL = 'ready-for-human';
-const NEEDS_TRIAGE_LABEL = 'needs-triage';
 const NEEDS_INFO_LABEL = 'needs-info';
 
 /** `prAttempts`: the cron's recorded PR attempts (`cronState.prAttempts`), read only. */
@@ -33,7 +37,7 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
       aliases: () => Promise<string[]>;
       resolveIssueWorkspace: (alias: string | null) => Promise<{ alias: string; root: string }>;
     };
-    github: Pick<ReturnType<typeof createGithubIssues>, 'resolveIssueRepo' | 'listOpenIssues' | 'blockedByCount' | 'listOpenAgentPrsByIssue' | 'branchHeadSha'>;
+    github: Pick<ReturnType<typeof createGithubIssues>, 'resolveIssueRepo' | 'listOpenIssues' | 'listTriageSuggestions' | 'blockedByCount' | 'listOpenAgentPrsByIssue' | 'branchHeadSha'>;
     prAttempts: () => Promise<Map<string, string>>;
     intervalMs?: number;
     now?: () => number;
@@ -50,9 +54,16 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
     const repo = await github.resolveIssueRepo(ws.root, alias);
     const rows = await github.listOpenIssues(repo);
     const ready = await classifyReadyIssues(github, repo, rows, await prAttempts());
-    const item = (r: OpenIssue): OfficeIssue => ({ number: r.number, title: r.title, url: `https://github.com/${repo}/issues/${r.number}` });
+    const item = (r: { number: number; title: string }): OfficeIssue => ({ number: r.number, title: r.title, url: `https://github.com/${repo}/issues/${r.number}` });
     const titles = new Map(rows.map((r) => [r.number, r.title]));
     const labelled = (label: string) => rows.filter((r) => hasLabel(r, label)).sort(byNumber);
+    const specsToReview: OfficeSpec[] = [];
+    const grillQueue: OfficeIssue[] = [];
+    for (const sug of (await github.listTriageSuggestions(repo)).sort(byNumber)) {
+      const log = latestGrillLog(sug.comments);
+      if (log) specsToReview.push({ ...item(sug), lowConfidence: lowConfidenceCount(log) });
+      else grillQueue.push(item(sug));
+    }
     return {
       alias,
       repo,
@@ -61,10 +72,12 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
       runnable: ready.runnable.map(item),
       blocked: ready.blocked.map(item),
       parked: ready.parked
-        .map((p) => ({ ...item({ number: p.number, title: titles.get(p.number) ?? '', labels: [] }), prUrl: p.url })),
+        .map((p) => ({ ...item({ number: p.number, title: titles.get(p.number) ?? '' }), prUrl: p.url })),
       readyForHuman: labelled(READY_FOR_HUMAN_LABEL).map(item),
-      needsTriage: labelled(NEEDS_TRIAGE_LABEL).length,
-      needsInfo: labelled(NEEDS_INFO_LABEL).length,
+      specsToReview,
+      grillQueue,
+      needsTriage: labelled(NEEDS_TRIAGE_LABEL).filter((r) => !hasLabel(r, AGENT_SUGGESTED_LABEL)).map(item),
+      needsInfo: labelled(NEEDS_INFO_LABEL).map(item),
     };
   }
 
@@ -72,7 +85,7 @@ export function createIssueScan({ workspaces, github, prAttempts, intervalMs = I
   function staleRepo(alias: string): OfficeIssueRepo {
     const last = result?.repos.find((r) => r.alias === alias);
     if (last) return { ...last, stale: true };
-    return { alias, repo: null, scannedAt: null, stale: true, runnable: [], blocked: [], parked: [], readyForHuman: [], needsTriage: 0, needsInfo: 0 };
+    return { alias, repo: null, scannedAt: null, stale: true, runnable: [], blocked: [], parked: [], readyForHuman: [], specsToReview: [], grillQueue: [], needsTriage: [], needsInfo: [] };
   }
 
   async function scanOnce() {

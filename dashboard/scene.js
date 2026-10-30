@@ -6,6 +6,11 @@
  * @typedef {{ number: number, title: string, blocked: boolean }} SceneTrayLetter
  *   A `ready-for-agent` issue waiting in a cubicle's in-tray; a `blocked` one has a padlock.
  *
+ * @typedef {{ number: number, title: string, kind: 'spec', lowConfidence: number }
+ *   | { number: number, title: string, kind: 'triage' | 'ready-for-human' }} SceneStickyItem
+ *   An issue waiting on you, on a cubicle's sticky note: a self-grilled spec to review (with how
+ *   many decisions are `LOW-CONFIDENCE`), an issue to triage, or a `ready-for-human` issue.
+ *
  * @typedef {'janitor' | 'analyst' | 'clerk'} JobWorker
  *   A scheduled job's worker: a janitor with a mop (cleanup), an analyst with a chart easel
  *   (insight, report), or a generic clerk.
@@ -20,7 +25,7 @@
  *   workspace: boolean,
  *   doNotDisturb: boolean,
  *   inTray: SceneTrayLetter[],
- *   sticky: Array<{ number: number, title: string }>,
+ *   sticky: SceneStickyItem[],
  *   jobs: SceneJobDesk[],
  *   quiet: boolean,
  *   sessions?: string[],
@@ -29,7 +34,8 @@
  *   (named and keyed by its room label), then a scripts room per room with clerk jobs (`<name>
  *   scripts`, keyed `<alias>#scripts`). `name` is its department sign. `inTray`: its repo's runnable
  *   issues, then its blocked ones, but the one being worked at its desk. `sticky`: its
- *   `ready-for-human` issues, a sticky note on the cubicle while there are any. `jobs`: the
+ *   repo's issues waiting on you (specs to review, then issues to triage, then `ready-for-human`),
+ *   a sticky note on the cubicle while there are any. The grill queue and `needs-info` stay off it. `jobs`: the
  *   scheduled jobs whose room it is, in config order, each at its own desk after the workspace's
  *   (a clerk's job in its room's scripts room). `sessions`: the ids of the visitors at their own
  *   desks after those, oldest first. `quiet`: a workspace with no run started in the
@@ -403,6 +409,13 @@ function reduceBoss(run, prev, now) {
   return { at, from: was.at, since: prev?.run ? now : 0 };
 }
 
+/** @param {import('../src/officeWire.ts').OfficeIssueRepo | undefined} repo @returns {SceneStickyItem[]} */
+const stickyItems = (repo) => [
+  ...(repo?.specsToReview ?? []).map((i) => ({ number: i.number, title: i.title, kind: /** @type {const} */ ('spec'), lowConfidence: i.lowConfidence })),
+  ...(repo?.needsTriage ?? []).map((i) => ({ number: i.number, title: i.title, kind: /** @type {const} */ ('triage') })),
+  ...(repo?.readyForHuman ?? []).map((i) => ({ number: i.number, title: i.title, kind: /** @type {const} */ ('ready-for-human') })),
+];
+
 /**
  * @param {import('../src/officeWire.ts').OfficeSnapshot | null} snap the last snapshot, if any
  * @param {Scene | null} prev the scene before this one
@@ -440,7 +453,7 @@ export function reduceScene(snap, prev, { up, now, config, log }) {
       inTray: [...(repo?.runnable ?? []).map((i) => letter(i, false)), ...(repo?.blocked ?? []).map((i) => letter(i, true))].filter(
         (l) => !(working?.alias === c.alias && working.number === l.number)
       ),
-      sticky: (repo?.readyForHuman ?? []).map((i) => ({ number: i.number, title: i.title })),
+      sticky: stickyItems(repo),
       quiet: c.workspace && !busy.has(c.alias),
       sessions: /** @type {string[]} */ ([]),
     };

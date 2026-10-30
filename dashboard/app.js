@@ -210,6 +210,50 @@ const issueLink = (i, extra) => h('li', null, h('a', { href: i.url, target: '_bl
 /** @param {string} title @param {Node[]} items */
 const issueList = (title, items) => (items.length ? [h('h4', null, `${title} (${items.length})`), h('ul', null, ...items)] : []);
 
+/**
+ * The issues waiting on you, across `repos`, most actionable first. Each names its repo when there
+ * is more than one.
+ * @param {import('../src/officeWire.ts').OfficeIssueRepo[]} repos
+ */
+function needsYou(repos) {
+  /**
+   * @template {{ number: number, title: string, url: string }} I
+   * @param {(r: import('../src/officeWire.ts').OfficeIssueRepo) => I[]} pick @param {(i: I) => string} [note]
+   */
+  const across = (pick, note) =>
+    repos.flatMap((r) => pick(r).map((i) => issueLink(i, h('span', { class: 'dim' }, [repos.length > 1 ? r.alias : '', note?.(i) ?? ''].filter(Boolean).map((x) => ` · ${x}`).join('')))));
+  /** @param {import('../src/officeWire.ts').OfficeSpec} i */
+  const confidence = (i) => (i.lowConfidence ? `${i.lowConfidence} low-confidence` : 'no low-confidence calls');
+  const lists = [
+    ...issueList('Specs to review', across((r) => r.specsToReview, confidence)),
+    ...issueList('Waiting for triage', across((r) => r.needsTriage)),
+    ...issueList('Ready for human', across((r) => r.readyForHuman)),
+    ...issueList('Needs info', across((r) => r.needsInfo)),
+  ];
+  const queue = across((r) => r.grillQueue);
+  return [
+    h('h3', null, 'Needs you'),
+    ...(lists.length ? lists : [h('p', { class: 'dim' }, 'Nothing needs you.')]),
+    ...(queue.length ? [grillQueue(queue)] : []),
+  ];
+}
+
+// the panel re-renders on every snapshot, so the grill queue's details remembers whether it's open
+let grillQueueOpen = false;
+
+/** @param {Node[]} queue */
+function grillQueue(queue) {
+  const el = h(
+    'details',
+    grillQueueOpen ? { open: '' } : null,
+    h('summary', null, `Grill queue (${queue.length})`),
+    h('p', { class: 'dim' }, 'Suggestions issue_grill grills into specs, one a day. Close one to skip it.'),
+    h('ul', null, ...queue)
+  );
+  el.addEventListener('toggle', () => (grillQueueOpen = /** @type {HTMLDetailsElement} */ (el).open));
+  return el;
+}
+
 /** @param {OfficeSnapshot} snap */
 function renderIssues(snap) {
   const t = now();
@@ -219,7 +263,7 @@ function renderIssues(snap) {
   return [
     h('p', null, `Scanned ${ago(scan.scannedAt, t)}.`),
     filterNote(),
-    ...(repos.length ? [] : [h('p', { class: 'dim' }, filter ? `No scan of ${filter}.` : 'No allowlisted workspaces.')]),
+    ...(repos.length ? needsYou(repos) : [h('p', { class: 'dim' }, filter ? `No scan of ${filter}.` : 'No allowlisted workspaces.')]),
     ...repos.flatMap((r) => {
       const when = r.scannedAt ? `scanned ${ago(r.scannedAt, t)}` : 'never scanned';
       const pr = (/** @type {{ prUrl: string }} */ p) => h('span', null, ' · ', h('a', { href: p.prUrl, target: '_blank', rel: 'noopener' }, 'PR'));
@@ -227,12 +271,11 @@ function renderIssues(snap) {
         ...issueList('Ready for agent: runnable', r.runnable.map((i) => issueLink(i))),
         ...issueList('Ready for agent: blocked', r.blocked.map((i) => issueLink(i))),
         ...issueList('Ready for agent: parked', r.parked.map((i) => issueLink(i, pr(i)))),
-        ...issueList('Ready for human', r.readyForHuman.map((i) => issueLink(i))),
       ];
       return [
         h('h3', null, r.alias, r.repo ? h('span', { class: 'dim' }, ` ${r.repo}`) : null),
-        h('p', { class: r.stale ? 'stale' : 'dim' }, r.stale ? `stale: the last scan failed (data ${when})` : when, ` · needs-triage ${r.needsTriage} · needs-info ${r.needsInfo}`),
-        ...(lists.length ? lists : [h('p', { class: 'dim' }, 'Nothing waiting.')]),
+        h('p', { class: r.stale ? 'stale' : 'dim' }, r.stale ? `stale: the last scan failed (data ${when})` : when),
+        ...(lists.length ? lists : [h('p', { class: 'dim' }, 'Nothing ready for agent.')]),
       ];
     }),
   ];
@@ -394,6 +437,9 @@ function lastRun(o) {
 /** @param {{ number: number, title: string, blocked?: boolean }} i */
 const issueTip = (i) => `#${i.number} ${i.title}${i.blocked ? ' (blocked)' : ''}`;
 
+/** @param {import('./scene.js').SceneStickyItem} i */
+const stickyTip = (i) => `#${i.number} ${i.title} (${i.kind === 'spec' ? `spec to review, ${i.lowConfidence} low-confidence` : i.kind === 'triage' ? 'needs triage' : 'ready for human'})`;
+
 /**
  * A pending issue under the pointer: an in-tray letter, a sticky note, or a folder on the boss's desk.
  * @param {Layout} layout @param {Scene} scene @param {number} x @param {number} y
@@ -406,7 +452,7 @@ function pendingAt(layout, scene, x, y) {
     if (!r) continue;
     const slot = inTraySlots(r, trayNow(c, undelivered)).find((sl) => inside(sl.rect, x, y));
     if (slot) return slot.letters.length > 1 ? `${slot.letters.length} more:\n${slot.letters.map(issueTip).join('\n')}` : `Ready for agent: ${issueTip(slot.letters[0])}`;
-    if (c.sticky.length && inside(stickyNote(r), x, y)) return `Ready for human:\n${c.sticky.map(issueTip).join('\n')}`;
+    if (c.sticky.length && inside(stickyNote(r), x, y)) return `Needs you:\n${c.sticky.map(stickyTip).join('\n')}`;
   }
   return folderSlots(layout, scene.cubicles, scene.outcomes, scene.parked).find((f) => inside(f.rect, x, y))?.tip ?? null;
 }

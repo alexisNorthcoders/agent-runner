@@ -159,7 +159,13 @@ dd {
   margin: 0.2rem 0 0.6rem;
   padding-left: 1.2rem;
 }
-#panel h4 {
+#panel h4,
+#panel summary {
   margin: 0.4rem 0 0;
   font-size: 0.9rem;
+  font-weight: bold;
+}
+
+#panel summary {
+  cursor: pointer;
 }
